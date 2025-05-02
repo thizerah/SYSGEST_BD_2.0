@@ -39,7 +39,8 @@ export const VALID_SUBTYPES = [
   "Corretiva BL",
   "Preventiva BL", 
   "Prestação de Serviço", 
-  "Prestação de Serviço BL"
+  "Prestação de Serviço BL",
+  "Substituição"
 ];
 
 // Lista completa de subtipos válidos para contabilização (inclui todos os tipos de serviço)
@@ -76,8 +77,10 @@ export const normalizeNeighborhoodName = (neighborhoodName: string = ""): string
 };
 
 // Função para obter o tempo de meta de atendimento por subtipo de serviço
-export const getServiceGoalBySubtype = (subtypeService: string = ""): number => {
-  const standardizedCategory = standardizeServiceCategory(subtypeService);
+export const getServiceGoalBySubtype = (subtypeService: string = "", reason: string = ""): number => {
+  const standardizedCategory = standardizeServiceCategory(subtypeService, reason);
+  
+  console.log(`[DEBUG] getServiceGoalBySubtype: Tipo "${subtypeService}", Categoria Padronizada: "${standardizedCategory}"`);
   
   switch (standardizedCategory) {
     case "Ponto Principal TV":
@@ -94,37 +97,88 @@ export const getServiceGoalBySubtype = (subtypeService: string = ""): number => 
 };
 
 // Função para padronizar a categoria de serviço
-export const standardizeServiceCategory = (typeService: string = ""): string => {
-  const lowerType = typeService.toLowerCase();
+export const standardizeServiceCategory = (typeService: string = "", reason: string = ""): string => {
+  const lowerType = typeService.toLowerCase().trim();
+  const lowerReason = reason.toLowerCase().trim();
   
-  // Se Tipo de Servico inclui "ponto principal" E (inclui "bl" ou "fibra") → Ponto Principal FIBRA
-  if (lowerType.includes("ponto principal") && (lowerType.includes("bl") || lowerType.includes("fibra"))) {
-    return "Ponto Principal FIBRA";
+  let result = "";
+  let ruleApplied = "";
+  
+  // Regras específicas baseadas no Tipo de Serviço
+  
+  // Tipo de Serviço: Corretiva (Assistência Técnica TV)
+  if (lowerType === "corretiva") {
+    result = "Assistência Técnica TV";
+    ruleApplied = "Regra 1: Corretiva (Assistência Técnica TV)";
   }
   
-  // Se Tipo de Servico inclui "ponto principal" SEM "bl" ou "fibra" → Ponto Principal TV
-  if (lowerType.includes("ponto principal") && !lowerType.includes("bl") && !lowerType.includes("fibra")) {
-    return "Ponto Principal TV";
+  // Tipo de Serviço: Corretiva BL (Assistência Técnica FIBRA)
+  else if (lowerType === "corretiva bl") {
+    result = "Assistência Técnica FIBRA";
+    ruleApplied = "Regra 2: Corretiva BL (Assistência Técnica FIBRA)";
   }
   
-  // Se Tipo de Servico inclui "corretiva bl", "prestação de serviço bl", "preventiva bl" ou "fibra" → Assistência Técnica FIBRA
-  if (
-    lowerType.includes("corretiva bl") || 
-    lowerType.includes("prestação de serviço bl") || 
-    lowerType.includes("preventiva bl") || 
-    lowerType.includes("fibra")
-  ) {
-    return "Assistência Técnica FIBRA";
+  // Tipo de Serviço: Substituição com Motivo: Upgrade SKY 4K Plus
+  else if (lowerType === "substituição" && lowerReason.includes("upgrade sky 4k plus")) {
+    result = "Assistência Técnica TV";
+    ruleApplied = "Regra 2.1: Substituição para Upgrade SKY 4K Plus";
   }
   
-  // Se Tipo de Servico inclui "corretiva" ou "prestação de serviço" (sem "bl" ou "fibra") → Assistência Técnica TV
-  if (
-    (lowerType.includes("corretiva") && !lowerType.includes("bl")) || 
-    (lowerType.includes("prestação de serviço") && !lowerType.includes("bl"))
-  ) {
-    return "Assistência Técnica TV";
+  // Tipo de Serviço: Ponto Principal → Motivo: Individual
+  else if (lowerType === "ponto principal" && lowerReason === "individual") {
+    result = "Ponto Principal TV";
+    ruleApplied = "Regra 3: PP + Individual";
+  }
+  
+  // Tipo de Serviço: Ponto Principal BL → Motivo: Instalacao Banda Larga Fibra
+  else if (lowerType === "ponto principal bl" && lowerReason === "instalacao banda larga fibra") {
+    result = "Ponto Principal FIBRA";
+    ruleApplied = "Regra 4: PP BL + Instalacao BL Fibra";
+  }
+  
+  // Condições de fallback (regras originais)
+  
+  // Se Tipo de Servico inclui "ponto principal" e (inclui "bl" ou "fibra") → Ponto Principal FIBRA
+  else if (lowerType.includes("ponto principal") && (lowerType.includes("bl") || lowerType.includes("fibra"))) {
+    // Verificar se deve ser filtrado por motivo
+    if (lowerType === "ponto principal bl") {
+      result = "Não classificado";
+      ruleApplied = "Regra 5a: PP BL sem motivo específico";
+    } else {
+      result = "Ponto Principal FIBRA";
+      ruleApplied = "Regra 5b: PP + (BL ou Fibra)";
+    }
+  }
+  
+  // Se Tipo de Servico inclui "ponto principal" sem "bl" ou "fibra" → Ponto Principal TV
+  else if (lowerType.includes("ponto principal") && !lowerType.includes("bl") && !lowerType.includes("fibra")) {
+    // Verificar se deve ser filtrado por motivo
+    if (lowerType === "ponto principal") {
+      result = "Não classificado";
+      ruleApplied = "Regra 6a: PP sem motivo específico";
+    } else {
+      result = "Ponto Principal TV";
+      ruleApplied = "Regra 6b: PP (sem BL/Fibra)";
+    }
+  }
+  
+  // Outras regras para cobrir tipos não especificados diretamente
+  else if (lowerType.includes("corretiva") && !lowerType.includes("bl")) {
+    result = "Assistência Técnica TV";
+    ruleApplied = "Regra 7a: Corretiva genérica";
+  }
+  
+  else if (lowerType.includes("corretiva bl") || lowerType.includes("fibra")) {
+    result = "Assistência Técnica FIBRA";
+    ruleApplied = "Regra 7b: Corretiva BL/Fibra genérica";
   }
   
   // Caso contrário → Categoria não identificada
-  return "Categoria não identificada";
+  else {
+    result = "Não classificado";
+    ruleApplied = "Regra 8: Não atende aos critérios específicos";
+  }
+  
+  console.log(`[DEBUG] Tipo: "${typeService}", Motivo: "${reason}" => ${result} (${ruleApplied})`);
+  return result;
 }; 

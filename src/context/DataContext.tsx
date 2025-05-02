@@ -98,6 +98,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
       
       if (!order.data_criacao || !order.data_finalizacao || !isMetricsSubtype) {
+        console.log(`[DEBUG] OS ${order.codigo_os} excluída das métricas: ${!order.data_criacao ? 'Sem data criação' : !order.data_finalizacao ? 'Sem data finalização' : 'Subtipo não válido'}`);
         return {
           ...order,
           tempo_atendimento: null,
@@ -114,7 +115,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         (completionDate.getTime() - creationDate.getTime()) / (1000 * 60 * 60);
       
       // Padronizar o tipo de serviço para ajuste de tempo
-      const standardType = standardizeServiceCategory(order.subtipo_servico);
+      const standardType = standardizeServiceCategory(order.subtipo_servico, order.motivo);
+      
+      // Verificar se o tipo padronizado deve ser incluído nas métricas
+      const includeInMetrics = isMetricsSubtype && 
+                              standardType !== "Não classificado" && 
+                              standardType !== "Categoria não identificada";
+      
+      if (!includeInMetrics) {
+        console.log(`[DEBUG] OS ${order.codigo_os} excluída: Tipo "${order.subtipo_servico}", Motivo "${order.motivo}" padronizado como "${standardType}"`);
+      } else {
+        console.log(`[DEBUG] OS ${order.codigo_os} incluída: Tipo "${order.subtipo_servico}", Motivo "${order.motivo}" padronizado como "${standardType}"`);
+      }
       
       // Ajustar o tempo de atendimento considerando feriados e domingos
       const serviceTimeHours = ajustarTempoAtendimento(
@@ -124,7 +136,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         standardType
       );
       
-      const serviceGoal = getServiceGoalBySubtype(order.subtipo_servico);
+      const serviceGoal = getServiceGoalBySubtype(order.subtipo_servico, order.motivo);
       const metGoal = serviceTimeHours <= serviceGoal;
       
       // Padronizar nomes de cidades e bairros
@@ -137,7 +149,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         bairro: normalizedNeighborhood,
         tempo_atendimento: parseFloat(serviceTimeHours.toFixed(2)),
         atingiu_meta: metGoal,
-        include_in_metrics: isMetricsSubtype
+        include_in_metrics: includeInMetrics
       };
     });
     
@@ -263,6 +275,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Filtrar apenas serviços que devem ser incluídos nas métricas de tempo
     const metricsOrders = (filteredOrders || serviceOrders).filter(order => order.include_in_metrics);
     
+    console.log(`[DEBUG] calculateTimeMetrics: Total de ordens para análise: ${metricsOrders.length}`);
+    
     if (metricsOrders.length === 0) {
       return {
         ordersWithinGoal: 0,
@@ -279,6 +293,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     const totalTime = metricsOrders.reduce((sum, order) => sum + (order.tempo_atendimento || 0), 0);
     const averageTime = totalTime / totalOrders;
+    
+    console.log(`[DEBUG] calculateTimeMetrics: Ordens dentro da meta: ${ordersWithinGoal}/${totalOrders} (${percentWithinGoal.toFixed(2)}%)`);
 
     const servicesByType: Record<string, {
       totalOrders: number;
@@ -286,10 +302,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       percentWithinGoal: number;
       averageTime: number;
     }> = {};
+    
+    // Contagem de categorias padronizadas para depuração
+    const typeCounts: Record<string, number> = {};
 
     metricsOrders.forEach(order => {
       // Usar a função de padronização de categoria
-      const standardType = standardizeServiceCategory(order.subtipo_servico);
+      const standardType = standardizeServiceCategory(order.subtipo_servico, order.motivo);
+      
+      // Contar para depuração
+      typeCounts[standardType] = (typeCounts[standardType] || 0) + 1;
+      
+      // Ignorar ordens que não se encaixam nas categorias especificadas
+      if (standardType === "Não classificado" || standardType === "Categoria não identificada") {
+        return;
+      }
       
       if (!servicesByType[standardType]) {
         servicesByType[standardType] = {
@@ -309,6 +336,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         (servicesByType[standardType].averageTime * (servicesByType[standardType].totalOrders - 1)) + 
         (order.tempo_atendimento || 0)
       ) / servicesByType[standardType].totalOrders;
+    });
+
+    // Log de contagem de categorias padronizadas
+    console.log('[DEBUG] Distribuição de categorias:');
+    Object.entries(typeCounts).forEach(([type, count]) => {
+      console.log(`[DEBUG]   - ${type}: ${count} ordens`);
+    });
+    
+    // Log de métricas por tipo de serviço
+    console.log('[DEBUG] Métricas por tipo de serviço:');
+    Object.entries(servicesByType).forEach(([type, metrics]) => {
+      console.log(`[DEBUG]   - ${type}: ${metrics.withinGoal}/${metrics.totalOrders} dentro da meta (${metrics.percentWithinGoal.toFixed(2)}%), tempo médio: ${metrics.averageTime.toFixed(2)}h`);
     });
 
     Object.keys(servicesByType).forEach(type => {
