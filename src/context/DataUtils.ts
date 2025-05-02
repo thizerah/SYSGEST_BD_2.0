@@ -120,8 +120,8 @@ export const standardizeServiceCategory = (typeService: string = "", reason: str
   
   // Tipo de Serviço: Substituição com Motivo: Upgrade SKY 4K Plus
   else if (lowerType === "substituição" && lowerReason.includes("upgrade sky 4k plus")) {
-    result = "Assistência Técnica TV";
-    ruleApplied = "Regra 2.1: Substituição para Upgrade SKY 4K Plus";
+    result = "Não classificado";
+    ruleApplied = "Regra 2.1: Substituição para Upgrade SKY 4K Plus (não incluído nas métricas)";
   }
   
   // Tipo de Serviço: Ponto Principal → Motivo: Individual
@@ -171,6 +171,12 @@ export const standardizeServiceCategory = (typeService: string = "", reason: str
   else if (lowerType.includes("corretiva bl") || lowerType.includes("fibra")) {
     result = "Assistência Técnica FIBRA";
     ruleApplied = "Regra 7b: Corretiva BL/Fibra genérica";
+  }
+  
+  // Regra para qualquer tipo de "Substituição" não coberto por regras anteriores
+  else if (lowerType.includes("substituição")) {
+    result = "Não classificado";
+    ruleApplied = "Regra 7c: Substituição (não incluído nas métricas)";
   }
   
   // Caso contrário → Categoria não identificada
