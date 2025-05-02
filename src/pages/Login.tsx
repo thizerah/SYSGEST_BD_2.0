@@ -20,17 +20,7 @@ export default function Login() {
           </CardHeader>
           <LoginForm />
           
-          <div className="px-6 pb-6 text-center">
-            <p className="text-sm text-gray-600">
-              Não possui uma conta?{" "}
-              <Link 
-                to="/register" 
-                className="text-sysgest-blue hover:text-sysgest-teal font-medium"
-              >
-                Registre-se
-              </Link>
-            </p>
-          </div>
+          {/* Registration link removed as requested */}
         </Card>
         
         <div className="mt-4 text-center">

@@ -36,7 +36,7 @@ export interface User {
   email: string; // Email do usuário
   role: 'admin' | 'user';
   empresa: string; // Nome da empresa do usuário
-  data_adesao?: string; // Data de adesão no formato ISO
+  data_adesao?: string; // Data de pagamento no formato ISO
   acesso_liberado: boolean; // Status de acesso do usuário
   sessionId?: string;
   password?: string;

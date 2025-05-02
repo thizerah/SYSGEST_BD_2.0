@@ -19,7 +19,9 @@ import {
   Trash,
   Calendar as CalendarIcon,
   Filter,
-  Pencil
+  Pencil,
+  UserPlus,
+  RefreshCcw
 } from "lucide-react";
 import { 
   ChartContainer, 
@@ -56,6 +58,9 @@ import { Switch } from "@/components/ui/switch";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Box } from "@/components/ui/box";
 import { Text } from "@/components/ui/text";
+import { supabase } from "@/lib/supabase";
+import { clearDefaultUsers } from "@/utils/clearDefaultUsers";
+import { RegisterForm } from "@/components/auth/RegisterForm";
 
 export function MetricsOverview() {
   const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs } = useData();
@@ -1415,81 +1420,49 @@ function UserManagement() {
   const { user } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [editUserPassword, setEditUserPassword] = useState<string>('');
   const { toast } = useToast();
-  const [newUser, setNewUser] = useState<{
-    username: string; 
-    name: string; 
-    password: string; 
-    empresa: string;
-    role: 'admin' | 'user';
-  }>({
-    username: '', 
-    name: '', 
-    password: '', 
-    empresa: user?.empresa || '',
-    role: 'user'
-  });
+  const [isCreateUserOpen, setIsCreateUserOpen] = useState<boolean>(false);
   
-  // Carregar usuários existentes do localStorage ao montar o componente
-  useEffect(() => {
-    const loadUsers = () => {
-      // Na implementação real, isso viria de uma API
-      // Aqui usamos localStorage para simular
-      const storedUsers = localStorage.getItem('sysgest_users');
+  // Função para atualizar a lista de usuários
+  const loadUsers = async () => {
+    try {
+      // Buscar usuários do Supabase
+      const { data: supabaseUsers, error } = await supabase
+        .from('users')
+        .select('*');
       
-      // Usuários padrão que devem estar sempre disponíveis
-      const defaultUsers: User[] = [
-        { 
-          id: '1', 
-          username: 'admin', 
-          name: 'Administrador', 
-          email: 'admin@sysgest.com', 
-          role: 'admin', 
-          acesso_liberado: true,
-          empresa: 'SysGest Insight'
-        },
-        { 
-          id: '2', 
-          username: 'user', 
-          name: 'Usuário', 
-          email: 'user@sysgest.com', 
-          role: 'user', 
-          acesso_liberado: true,
-          empresa: 'SysGest Insight'
-        },
-      ];
-      
-      if (storedUsers) {
-        const parsedUsers = JSON.parse(storedUsers) as User[];
-        
-        // Adicionar o campo empresa aos usuários existentes, caso não exista
-        const updatedUsers = parsedUsers.map(u => {
-          if (!u.empresa) {
-            return { ...u, empresa: 'SysGest Insight' };
-          }
-          return u;
+      if (error) {
+        console.error('Erro ao carregar usuários:', error);
+        toast({
+          variant: "destructive",
+          title: "Erro ao carregar usuários",
+          description: "Não foi possível carregar a lista de usuários do servidor."
         });
-        
-        // Verificar se os usuários padrão já existem na lista
-        defaultUsers.forEach(defaultUser => {
-          const exists = updatedUsers.some(u => u.username === defaultUser.username);
-          if (!exists) {
-            updatedUsers.push(defaultUser);
-          }
-        });
-        
-        setUsers(updatedUsers);
-        localStorage.setItem('sysgest_users', JSON.stringify(updatedUsers));
-      } else {
-        // Se não houver nenhum usuário salvo, usar apenas os padrão
-        localStorage.setItem('sysgest_users', JSON.stringify(defaultUsers));
-        setUsers(defaultUsers);
+        return;
       }
-    };
-    
+      
+      // Mapear para o formato esperado pelo frontend
+      const mappedUsers = supabaseUsers.map((u: any) => ({
+        id: u.id,
+        username: u.username || '',
+        name: u.name || '',
+        email: u.email || '',
+        role: u.role || 'user',
+        empresa: u.empresa || 'SysGest Insight',
+        data_adesao: u.data_adesao || new Date().toISOString(),
+        acesso_liberado: u.acesso_liberado === undefined ? true : u.acesso_liberado
+      }));
+      
+      setUsers(mappedUsers);
+    } catch (err) {
+      console.error('Erro ao processar usuários:', err);
+    }
+  };
+  
+  // Carregar usuários do Supabase ao montar o componente
+  useEffect(() => {
     loadUsers();
-  }, []);
+  }, [toast]);
   
   // Filtrar usuários pela empresa do usuário logado (apenas para usuários não-admin)
   const filteredUsers = useMemo(() => {
@@ -1520,105 +1493,65 @@ function UserManagement() {
   }
   
   // Funções para gerenciamento de usuários
-  const handleSaveUser = () => {
+  const handleSaveUser = async () => {
     if (editingUser) {
-      // Atualizando usuário existente
-      const updatedUsers = users.map(u => {
-        if (u.id === editingUser.id) {
-          const updatedUser = {...editingUser};
-          // Só atualiza a senha se foi informada uma nova
-          if (editUserPassword) {
-            updatedUser.password = editUserPassword;
-          }
-          return updatedUser;
+      try {
+        // Atualizando usuário existente no Supabase
+        const updateData: any = {
+          username: editingUser.username,
+          name: editingUser.name,
+          email: editingUser.email,
+          role: editingUser.role,
+          empresa: editingUser.empresa,
+          acesso_liberado: editingUser.acesso_liberado
+        };
+        
+        // Atualizar na tabela public.users
+        const { error } = await supabase
+          .from('users')
+          .update(updateData)
+          .eq('id', editingUser.id);
+          
+        if (error) {
+          console.error('Erro ao atualizar usuário:', error);
+          toast({
+            variant: "destructive",
+            title: "Erro ao atualizar usuário",
+            description: "Não foi possível salvar as alterações no servidor."
+          });
+          return;
         }
-        return u;
-      });
-      
-      setUsers(updatedUsers);
-      localStorage.setItem('sysgest_users', JSON.stringify(updatedUsers));
-      setEditingUser(null);
-      setEditUserPassword('');
-      
-      toast({
-        title: "Usuário atualizado",
-        description: "As alterações do usuário foram salvas com sucesso."
-      });
-    } else if (newUser.username && newUser.name && newUser.password && newUser.empresa) {
-      // Verificar se o nome de usuário já existe
-      const usernameExists = users.some(u => u.username.toLowerCase() === newUser.username.toLowerCase());
-      
-      if (usernameExists) {
+        
+        // Atualizar a lista local
+        const updatedUsers = users.map(u => {
+          if (u.id === editingUser.id) {
+            const updatedUser = {...editingUser};
+            return updatedUser;
+          }
+          return u;
+        });
+        
+        setUsers(updatedUsers);
+        setEditingUser(null);
+        
+        toast({
+          title: "Usuário atualizado",
+          description: "As alterações do usuário foram salvas com sucesso."
+        });
+      } catch (err) {
+        console.error('Erro ao processar atualização do usuário:', err);
         toast({
           variant: "destructive",
-          title: "Erro ao criar usuário",
-          description: "Este nome de usuário já está em uso. Por favor, escolha outro."
+          title: "Erro inesperado",
+          description: "Ocorreu um erro ao processar a atualização do usuário."
         });
-        return;
       }
-      
-      // Adicionando novo usuário
-      const newUserObj: User = {
-        id: Date.now().toString(),
-        username: newUser.username,
-        name: newUser.name,
-        email: newUser.username + '@sysgest.com', // Email padrão baseado no nome de usuário
-        role: newUser.role,
-        empresa: newUser.empresa,
-        password: newUser.password, // Armazenamos a senha no objeto (na versão real seria um hash)
-        data_adesao: new Date().toISOString(), // Data de adesão atual
-        acesso_liberado: true // Acesso liberado por padrão
-      };
-      
-      const updatedUsers = [...users, newUserObj];
-      setUsers(updatedUsers);
-      localStorage.setItem('sysgest_users', JSON.stringify(updatedUsers));
-      setNewUser({
-        username: '', 
-        name: '', 
-        password: '', 
-        empresa: user?.empresa || '',
-        role: 'user'
-      });
-      
-      toast({
-        title: "Usuário criado",
-        description: "Novo usuário adicionado com sucesso."
-      });
-    } else {
-      toast({
-        variant: "destructive",
-        title: "Dados incompletos",
-        description: "Por favor, preencha todos os campos para criar um novo usuário."
-      });
-    }
-  };
-  
-  const handleDeleteUser = (id: string) => {
-    // Não permitir excluir o próprio usuário
-    if (id === user.id) {
-      alert('Você não pode excluir sua própria conta.');
-      return;
-    }
-    
-    const updatedUsers = users.filter(u => u.id !== id);
-    setUsers(updatedUsers);
-    localStorage.setItem('sysgest_users', JSON.stringify(updatedUsers));
-  };
-  
-  const handleUpdateEditingUser = (field: string, value: string) => {
-    if (editingUser) {
-      setEditingUser({
-        ...editingUser,
-        [field]: value
-      });
     }
   };
   
   // Resetar os estados quando um usuário for selecionado para edição
   const handleEditUser = (selectedUser: User) => {
     setEditingUser(selectedUser);
-    setEditUserPassword('');
   };
   
   // Renderizar o componente com tabela de usuários e formulário
@@ -1638,6 +1571,17 @@ function UserManagement() {
               </Badge>
             )}
           </CardDescription>
+          <div className="flex justify-end">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setIsCreateUserOpen(true)}
+              className="bg-sysgest-blue text-white hover:bg-sysgest-teal"
+            >
+              <UserPlus className="mr-2 h-4 w-4" />
+              Criar Usuário
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -1649,7 +1593,7 @@ function UserManagement() {
                   <TableHead>Email</TableHead>
                   <TableHead>Empresa</TableHead>
                   <TableHead>Papel</TableHead>
-                  <TableHead>Data de Adesão</TableHead>
+                  <TableHead>Data de Pagamento</TableHead>
                   <TableHead>Status</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
               </TableRow>
@@ -1673,11 +1617,14 @@ function UserManagement() {
                       </Badge>
                     </TableCell>
                   <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => handleEditUser(user)}>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => handleEditUser(user)}
+                        className="text-blue-600 hover:bg-blue-100"
+                        title="Editar usuário"
+                      >
                         <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDeleteUser(user.id)}>
-                        <Trash className="h-4 w-4" />
                       </Button>
                   </TableCell>
                 </TableRow>
@@ -1695,110 +1642,117 @@ function UserManagement() {
         </CardContent>
       </Card>
       
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {editingUser ? `Editar Usuário: ${editingUser.username}` : 'Adicionar Novo Usuário'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="username" className="text-right">
-                Usuário
-              </Label>
-              <Input
-                id="username"
-                value={editingUser ? editingUser.username : newUser.username}
-                onChange={e => editingUser 
-                  ? setEditingUser({...editingUser, username: e.target.value}) 
-                  : setNewUser({...newUser, username: e.target.value})
-                }
-                className="col-span-3"
-              />
+      {editingUser && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              Editar Usuário: {editingUser.username}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="username" className="text-right">
+                  Usuário
+                </Label>
+                <Input
+                  id="username"
+                  value={editingUser.username}
+                  onChange={e => setEditingUser({...editingUser, username: e.target.value})}
+                  className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="name" className="text-right">
+                  Nome
+                </Label>
+                <Input
+                  id="name"
+                  value={editingUser.name}
+                  onChange={e => setEditingUser({...editingUser, name: e.target.value})}
+                  className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="empresa" className="text-right">
+                  Empresa
+                </Label>
+                <Input
+                  id="empresa"
+                  value={editingUser.empresa}
+                  onChange={e => setEditingUser({...editingUser, empresa: e.target.value})}
+                  className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="role" className="text-right">
+                  Perfil
+                </Label>
+                <Select
+                  value={editingUser.role}
+                  onValueChange={(value: 'admin' | 'user') => setEditingUser({...editingUser, role: value})}
+                >
+                  <SelectTrigger className="col-span-3">
+                    <SelectValue placeholder="Selecione um perfil" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">Usuário</SelectItem>
+                    <SelectItem value="admin">Administrador</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="acesso" className="text-right">
+                  Status de Acesso
+                </Label>
+                <div className="col-span-3 flex items-center space-x-2">
+                  <Switch 
+                    id="acesso"
+                    checked={editingUser.acesso_liberado}
+                    onCheckedChange={(checked) => 
+                      setEditingUser({...editingUser, acesso_liberado: checked})
+                    }
+                  />
+                  <Label htmlFor="acesso" className="cursor-pointer">
+                    {editingUser.acesso_liberado ? 'Ativo' : 'Inativo'}
+                  </Label>
+                </div>
+              </div>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">
-                Nome
-              </Label>
-              <Input
-                id="name"
-                value={editingUser ? editingUser.name : newUser.name}
-                onChange={e => editingUser 
-                  ? setEditingUser({...editingUser, name: e.target.value}) 
-                  : setNewUser({...newUser, name: e.target.value})
-                }
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="password" className="text-right">
-                Senha
-              </Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder={editingUser ? 'Digite para alterar a senha' : 'Digite a senha'}
-                value={editingUser ? editUserPassword : newUser.password}
-                onChange={e => editingUser 
-                  ? setEditUserPassword(e.target.value)
-                  : setNewUser({...newUser, password: e.target.value})
-                }
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="empresa" className="text-right">
-                Empresa
-              </Label>
-              <Input
-                id="empresa"
-                value={editingUser ? editingUser.empresa : newUser.empresa}
-                onChange={e => editingUser 
-                  ? setEditingUser({...editingUser, empresa: e.target.value}) 
-                  : setNewUser({...newUser, empresa: e.target.value})
-                }
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="role" className="text-right">
-                Perfil
-              </Label>
-              <Select
-                value={editingUser ? editingUser.role : newUser.role}
-                onValueChange={(value: 'admin' | 'user') => editingUser 
-                  ? setEditingUser({...editingUser, role: value}) 
-                  : setNewUser({...newUser, role: value})
-                }
-              >
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Selecione um perfil" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="user">Usuário</SelectItem>
-                  <SelectItem value="admin">Administrador</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          </CardContent>
+          <CardFooter className="flex justify-end gap-2">
+            <Button 
+              variant="outline"
+              onClick={() => {
+                setEditingUser(null);
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveUser} className="bg-green-600 hover:bg-green-700">
+              Salvar Alterações
+            </Button>
+          </CardFooter>
+        </Card>
+      )}
+      
+      <Dialog open={isCreateUserOpen} onOpenChange={setIsCreateUserOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Criar Novo Usuário</DialogTitle>
+            <DialogDescription>
+              Preencha os campos abaixo para criar um novo usuário.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-1">
+            <RegisterForm onRegisterSuccess={() => {
+              // Atualizar a lista de usuários após o registro bem-sucedido
+              setIsCreateUserOpen(false);
+              loadUsers();
+            }} />
           </div>
-        </CardContent>
-        <CardFooter className="flex justify-end gap-2">
-          <Button 
-            variant="outline"
-            onClick={() => {
-              setEditingUser(null);
-              setEditUserPassword('');
-              setNewUser({username: '', name: '', password: '', empresa: user?.empresa || '', role: 'user'});
-            }}
-          >
-            Cancelar
-          </Button>
-          <Button onClick={handleSaveUser}>
-            {editingUser ? 'Salvar Alterações' : 'Adicionar Usuário'}
-          </Button>
-        </CardFooter>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1811,29 +1765,45 @@ function PaymentsManagement() {
   const [userToUpdate, setUserToUpdate] = useState<string | null>(null);
   const { toast } = useToast();
   
-  // Carregar usuários existentes do localStorage ao montar o componente
+  // Carregar usuários do Supabase ao montar o componente
   useEffect(() => {
-    const loadUsers = () => {
-      const storedUsers = localStorage.getItem('sysgest_users');
-      if (storedUsers) {
-        const parsedUsers = JSON.parse(storedUsers);
-        // Garantir que todos os usuários tenham os campos necessários
-        const updatedUsers = parsedUsers.map((u: User) => ({
-          ...u,
-          email: u.email || `${u.username}@exemplo.com`,
+    const loadUsers = async () => {
+      try {
+        // Buscar usuários do Supabase
+        const { data: supabaseUsers, error } = await supabase
+          .from('users')
+          .select('*');
+        
+        if (error) {
+          console.error('Erro ao carregar usuários:', error);
+          toast({
+            variant: "destructive",
+            title: "Erro ao carregar usuários",
+            description: "Não foi possível carregar a lista de usuários do servidor."
+          });
+          return;
+        }
+        
+        // Mapear para o formato esperado pelo frontend
+        const mappedUsers = supabaseUsers.map((u: any) => ({
+          id: u.id,
+          username: u.username || '',
+          name: u.name || '',
+          email: u.email || '',
+          role: u.role || 'user',
+          empresa: u.empresa || 'SysGest Insight',
           data_adesao: u.data_adesao || new Date().toISOString(),
           acesso_liberado: u.acesso_liberado === undefined ? true : u.acesso_liberado
         }));
-        setUsers(updatedUsers);
-        localStorage.setItem('sysgest_users', JSON.stringify(updatedUsers));
-      } else {
-        // Se não houver usuários, deixar vazio
-        setUsers([]);
+        
+        setUsers(mappedUsers);
+      } catch (err) {
+        console.error('Erro ao processar usuários:', err);
       }
     };
     
     loadUsers();
-  }, []);
+  }, [toast]);
   
   // Verificar se o usuário atual tem permissão de administrador
   if (!user || user.role !== 'admin') {
@@ -1853,64 +1823,125 @@ function PaymentsManagement() {
   }
   
   const handleRenewSubscription = (userId: string) => {
-    setUserToUpdate(userId);
-    setSelectedDate(undefined);
+    // Definir sempre uma data inicial (hoje) ao abrir o diálogo para melhorar UX
+    const today = new Date();
+    setSelectedDate(today);
+    
+    // Atraso pequeno para evitar conflito de eventos
+    setTimeout(() => {
+      setUserToUpdate(userId);
+    }, 50);
   };
   
-  const confirmDateSelection = () => {
+  const confirmDateSelection = async () => {
     if (!userToUpdate || !selectedDate) return;
     
-    const updatedUsers = users.map(u => {
-      if (u.id === userToUpdate) {
-        return {
-          ...u,
-          data_adesao: selectedDate.toISOString()
-        };
+    try {
+      // Atualizar a data de pagamento no Supabase
+      const { error } = await supabase
+        .from('users')
+        .update({ data_adesao: selectedDate.toISOString() })
+        .eq('id', userToUpdate);
+        
+      if (error) {
+        console.error('Erro ao atualizar data de pagamento:', error);
+        toast({
+          variant: "destructive",
+          title: "Erro na atualização",
+          description: "Não foi possível atualizar a data de pagamento do usuário."
+        });
+        return;
       }
-      return u;
-    });
-    
-    setUsers(updatedUsers);
-    localStorage.setItem('sysgest_users', JSON.stringify(updatedUsers));
-    setUserToUpdate(null);
-    
-    toast({
-      title: "Assinatura renovada",
-      description: "A data de adesão foi atualizada com sucesso."
-    });
+      
+      // Atualizar a lista local
+      const updatedUsers = users.map(u => {
+        if (u.id === userToUpdate) {
+          return {
+            ...u,
+            data_adesao: selectedDate.toISOString()
+          };
+        }
+        return u;
+      });
+      
+      setUsers(updatedUsers);
+      setUserToUpdate(null);
+      
+      toast({
+        title: "Data atualizada",
+        description: "A data de pagamento foi atualizada com sucesso."
+      });
+    } catch (err) {
+      console.error('Erro ao processar atualização de data:', err);
+      toast({
+        variant: "destructive",
+        title: "Erro inesperado",
+        description: "Ocorreu um erro ao tentar atualizar a data de pagamento."
+      });
+    }
   };
   
-  const toggleAccess = (userId: string) => {
-    const updatedUsers = users.map(u => {
-      if (u.id === userId) {
-        return {
-          ...u,
-          acesso_liberado: !u.acesso_liberado
-        };
+  const toggleAccess = async (userId: string) => {
+    try {
+      // Obter o usuário atual para inverter seu estado de acesso
+      const userToToggle = users.find(u => u.id === userId);
+      if (!userToToggle) return;
+      
+      const newAccessState = !userToToggle.acesso_liberado;
+      
+      // Atualizar no Supabase
+      const { error } = await supabase
+        .from('users')
+        .update({ acesso_liberado: newAccessState })
+        .eq('id', userId);
+        
+      if (error) {
+        console.error('Erro ao alterar estado de acesso:', error);
+        toast({
+          variant: "destructive",
+          title: "Erro ao atualizar acesso",
+          description: "Não foi possível alterar o estado de acesso do usuário."
+        });
+        return;
       }
-      return u;
-    });
-    
-    setUsers(updatedUsers);
-    localStorage.setItem('sysgest_users', JSON.stringify(updatedUsers));
-    
-    const targetUser = updatedUsers.find(u => u.id === userId);
-    toast({
-      title: targetUser?.acesso_liberado ? "Acesso liberado" : "Acesso pausado",
-      description: `O acesso do usuário foi ${targetUser?.acesso_liberado ? 'liberado' : 'pausado'} com sucesso.`
-    });
+      
+      // Atualizar a lista local
+      const updatedUsers = users.map(u => {
+        if (u.id === userId) {
+          return {
+            ...u,
+            acesso_liberado: newAccessState
+          };
+        }
+        return u;
+      });
+      
+      setUsers(updatedUsers);
+      
+      toast({
+        title: newAccessState ? "Acesso liberado" : "Acesso pausado",
+        description: `O acesso do usuário foi ${newAccessState ? 'liberado' : 'pausado'} com sucesso.`
+      });
+    } catch (err) {
+      console.error('Erro ao processar alteração de acesso:', err);
+      toast({
+        variant: "destructive",
+        title: "Erro inesperado",
+        description: "Ocorreu um erro ao tentar alterar o acesso do usuário."
+      });
+    }
   };
   
-  const getNextDueDate = (adhesionDate: string) => {
-    const date = new Date(adhesionDate);
+  const getNextDueDate = (paymentDate: string) => {
+    const date = new Date(paymentDate);
     date.setDate(date.getDate() + 30);
     return date;
   };
   
-  const getStatus = (adhesionDate: string) => {
-    if (!adhesionDate) return "Vencido";
+  const getStatus = (paymentDate: string) => {
+    if (!paymentDate) return "Vencido";
     
-    const dueDate = getNextDueDate(adhesionDate);
+    const dueDate = getNextDueDate(paymentDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
@@ -1960,7 +1991,7 @@ function PaymentsManagement() {
               <TableRow>
                 <TableHead>Nome do Cliente</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Data de Adesão</TableHead>
+                <TableHead>Data de Pagamento</TableHead>
                 <TableHead>Próximo Vencimento</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Acesso</TableHead>
@@ -2000,8 +2031,10 @@ function PaymentsManagement() {
                           variant="outline" 
                           size="sm"
                           onClick={() => handleRenewSubscription(user.id)}
+                          className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 whitespace-nowrap px-2 mr-1"
                         >
-                          Renovar
+                          <RefreshCcw className="h-3.5 w-3.5 mr-1" />
+                          Data de Pagamento
                         </Button>
                         <Button 
                           variant={user.acesso_liberado ? "destructive" : "default"}
@@ -2028,44 +2061,55 @@ function PaymentsManagement() {
       </Card>
       
       {userToUpdate && (
-        <Dialog open={!!userToUpdate} onOpenChange={() => setUserToUpdate(null)}>
+        <Dialog open={!!userToUpdate} onOpenChange={(open) => {
+          if (!open) setUserToUpdate(null);
+        }}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>Renovar Assinatura</DialogTitle>
+              <DialogTitle>Atualizar Data de Pagamento</DialogTitle>
               <DialogDescription>
-                Selecione a nova data de adesão para o usuário.
+                Selecione a nova data de pagamento para o usuário.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="date" className="text-right">
-                  Nova Data
-                </Label>
-                <div className="col-span-3">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start text-left font-normal"
-                      >
-                        {selectedDate ? formatDate(selectedDate.toISOString()) : "Selecione uma data"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={selectedDate}
-                        onSelect={setSelectedDate}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+            <div className="py-4">
+              <div className="space-y-2">
+                <Label>Nova Data de Pagamento</Label>
+                <div className="border rounded-md p-2 bg-white">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={(date) => setSelectedDate(date)}
+                    initialFocus
+                    className="mx-auto"
+                  />
+                </div>
+                <div className="mt-2 text-center">
+                  {selectedDate ? (
+                    <p className="text-sm text-muted-foreground">
+                      Data selecionada: <strong>{formatDate(selectedDate.toISOString())}</strong>
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Selecione uma data no calendário acima
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setUserToUpdate(null)}>Cancelar</Button>
-              <Button onClick={confirmDateSelection} disabled={!selectedDate}>
+              <Button 
+                variant="outline" 
+                onClick={() => setUserToUpdate(null)}
+                type="button"
+              >
+                Cancelar
+              </Button>
+              <Button 
+                onClick={confirmDateSelection} 
+                disabled={!selectedDate}
+                type="button"
+                className="bg-green-600 hover:bg-green-700"
+              >
                 Confirmar
               </Button>
             </DialogFooter>

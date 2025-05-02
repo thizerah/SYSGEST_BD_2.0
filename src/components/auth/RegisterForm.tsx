@@ -17,7 +17,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export function RegisterForm() {
+interface RegisterFormProps {
+  onRegisterSuccess?: () => void;
+}
+
+export function RegisterForm({ onRegisterSuccess }: RegisterFormProps) {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -92,10 +96,17 @@ export function RegisterForm() {
         description: "Sua conta foi criada. Você já pode fazer login."
       });
       
-      // Redirecionar para a página de login após 2 segundos
-      setTimeout(() => {
-        navigate("/login");
-      }, 2000);
+      // Chamar callback de sucesso, se fornecido
+      if (onRegisterSuccess) {
+        onRegisterSuccess();
+      }
+      
+      // Se estivermos na rota de registro, redirecionar para login
+      if (window.location.pathname === "/register") {
+        setTimeout(() => {
+          navigate("/login");
+        }, 2000);
+      }
     }
   };
 
