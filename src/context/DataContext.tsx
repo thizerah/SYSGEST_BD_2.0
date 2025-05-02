@@ -14,6 +14,7 @@ import {
   getServiceGoalBySubtype,
   standardizeServiceCategory
 } from "./DataUtils";
+import { ajustarTempoAtendimento } from '../utils/holidays';
 
 interface DataContextType {
   serviceOrders: ServiceOrder[];
@@ -107,8 +108,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       const creationDate = new Date(order.data_criacao);
       const completionDate = new Date(order.data_finalizacao);
-      const serviceTimeHours = 
+      
+      // Calcular o tempo inicial (sem ajuste)
+      const serviceTimeHoursRaw = 
         (completionDate.getTime() - creationDate.getTime()) / (1000 * 60 * 60);
+      
+      // Padronizar o tipo de serviço para ajuste de tempo
+      const standardType = standardizeServiceCategory(order.subtipo_servico);
+      
+      // Ajustar o tempo de atendimento considerando feriados e domingos
+      const serviceTimeHours = ajustarTempoAtendimento(
+        serviceTimeHoursRaw,
+        creationDate,
+        completionDate,
+        standardType
+      );
       
       const serviceGoal = getServiceGoalBySubtype(order.subtipo_servico);
       const metGoal = serviceTimeHours <= serviceGoal;

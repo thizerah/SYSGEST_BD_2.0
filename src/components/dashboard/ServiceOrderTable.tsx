@@ -106,12 +106,18 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
   };
 
   // Calculate service time
-  const calculateServiceTime = (creationDate: string | undefined, completionDate: string | undefined) => {
-    if (!creationDate || !completionDate) return "N/A";
+  const displayServiceTime = (order: ServiceOrder) => {
+    // Se tempo_atendimento já estiver calculado, use-o diretamente
+    if (order.tempo_atendimento !== undefined && order.tempo_atendimento !== null) {
+      return `${order.tempo_atendimento} horas`;
+    }
+    
+    // Caso não esteja calculado (raramente deve ocorrer), faça um cálculo básico
+    if (!order.data_criacao || !order.data_finalizacao) return "N/A";
     
     try {
-      const start = new Date(creationDate);
-      const end = new Date(completionDate);
+      const start = new Date(order.data_criacao);
+      const end = new Date(order.data_finalizacao);
       const hours = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60) * 10) / 10;
       return `${hours} horas`;
     } catch (error) {
@@ -386,7 +392,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
                         <TableCell>{order.nome_cliente || "N/A"}</TableCell>
                         <TableCell>{formatDate(order.data_criacao)}</TableCell>
                         <TableCell>{formatDate(order.data_finalizacao)}</TableCell>
-                        <TableCell>{calculateServiceTime(order.data_criacao, order.data_finalizacao)}</TableCell>
+                        <TableCell>{displayServiceTime(order)}</TableCell>
                         <TableCell>
                           {order.atingiu_meta ? (
                             <Check className="h-5 w-5 text-green-600" />

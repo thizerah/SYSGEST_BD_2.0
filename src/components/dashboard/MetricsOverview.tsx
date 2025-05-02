@@ -1387,9 +1387,11 @@ function getServiceGoal(serviceType: string): number {
   const goals: Record<string, number> = {
     'Ponto Principal TV': 48,
     'Ponto Principal Fibra': 48,
+    'Ponto Principal FIBRA': 48,
     'Ponto Principal': 48,
     'Ponto Principal BL': 48,
     'Assistência Técnica Fibra': 24,
+    'Assistência Técnica FIBRA': 24,
     'Assistência Técnica TV': 34,
     'Corretiva': 48,
     'Corretiva BL': 48,
@@ -1398,7 +1400,9 @@ function getServiceGoal(serviceType: string): number {
     'Prestação de Serviço BL': 48
   };
   
-  return goals[serviceType] || 48;
+  const goal = goals[serviceType] || 48;
+  console.log(`[DEBUG] Meta para tipo "${serviceType}": ${goal} horas`);
+  return goal;
 }
 
 function getMostCommonServiceType(orders: ServiceOrder[]): string {
@@ -1420,11 +1424,11 @@ function UserManagement() {
   const { user } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [isCreateUserOpen, setIsCreateUserOpen] = useState(false);
   const { toast } = useToast();
-  const [isCreateUserOpen, setIsCreateUserOpen] = useState<boolean>(false);
   
-  // Função para atualizar a lista de usuários
-  const loadUsers = async () => {
+  // Definir a função loadUsers com useCallback para evitar recriação
+  const loadUsers = useCallback(async () => {
     try {
       // Buscar usuários do Supabase
       const { data: supabaseUsers, error } = await supabase
@@ -1442,27 +1446,27 @@ function UserManagement() {
       }
       
       // Mapear para o formato esperado pelo frontend
-      const mappedUsers = supabaseUsers.map((u: any) => ({
-        id: u.id,
-        username: u.username || '',
-        name: u.name || '',
-        email: u.email || '',
-        role: u.role || 'user',
-        empresa: u.empresa || 'SysGest Insight',
-        data_adesao: u.data_adesao || new Date().toISOString(),
-        acesso_liberado: u.acesso_liberado === undefined ? true : u.acesso_liberado
+      const mappedUsers = supabaseUsers.map((u: Record<string, unknown>) => ({
+        id: u.id as string,
+        username: (u.username as string) || '',
+        name: (u.name as string) || '',
+        email: (u.email as string) || '',
+        role: ((u.role as string) || 'user') as 'admin' | 'user',
+        empresa: (u.empresa as string) || 'SysGest Insight',
+        data_adesao: (u.data_adesao as string) || new Date().toISOString(),
+        acesso_liberado: u.acesso_liberado === undefined ? true : Boolean(u.acesso_liberado)
       }));
       
       setUsers(mappedUsers);
     } catch (err) {
       console.error('Erro ao processar usuários:', err);
     }
-  };
+  }, [toast]);
   
   // Carregar usuários do Supabase ao montar o componente
   useEffect(() => {
     loadUsers();
-  }, [toast]);
+  }, [loadUsers]);
   
   // Filtrar usuários pela empresa do usuário logado (apenas para usuários não-admin)
   const filteredUsers = useMemo(() => {
@@ -1497,7 +1501,7 @@ function UserManagement() {
     if (editingUser) {
       try {
         // Atualizando usuário existente no Supabase
-        const updateData: any = {
+        const updateData: Omit<User, 'id' | 'sessionId' | 'password'> = {
           username: editingUser.username,
           name: editingUser.name,
           email: editingUser.email,
@@ -1765,45 +1769,46 @@ function PaymentsManagement() {
   const [userToUpdate, setUserToUpdate] = useState<string | null>(null);
   const { toast } = useToast();
   
+  // Definir a função loadUsers com useCallback para evitar recriação
+  const loadUsers = useCallback(async () => {
+    try {
+      // Buscar usuários do Supabase
+      const { data: supabaseUsers, error } = await supabase
+        .from('users')
+        .select('*');
+      
+      if (error) {
+        console.error('Erro ao carregar usuários:', error);
+        toast({
+          variant: "destructive",
+          title: "Erro ao carregar usuários",
+          description: "Não foi possível carregar a lista de usuários do servidor."
+        });
+        return;
+      }
+      
+      // Mapear para o formato esperado pelo frontend
+      const mappedUsers = supabaseUsers.map((u: Record<string, unknown>) => ({
+        id: u.id as string,
+        username: (u.username as string) || '',
+        name: (u.name as string) || '',
+        email: (u.email as string) || '',
+        role: ((u.role as string) || 'user') as 'admin' | 'user',
+        empresa: (u.empresa as string) || 'SysGest Insight',
+        data_adesao: (u.data_adesao as string) || new Date().toISOString(),
+        acesso_liberado: u.acesso_liberado === undefined ? true : Boolean(u.acesso_liberado)
+      }));
+      
+      setUsers(mappedUsers);
+    } catch (err) {
+      console.error('Erro ao processar usuários:', err);
+    }
+  }, [toast]);
+  
   // Carregar usuários do Supabase ao montar o componente
   useEffect(() => {
-    const loadUsers = async () => {
-      try {
-        // Buscar usuários do Supabase
-        const { data: supabaseUsers, error } = await supabase
-          .from('users')
-          .select('*');
-        
-        if (error) {
-          console.error('Erro ao carregar usuários:', error);
-          toast({
-            variant: "destructive",
-            title: "Erro ao carregar usuários",
-            description: "Não foi possível carregar a lista de usuários do servidor."
-          });
-          return;
-        }
-        
-        // Mapear para o formato esperado pelo frontend
-        const mappedUsers = supabaseUsers.map((u: any) => ({
-          id: u.id,
-          username: u.username || '',
-          name: u.name || '',
-          email: u.email || '',
-          role: u.role || 'user',
-          empresa: u.empresa || 'SysGest Insight',
-          data_adesao: u.data_adesao || new Date().toISOString(),
-          acesso_liberado: u.acesso_liberado === undefined ? true : u.acesso_liberado
-        }));
-        
-        setUsers(mappedUsers);
-      } catch (err) {
-        console.error('Erro ao processar usuários:', err);
-      }
-    };
-    
     loadUsers();
-  }, [toast]);
+  }, [loadUsers]);
   
   // Verificar se o usuário atual tem permissão de administrador
   if (!user || user.role !== 'admin') {
