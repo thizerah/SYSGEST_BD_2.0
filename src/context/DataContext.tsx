@@ -73,7 +73,30 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const importServiceOrders = (orders: ServiceOrder[], append: boolean = false) => {
     setLoading(true);
     
-    const filteredOrders = orders.filter(order => {
+    // Pré-processamento para casos cancelados: usar data de criação como finalização se necessário
+    const preparedOrders = orders.map(order => {
+      // Verificar se é um caso cancelado sem data de finalização
+      if (order.status === "Cancelada" && 
+          (order.subtipo_servico === "Corretiva" || order.subtipo_servico === "Corretiva BL") && 
+          (!order.data_finalizacao || order.data_finalizacao.trim() === "") && 
+          order.data_criacao) {
+        console.log(`[DEBUG] OS ${order.codigo_os} (cancelada ${order.subtipo_servico}): Usando data de criação como finalização`);
+        // Usar a data de criação como data de finalização para ordens canceladas
+        return {
+          ...order,
+          data_finalizacao: order.data_criacao
+        };
+      }
+      return order;
+    });
+    
+    const filteredOrders = preparedOrders.filter(order => {
+      // Para ordens canceladas, verificar se é Corretiva ou Corretiva BL
+      if (order.status === "Cancelada") {
+        return (order.subtipo_servico === "Corretiva" || order.subtipo_servico === "Corretiva BL") && order.data_criacao;
+      }
+      
+      // Para outros status, usar a lógica original
       if (!order.data_finalizacao) return false;
       
       const hasValidSubtype = ALL_VALID_SUBTYPES.some(
@@ -92,6 +115,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     
     const processedOrders = filteredOrders.map(order => {
+      // Se for uma ordem cancelada, não incluir nas métricas de tempo
+      if (order.status === "Cancelada") {
+        console.log(`[DEBUG] OS ${order.codigo_os} (cancelada) incluída apenas para análise de reabertura`);
+        return {
+          ...order,
+          tempo_atendimento: null,
+          atingiu_meta: false,
+          include_in_metrics: false  // Não incluir nas métricas de tempo
+        };
+      }
+      
       // Verificar se é um subtipo que deve ser analisado para métricas de tempo
       const isMetricsSubtype = VALID_SUBTYPES.some(
         subtype => order.subtipo_servico?.includes(subtype)
@@ -365,12 +399,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const calculateReopeningMetrics = (filteredOrders?: ServiceOrder[]) => {
-    // Filtrar apenas serviços que devem ser incluídos nas métricas de reabertura
-    const metricsOrders = (filteredOrders || serviceOrders).filter(order => order.include_in_metrics);
+    // Incluir também ordens canceladas na análise de reabertura
+    const ordersForReopeningAnalysis = (filteredOrders || serviceOrders).filter(order => 
+      order.include_in_metrics || (order.status === "Cancelada" && 
+                                 (order.subtipo_servico === "Corretiva" || 
+                                  order.subtipo_servico === "Corretiva BL"))
+    );
+    
+    // Para o denominador da taxa de reabertura, usar apenas ordens não canceladas
+    const metricsOrdersForRate = (filteredOrders || serviceOrders).filter(order => 
+      order.include_in_metrics && order.status !== "Cancelada"
+    );
     
     const ordersByClient: Record<string, ServiceOrder[]> = {};
     
-    metricsOrders.forEach(order => {
+    ordersForReopeningAnalysis.forEach(order => {
       if (order.codigo_cliente && order.codigo_cliente.trim() !== '') {
         if (!ordersByClient[order.codigo_cliente]) {
           ordersByClient[order.codigo_cliente] = [];
@@ -399,7 +442,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     const originalOrdersByType: Record<string, number> = {};
     
-    metricsOrders.forEach(order => {
+    // Contabilizar apenas ordens não canceladas para o total de originais
+    metricsOrdersForRate.forEach(order => {
       const isOriginalType = ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
         type => order.subtipo_servico?.includes(type)
       );
@@ -435,20 +479,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           for (let j = 0; j < i; j++) {
             const prevOrder = orders[j];
             
-            const isPrevOrderFinalized = VALID_STATUS.some(
-              status => prevOrder.status?.includes(status)
-            );
+            // Para ordens canceladas, usar uma lógica especial para verificar finalização
+            const isPrevOrderFinalized = prevOrder.status === "Cancelada" || 
+                                       VALID_STATUS.some(status => prevOrder.status?.includes(status));
             
             const isPrevOrderOriginal = ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
               type => prevOrder.subtipo_servico?.includes(type)
             );
             
+            // Para ordens canceladas, garantir que a data de finalização exista
+            const prevFinalizationDate = prevOrder.status === "Cancelada" && !prevOrder.data_finalizacao
+                                       ? prevOrder.data_criacao  // Usar data_criacao para canceladas sem finalização
+                                       : prevOrder.data_finalizacao;
+            
             if (isPrevOrderFinalized && isPrevOrderOriginal && 
-                prevOrder.data_finalizacao && currOrder.data_criacao &&
-                new Date(currOrder.data_criacao) > new Date(prevOrder.data_finalizacao)) {
+                prevFinalizationDate && currOrder.data_criacao &&
+                new Date(currOrder.data_criacao) > new Date(prevFinalizationDate)) {
               
               // Calcular a diferença em dias entre a finalização da OS primária e criação da secundária
-              const prevFinalization = new Date(prevOrder.data_finalizacao);
+              const prevFinalization = new Date(prevFinalizationDate);
               const currCreation = new Date(currOrder.data_criacao);
               
               // Diferença em milissegundos
@@ -462,7 +511,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 
                 console.log(`Reabertura detectada - Cliente: ${currOrder.codigo_cliente}, OS Original: ${prevOrder.codigo_os}, OS Reabertura: ${currOrder.codigo_os}`);
                 console.log(`Tipo Original: ${prevOrder.subtipo_servico}, Tipo Reabertura: ${currOrder.subtipo_servico}`);
-                console.log(`Data finalização original: ${prevOrder.data_finalizacao}, Data criação reabertura: ${currOrder.data_criacao}`);
+                console.log(`Data finalização original: ${prevFinalizationDate}, Data criação reabertura: ${currOrder.data_criacao}`);
                 console.log(`Diferença em dias: ${diffDays.toFixed(1)} dias`);
                 
                 const timeBetween = (currCreation.getTime() - prevFinalization.getTime()) / (1000 * 60 * 60);
@@ -521,8 +570,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : 0;
     });
     
-    const reopeningRate = metricsOrders.length > 0 
-      ? parseFloat(((reopenedOrders / metricsOrders.length) * 100).toFixed(2)) 
+    // Calcular taxa geral de reabertura - considerando total de ordens analisadas
+    // Usar apenas ordens não canceladas no denominador
+    const reopeningRate = metricsOrdersForRate.length > 0 
+      ? parseFloat(((reopenedOrders / metricsOrdersForRate.length) * 100).toFixed(2)) 
       : 0;
     
     const averageTimeBetween = reopenedOrders > 0
@@ -547,14 +598,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const getReopeningPairs = (filteredOrders?: ServiceOrder[]): ReopeningPair[] => {
-    // Filtrar apenas serviços que devem ser incluídos nas métricas de reabertura
-    const metricsOrders = (filteredOrders || serviceOrders).filter(order => order.include_in_metrics);
+    // Incluir também ordens canceladas na análise (filtragem especial para reabertura)
+    const ordersForReopeningAnalysis = (filteredOrders || serviceOrders).filter(order => 
+      order.include_in_metrics || (order.status === "Cancelada" && 
+                                 (order.subtipo_servico === "Corretiva" || 
+                                  order.subtipo_servico === "Corretiva BL"))
+    );
     
     const ordersByClient: Record<string, ServiceOrder[]> = {};
     const reopeningPairs: ReopeningPair[] = [];
     
     // Agrupar ordens por cliente
-    metricsOrders.forEach(order => {
+    ordersForReopeningAnalysis.forEach(order => {
       if (order.codigo_cliente && order.codigo_cliente.trim() !== '') {
         if (!ordersByClient[order.codigo_cliente]) {
           ordersByClient[order.codigo_cliente] = [];
@@ -580,20 +635,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           for (let j = 0; j < i; j++) {
             const prevOrder = orders[j];
             
-            const isPrevOrderFinalized = VALID_STATUS.some(
-              status => prevOrder.status?.includes(status)
-            );
+            // Para ordens canceladas, usar uma lógica especial para verificar finalização
+            const isPrevOrderFinalized = prevOrder.status === "Cancelada" || 
+                                     VALID_STATUS.some(status => prevOrder.status?.includes(status));
             
             const isPrevOrderOriginal = ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
               type => prevOrder.subtipo_servico?.includes(type)
             );
             
+            // Para ordens canceladas, garantir que a data de finalização exista
+            const prevFinalizationDate = prevOrder.status === "Cancelada" && !prevOrder.data_finalizacao
+                                       ? prevOrder.data_criacao  // Usar data_criacao para canceladas sem finalização
+                                       : prevOrder.data_finalizacao;
+            
             if (isPrevOrderFinalized && isPrevOrderOriginal && 
-                prevOrder.data_finalizacao && currOrder.data_criacao &&
-                new Date(currOrder.data_criacao) > new Date(prevOrder.data_finalizacao) &&
+                prevFinalizationDate && currOrder.data_criacao &&
+                new Date(currOrder.data_criacao) > new Date(prevFinalizationDate) &&
                 currOrder.codigo_os !== prevOrder.codigo_os) {
               
-              const prevFinalization = new Date(prevOrder.data_finalizacao);
+              const prevFinalization = new Date(prevFinalizationDate);
               const currCreation = new Date(currOrder.data_criacao);
               
               // Calcular a diferença em dias entre a finalização da OS primária e criação da secundária

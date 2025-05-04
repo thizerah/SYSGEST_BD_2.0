@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useData } from "@/context/DataContext";
+import useData from "@/context/useData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -174,6 +174,20 @@ export function FileUploader() {
         if (requiredField === "Finalização" && excelHeaders.includes("FInalização")) {
           continue;
         }
+        
+        // Se o campo ausente for Finalização, verificar se todas as ordens são canceladas
+        if (requiredField === "Finalização") {
+          // Verificar se todas as ordens são canceladas
+          const todasCanceladas = data.every(row => 
+            String(row["Status"] || "").toUpperCase() === "CANCELADA"
+          );
+          
+          if (todasCanceladas) {
+            console.log("[FileUploader] Todas as ordens são canceladas. Campo 'Finalização' não será obrigatório.");
+            continue;
+          }
+        }
+        
         missingRequiredFields.push(requiredField);
       }
     }
@@ -183,7 +197,21 @@ export function FileUploader() {
     }
     
     const processedOrders = data.map((row, index) => {
-      const formatDate = (dateStr: string | null | undefined): string => {
+      const formatDate = (dateStr: string | null | undefined, isFinalizacao = false): string => {
+        // Se for data de finalização e o status for cancelada, permite data vazia
+        const status = String(row["Status"] || "");
+        if (isFinalizacao && status.toUpperCase() === "CANCELADA") {
+          if (!dateStr || dateStr.trim() === "") {
+            if (row["Criação"]) {
+              console.log(`[FileUploader] OS ${row["Código OS"]}: Status Cancelada - Usando data de criação como finalização`);
+              return formatDate(row["Criação"] as string, false);
+            } else {
+              // Se não tiver data de criação (caso extremamente raro), lançar erro
+              throw new Error(`OS ${row["Código OS"]} cancelada não possui data de criação válida`);
+            }
+          }
+        }
+        
         if (!dateStr) {
           throw new Error(`Data inválida na linha ${index + 2}`);
         }
@@ -223,19 +251,33 @@ export function FileUploader() {
         return date.toISOString();
       };
       
+      // Verificar se é Corretiva e se o Pacote contém a palavra FIBRA
+      let subtipo = String(row["Sub-Tipo de serviço"]);
+      const pacote = String(row["Pacote"] || "");
+      
+      console.log(`[FileUploader] Processando OS ${row["Código OS"]}: Subtipo original="${subtipo}", Pacote="${pacote}"`);
+      
+      // Se for Corretiva e o pacote contiver a palavra FIBRA, alterar para Corretiva BL
+      if (subtipo === "Corretiva" && pacote.toUpperCase().includes("FIBRA")) {
+        subtipo = "Corretiva BL";
+        console.log(`[FileUploader] OS ${row["Código OS"]}: Alterado subtipo de "Corretiva" para "Corretiva BL" (Pacote: ${pacote})`);
+      } else {
+        console.log(`[FileUploader] OS ${row["Código OS"]}: Mantido subtipo="${subtipo}" (condição não atendida)`);
+      }
+      
       const order: ServiceOrder = {
         codigo_os: String(row["Código OS"]),
         id_tecnico: row["ID Técnico"] ? String(row["ID Técnico"]) : "",
         nome_tecnico: String(row["Técnico"]),
         sigla_tecnico: String(row["SGL"]),
         tipo_servico: String(row["Tipo de serviço"]),
-        subtipo_servico: String(row["Sub-Tipo de serviço"]),
+        subtipo_servico: subtipo,
         motivo: String(row["Motivo"]),
         codigo_cliente: String(row["Código Cliente"]),
         nome_cliente: String(row["Cliente"]),
         status: String(row["Status"]),
-        data_criacao: formatDate(row["Criação"] as string | null),
-        data_finalizacao: formatDate((row["Finalização"] || row["FInalização"]) as string | null),
+        data_criacao: formatDate(row["Criação"] as string | null, false),
+        data_finalizacao: formatDate((row["Finalização"] || row["FInalização"]) as string | null, true),
         cidade: String(row["Cidade"] || ""),
         bairro: String(row["Bairro"] || ""),
         

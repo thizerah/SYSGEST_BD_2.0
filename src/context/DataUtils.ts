@@ -55,7 +55,8 @@ export const VALID_STATUS = [
   "Finalizada", 
   "Finalizado", 
   "Executada", 
-  "Executado"
+  "Executado",
+  "Cancelada"
 ];
 
 // Motivos excluídos

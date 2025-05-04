@@ -1238,12 +1238,13 @@ export function MetricsOverview() {
                         {technicians
                           .filter(name => name) // Filtrar nomes vazios
                           .sort((a, b) => {
-                            const aOrders = filteredServiceOrders.filter(o => o.nome_tecnico === a).length;
-                            const bOrders = filteredServiceOrders.filter(o => o.nome_tecnico === b).length;
+                            const aOrders = filteredServiceOrders.filter(o => o.nome_tecnico === a && o.status !== "Cancelada").length;
+                            const bOrders = filteredServiceOrders.filter(o => o.nome_tecnico === b && o.status !== "Cancelada").length;
                             return bOrders - aOrders; // Ordenar por quantidade de serviços (decrescente)
                           })
                           .map(name => {
-                            const techOrders = filteredServiceOrders.filter(o => o.nome_tecnico === name);
+                            // Filtrar ordens canceladas
+                            const techOrders = filteredServiceOrders.filter(o => o.nome_tecnico === name && o.status !== "Cancelada");
                             const totalOrders = techOrders.length;
                             
                             // Só exibir técnicos que têm dados no período filtrado
@@ -1297,43 +1298,43 @@ export function MetricsOverview() {
                         <TableRow>
                           <TableCell className="font-bold text-center border-r border-muted">Total Geral</TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Corretiva') && !o.subtipo_servico?.includes('BL')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Corretiva') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Corretiva BL')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Corretiva BL') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Ponto Principal') && !o.subtipo_servico?.includes('BL')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Ponto Principal') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Ponto Principal BL')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Ponto Principal BL') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço') && !o.subtipo_servico?.includes('BL')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço BL')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço BL') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Preventiva') && !o.subtipo_servico?.includes('BL')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Preventiva') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Preventiva BL')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Preventiva BL') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Sistema Opcional')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Sistema Opcional') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Cancelamento Voluntário')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Cancelamento Voluntário') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Kit TVRO')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Kit TVRO') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Substituição')).length}
+                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Substituição') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center font-bold border-l border-muted">
-                            {filteredServiceOrders.length}
+                            {filteredServiceOrders.filter(o => o.status !== "Cancelada").length}
                           </TableCell>
                         </TableRow>
                       </TableFooter>
@@ -2283,8 +2284,23 @@ function ImportData() {
     for (const requiredField of REQUIRED_FIELDS) {
       if (!excelHeaders.includes(requiredField)) {
         if (requiredField === "Finalização" && excelHeaders.includes("FInalização")) {
+          console.log(`Campo alternativo "FInalização" encontrado em vez de "Finalização". Utilizando-o.`);
           continue;
         }
+        
+        // Se o campo ausente for Finalização, verificar se todas as ordens são canceladas
+        if (requiredField === "Finalização") {
+          // Verificar se todas as ordens são canceladas
+          const todasCanceladas = data.every(row => 
+            String(row["Status"] || "").toUpperCase() === "CANCELADA"
+          );
+          
+          if (todasCanceladas) {
+            console.log(`[MetricsOverview] Todas as ordens são canceladas. Campo '${requiredField}' não será obrigatório.`);
+            continue;
+          }
+        }
+        
         missingRequiredFields.push(requiredField);
       }
     }
@@ -2337,7 +2353,22 @@ function ImportData() {
     });
     
     const processedOrders = processedRows.map((row, index) => {
-      const formatDate = (dateStr: string | null | undefined): string => {
+      const formatDate = (dateStr: string | null | undefined, isFinalizacao = false): string => {
+        // Se for data de finalização e o status for cancelada, permitir data vazia
+        const status = String(row["Status"] || "");
+        if (isFinalizacao && status.toUpperCase() === "CANCELADA") {
+          if (!dateStr || dateStr.trim() === "") {
+            // Sempre usar a data de criação para ordens canceladas
+            if (row["Criação"]) {
+              console.log(`[MetricsOverview] OS ${row["Código OS"]}: Status Cancelada - Usando data de criação como finalização`);
+              return formatDate(row["Criação"] as string, false);
+            } else {
+              // Se não tiver data de criação (caso extremamente raro), lançar erro
+              throw new Error(`OS ${row["Código OS"]} cancelada não possui data de criação válida`);
+            }
+          }
+        }
+        
         if (!dateStr) {
           throw new Error(`Data inválida na linha ${index + 2}`);
         }
@@ -2377,19 +2408,31 @@ function ImportData() {
         return date.toISOString();
       };
       
+      // Verificar se é Corretiva e se o Pacote contém a palavra FIBRA
+      let subtipo = String(row["Sub-Tipo de serviço"]);
+      const pacote = String(row["Pacote"] || "");
+      
+      console.log(`Processando OS ${row["Código OS"]}: Subtipo="${subtipo}", Pacote="${pacote}"`);
+      
+      // Se for Corretiva e o pacote contiver a palavra FIBRA, alterar para Corretiva BL
+      if (subtipo === "Corretiva" && pacote.toUpperCase().includes("FIBRA")) {
+        console.log(`OS ${row["Código OS"]}: Alterando subtipo de "Corretiva" para "Corretiva BL" (Pacote: ${pacote})`);
+        subtipo = "Corretiva BL";
+      }
+      
       const order: ServiceOrder = {
         codigo_os: String(row["Código OS"]),
         id_tecnico: row["ID Técnico"] ? String(row["ID Técnico"]) : "",
         nome_tecnico: String(row["Técnico"]),
         sigla_tecnico: String(row["SGL"]),
         tipo_servico: String(row["Tipo de serviço"]),
-        subtipo_servico: String(row["Sub-Tipo de serviço"]),
+        subtipo_servico: subtipo,
         motivo: String(row["Motivo"]),
         codigo_cliente: String(row["Código Cliente"]),
         nome_cliente: String(row["Cliente"]),
         status: String(row["Status"]),
         data_criacao: formatDate(row["Criação"] as string | null),
-        data_finalizacao: formatDate((row["Finalização"] || row["FInalização"]) as string | null),
+        data_finalizacao: formatDate((row["Finalização"] || row["FInalização"]) as string | null, true),
         cidade: String(row["Cidade"] || ""),
         bairro: String(row["Bairro"] || ""),
         
