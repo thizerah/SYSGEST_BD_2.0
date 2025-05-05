@@ -107,6 +107,8 @@ export interface Venda {
   numero_proposta: string;
   id_vendedor: string;
   nome_proprietario: string;
+  cpf: string;               // CPF do cliente
+  nome_fantasia: string;     // Nome Fantasia do cliente
   agrupamento_produto: string;
   produto_principal: string;
   valor: number;

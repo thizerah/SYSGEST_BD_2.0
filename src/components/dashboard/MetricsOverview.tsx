@@ -2469,6 +2469,10 @@ function ImportData() {
       "Data da Habilitação"
     ];
     
+    // Verificar se os campos opcionais de CPF e Nome Fantasia existem na planilha
+    const hasCpfField = excelHeaders.some(header => header.toLowerCase().includes("cpf"));
+    const hasNomeFantasiaField = excelHeaders.some(header => header.toLowerCase().includes("nome fantasia"));
+    
     console.log("Headers necessários para vendas:", REQUIRED_FIELDS);
     console.log("Headers encontrados na planilha:", excelHeaders);
     
@@ -2569,6 +2573,10 @@ function ImportData() {
         return excelHeaders.find(header => header.toLowerCase() === name.toLowerCase());
       };
       
+      const findColumnContaining = (searchText: string): string | undefined => {
+        return excelHeaders.find(header => header.toLowerCase().includes(searchText.toLowerCase()));
+      };
+      
       const numeroProposta = findColumn("Número da proposta") || findColumn("Numero da proposta");
       const idVendedor = findColumn("ID/Código do vendedor");
       const nomeProprietario = findColumn("Nome completo do proprietário");
@@ -2577,6 +2585,10 @@ function ImportData() {
       const valor = findColumn("Valor");
       const statusProposta = findColumn("Status da Proposta");
       const dataHabilitacao = findColumn("Data da Habilitação");
+      
+      // Buscar os novos campos opcionais
+      const cpfColumn = findColumnContaining("cpf");
+      const nomeFantasiaColumn = findColumnContaining("nome fantasia");
       
       if (!numeroProposta || !idVendedor || !nomeProprietario || !agrupamentoProduto || 
           !produtoPrincipal || !valor || !statusProposta || !dataHabilitacao) {
@@ -2587,6 +2599,8 @@ function ImportData() {
         numero_proposta: String(row[numeroProposta]),
         id_vendedor: String(row[idVendedor]),
         nome_proprietario: String(row[nomeProprietario]),
+        cpf: cpfColumn ? String(row[cpfColumn] || "") : "",
+        nome_fantasia: nomeFantasiaColumn ? String(row[nomeFantasiaColumn] || "") : "",
         agrupamento_produto: String(row[agrupamentoProduto]),
         produto_principal: String(row[produtoPrincipal]),
         valor: parseValue(String(row[valor])),
@@ -2959,6 +2973,11 @@ function ImportData() {
                   <div>• Valor</div>
                   <div>• Status da Proposta</div>
                   <div>• Data da Habilitação</div>
+                </div>
+                <h3 className="text-sm font-semibold mb-2 mt-4">Campos Opcionais - Vendas</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                  <div>• CPF</div>
+                  <div>• Nome Fantasia</div>
                 </div>
               </div>
             )}
@@ -3666,6 +3685,8 @@ function PermanenciaTabContent() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Proposta</TableHead>
+                  <TableHead>CPF</TableHead>
+                  <TableHead>Nome Fantasia</TableHead>
                   <TableHead>Sigla</TableHead>
                   <TableHead>Produto</TableHead>
                   <TableHead>Vendedor</TableHead>
@@ -3687,6 +3708,8 @@ function PermanenciaTabContent() {
                     return (
                       <TableRow key={index}>
                         <TableCell className="font-medium">{proposta.numero_proposta}</TableCell>
+                        <TableCell>{proposta.cpf || "-"}</TableCell>
+                        <TableCell>{proposta.nome_fantasia || "-"}</TableCell>
                         <TableCell>{sigla}</TableCell>
                         <TableCell>{proposta.produto_principal}</TableCell>
                         <TableCell>{proposta.nome_proprietario}</TableCell>
@@ -3728,7 +3751,7 @@ function PermanenciaTabContent() {
                   })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-4 text-muted-foreground">
+                    <TableCell colSpan={12} className="text-center py-4 text-muted-foreground">
                       Nenhuma proposta encontrada com os filtros aplicados.
                     </TableCell>
                   </TableRow>
