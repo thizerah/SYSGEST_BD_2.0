@@ -248,6 +248,17 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     }
   };
   
+  // Formatar a exibição da ação tomada
+  const displayAcaoTomada = (order: ServiceOrder) => {
+    // Se a ordem estiver finalizada e não tiver ação tomada, exibir "Concluída"
+    if (order.status === "Finalizada" && (!order.acao_tomada || order.acao_tomada.trim() === "")) {
+      return "Concluída";
+    }
+    
+    // Caso contrário, exibir a ação tomada ou "N/A" se não existir
+    return order.acao_tomada || "N/A";
+  };
+  
   // Reset all filters
   const resetFilters = () => {
     setFilter({
@@ -556,7 +567,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
                         <TableCell>{order.nome_tecnico || "N/A"}</TableCell>
                         <TableCell>{order.subtipo_servico || "N/A"}</TableCell>
                         <TableCell>{order.motivo || "N/A"}</TableCell>
-                        <TableCell>{order.acao_tomada || "N/A"}</TableCell>
+                        <TableCell>{displayAcaoTomada(order)}</TableCell>
                         <TableCell>{order.nome_cliente || "N/A"}</TableCell>
                         <TableCell>{formatDate(order.data_criacao)}</TableCell>
                         <TableCell>{formatDate(order.data_finalizacao)}</TableCell>

@@ -930,7 +930,13 @@ export function MetricsOverview() {
                     };
                     
                     // Função para determinar a cor da badge baseada na ação tomada
-                    const getAcaoTomadaBadge = (acaoTomada: string | null) => {
+                    const getAcaoTomadaBadge = (acaoTomada: string | null, orderStatus: string = "") => {
+                      // Se ação tomada estiver vazia e o status for Finalizada, mostrar "Concluída"
+                      if ((!acaoTomada || acaoTomada === "N/A") && orderStatus.toUpperCase() === "FINALIZADA") {
+                        return <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">Concluída</Badge>;
+                      }
+                      
+                      // Se ação tomada estiver vazia para outros status
                       if (!acaoTomada || acaoTomada === "N/A") {
                         return <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-300">N/A</Badge>;
                       }
@@ -960,10 +966,10 @@ export function MetricsOverview() {
                       <TableRow key={index}>
                         <TableCell className="font-medium">{pair.originalOrder.nome_cliente}</TableCell>
                         <TableCell>{pair.originalOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.originalOrder.subtipo_servico}</span></TableCell>
-                        <TableCell>{getAcaoTomadaBadge(pair.originalOrder.acao_tomada)}</TableCell>
+                        <TableCell>{getAcaoTomadaBadge(pair.originalOrder.acao_tomada, pair.originalOrder.status)}</TableCell>
                         <TableCell>{formatDate(pair.originalOrder.data_finalizacao)}</TableCell>
                         <TableCell>{pair.reopeningOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.reopeningOrder.subtipo_servico}</span></TableCell>
-                        <TableCell>{getAcaoTomadaBadge(pair.reopeningOrder.acao_tomada)}</TableCell>
+                        <TableCell>{getAcaoTomadaBadge(pair.reopeningOrder.acao_tomada, pair.reopeningOrder.status)}</TableCell>
                         <TableCell>{formatDate(pair.reopeningOrder.data_criacao)}</TableCell>
                         <TableCell className="text-right font-medium">
                           {pair.timeBetween.toFixed(1)} horas
