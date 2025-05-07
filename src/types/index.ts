@@ -21,6 +21,7 @@ export interface ServiceOrder {
   info_porta?: string | null;
   info_endereco_completo?: string | null;
   info_empresa_parceira?: string | null;
+  acao_tomada?: string | null;
   
   // Calculated fields
   tempo_atendimento?: number | null;

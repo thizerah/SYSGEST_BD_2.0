@@ -40,7 +40,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { ServiceOrder, User, VALID_STATUS, Venda, PrimeiroPagamento } from "@/types";
 import { useAuth } from "@/context/auth";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -74,6 +74,9 @@ export function MetricsOverview() {
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
   const [showData, setShowData] = useState(false);
   const [isFiltering, setIsFiltering] = useState(false);
+  const [filteringTimeout, setFilteringTimeout] = useState<NodeJS.Timeout | null>(null);
+  // Novo estado para filtro de tipo de serviço original
+  const [originalServiceTypeFilter, setOriginalServiceTypeFilter] = useState<string>("");
   
   // Função para determinar a cor do alerta baseado na taxa de reabertura
   const getReopeningAlertColor = (rate: number) => {
@@ -248,13 +251,19 @@ export function MetricsOverview() {
             Filtro selecionado: ${selectedMonth}/${selectedYear}`);
         }
         
-        return reopeningMonth === selectedMonth && reopeningYear === selectedYear;
+        // Filtrar por mês/ano e pelo tipo de serviço original, se selecionado
+        const matchesDateFilter = reopeningMonth === selectedMonth && reopeningYear === selectedYear;
+        const matchesServiceTypeFilter = !originalServiceTypeFilter || 
+                                        originalServiceTypeFilter === "all" || 
+                                        pair.originalOrder.subtipo_servico === originalServiceTypeFilter;
+        
+        return matchesDateFilter && matchesServiceTypeFilter;
       } catch (error) {
         console.error(`Erro ao processar data de reabertura: ${pair.reopeningOrder.data_criacao}`, error);
         return false;
       }
     });
-  }, [getReopeningPairs, selectedMonth, selectedYear, showData]);
+  }, [getReopeningPairs, selectedMonth, selectedYear, showData, originalServiceTypeFilter]);
   
   // Obter métricas apenas com as ordens filtradas
   const timeMetrics = useMemo(() => {
@@ -289,6 +298,7 @@ export function MetricsOverview() {
     
     // Se não houver pares de reabertura, retornar métricas vazias
     if (getFilteredReopeningPairs.length === 0) {
+      // Mesmo sem reaberturas, garantir que os 4 tipos principais estão presentes
       return {
         reopenedOrders: 0,
         reopeningRate: 0,
@@ -297,7 +307,12 @@ export function MetricsOverview() {
         reopeningsByType: {},
         reopeningsByCity: {},
         reopeningsByNeighborhood: {},
-        reopeningsByOriginalType: {},
+        reopeningsByOriginalType: {
+          "Corretiva": { reopenings: 0, totalOriginals: 0, reopeningRate: 0 },
+          "Corretiva BL": { reopenings: 0, totalOriginals: 0, reopeningRate: 0 },
+          "Ponto Principal": { reopenings: 0, totalOriginals: 0, reopeningRate: 0 },
+          "Ponto Principal BL": { reopenings: 0, totalOriginals: 0, reopeningRate: 0 }
+        },
         reopeningsByReason: {}
       };
     }
@@ -340,6 +355,9 @@ export function MetricsOverview() {
     // Contar ordens originais por tipo para calcular taxas de reabertura
     const originalOrdersByType: Record<string, number> = {};
     
+    // Lista de todos os tipos de serviço possíveis (incluindo os que não tem reaberturas)
+    const allServiceTypes = new Set<string>();
+    
     // Considerar apenas as ordens que poderiam ter gerado reaberturas
     filteredServiceOrders.forEach(order => {
       const isOriginalType = ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
@@ -349,6 +367,7 @@ export function MetricsOverview() {
       if (isOriginalType && VALID_STATUS.some(status => order.status?.includes(status))) {
         const type = order.subtipo_servico || "Desconhecido";
         originalOrdersByType[type] = (originalOrdersByType[type] || 0) + 1;
+        allServiceTypes.add(type);
       }
     });
     
@@ -358,6 +377,29 @@ export function MetricsOverview() {
       totalOriginals: number; 
       reopeningRate: number 
     }> = {};
+    
+    // Sempre garantir que os 4 tipos principais estão incluídos
+    const requiredTypes = ["Corretiva", "Corretiva BL", "Ponto Principal", "Ponto Principal BL"];
+    
+    // Inicializar os tipos obrigatórios primeiro
+    requiredTypes.forEach(type => {
+      reopeningsByOriginalType[type] = {
+        reopenings: 0,
+        totalOriginals: originalOrdersByType[type] || 0,
+        reopeningRate: 0
+      };
+    });
+    
+    // Inicializar todos os outros tipos de serviço encontrados com contagem zero
+    allServiceTypes.forEach(type => {
+      if (!requiredTypes.includes(type)) {
+        reopeningsByOriginalType[type] = {
+          reopenings: 0,
+          totalOriginals: originalOrdersByType[type] || 0,
+          reopeningRate: 0
+        };
+      }
+    });
     
     getFilteredReopeningPairs.forEach(pair => {
       const originalType = pair.originalOrder.subtipo_servico || "Desconhecido";
@@ -424,6 +466,27 @@ export function MetricsOverview() {
       reopeningsByReason
     };
   }, [getFilteredReopeningPairs, filteredServiceOrders, selectedMonth, selectedYear, showData]);
+  
+  // Extrair tipos de serviço únicos das ordens originais para o filtro
+  const uniqueOriginalServiceTypes = useMemo(() => {
+    if (!showData || !getReopeningPairs().length) {
+      return [];
+    }
+    
+    const allPairs = getReopeningPairs();
+    
+    // Extrair todos os tipos de serviço únicos das ordens originais
+    const uniqueTypes = new Set<string>();
+    
+    allPairs.forEach(pair => {
+      if (pair.originalOrder.subtipo_servico) {
+        uniqueTypes.add(pair.originalOrder.subtipo_servico);
+      }
+    });
+    
+    // Converter o Set para array e ordenar alfabeticamente
+    return Array.from(uniqueTypes).sort();
+  }, [getReopeningPairs, showData]);
   
   // Resetar o estado de exibição quando o usuário troca de aba
   useEffect(() => {
@@ -697,7 +760,7 @@ export function MetricsOverview() {
                       />
                     </div>
                     <div className="text-xl font-bold">
-                      {metrics.withinGoal} de {metrics.totalOrders} dentro da meta ({goalPercent.toFixed(1)}%)
+                      {metrics.withinGoal} de {metrics.totalOrders} dentro da meta ({goalPercent.toFixed(2)}%)
                     </div>
                   </div>
                 );
@@ -797,14 +860,57 @@ export function MetricsOverview() {
             </CardDescription>
           </CardHeader>
           <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
+            {/* Filtro por tipo de serviço original */}
+            <div className="mb-4">
+              <div className="flex flex-col space-y-2">
+                <label htmlFor="originalServiceTypeFilter" className="text-sm font-medium">
+                  Filtros por:
+                </label>
+                <div className="flex items-center space-x-3">
+                  <div className="w-full md:w-1/3">
+                    <label htmlFor="originalServiceTypeFilter" className="text-xs text-muted-foreground block mb-1">
+                      Tipo de Serviço da OS Original:
+                    </label>
+                    <select
+                      id="originalServiceTypeFilter"
+                      value={originalServiceTypeFilter}
+                      onChange={(e) => setOriginalServiceTypeFilter(e.target.value)}
+                      className="w-full p-2 border rounded-md text-sm"
+                    >
+                      <option value="">Todos os tipos</option>
+                      {uniqueOriginalServiceTypes.map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {originalServiceTypeFilter && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setOriginalServiceTypeFilter("")}
+                      className="mt-5"
+                    >
+                      Limpar filtro
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {originalServiceTypeFilter && (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  <span className="text-primary font-medium">{getFilteredReopeningPairs.length}</span> reaberturas encontradas com o tipo de serviço original: <span className="font-medium">{originalServiceTypeFilter}</span>
+                </div>
+              )}
+            </div>
             <div className="overflow-x-auto w-full">
               <Table className="w-full">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Cliente</TableHead>
                     <TableHead>OS Original</TableHead>
+                    <TableHead>Ação Tomada Original</TableHead>
                     <TableHead>Data Finalização Original</TableHead>
                     <TableHead>OS Reabertura</TableHead>
+                    <TableHead>Ação Tomada Reabertura</TableHead>
                     <TableHead>Data Criação Reabertura</TableHead>
                     <TableHead className="text-right">Tempo entre OS</TableHead>
                   </TableRow>
@@ -816,19 +922,48 @@ export function MetricsOverview() {
                       return date.toLocaleDateString('pt-BR') + ' ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                     };
                         
-                        // Definir uma classe de cor com base na proximidade do limite de 30 dias
-                        const getDaysColor = (days: number) => {
-                          if (days >= 25) return "text-red-500"; // Muito próximo do limite
-                          if (days >= 20) return "text-amber-500"; // Próximo do limite
-                          return "text-muted-foreground"; // Dentro do limite normal
-                        };
+                    // Definir uma classe de cor com base na proximidade do limite de 30 dias
+                    const getDaysColor = (days: number) => {
+                      if (days >= 25) return "text-red-500"; // Muito próximo do limite
+                      if (days >= 20) return "text-amber-500"; // Próximo do limite
+                      return "text-muted-foreground"; // Dentro do limite normal
+                    };
+                    
+                    // Função para determinar a cor da badge baseada na ação tomada
+                    const getAcaoTomadaBadge = (acaoTomada: string | null) => {
+                      if (!acaoTomada || acaoTomada === "N/A") {
+                        return <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-300">N/A</Badge>;
+                      }
+                      
+                      if (acaoTomada === "Cancelada via CCS") {
+                        return <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">Cancelada via CCS</Badge>;
+                      }
+                      
+                      if (acaoTomada === "Cliente Cancelou via SAC") {
+                        return <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">Cliente Cancelou via SAC</Badge>;
+                      }
+                      
+                      // Para outras ações tomadas, usar cores baseadas na ação
+                      if (acaoTomada.toLowerCase().includes("concluído") || acaoTomada.toLowerCase().includes("concluida")) {
+                        return <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">{acaoTomada}</Badge>;
+                      }
+                      
+                      if (acaoTomada.toLowerCase().includes("não") || acaoTomada.toLowerCase().includes("nao") || acaoTomada.toLowerCase().includes("problema")) {
+                        return <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">{acaoTomada}</Badge>;
+                      }
+                      
+                      // Para outras ações, uma cor padrão
+                      return <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300">{acaoTomada}</Badge>;
+                    };
                     
                     return (
                       <TableRow key={index}>
                         <TableCell className="font-medium">{pair.originalOrder.nome_cliente}</TableCell>
                         <TableCell>{pair.originalOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.originalOrder.subtipo_servico}</span></TableCell>
+                        <TableCell>{getAcaoTomadaBadge(pair.originalOrder.acao_tomada)}</TableCell>
                         <TableCell>{formatDate(pair.originalOrder.data_finalizacao)}</TableCell>
                         <TableCell>{pair.reopeningOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.reopeningOrder.subtipo_servico}</span></TableCell>
+                        <TableCell>{getAcaoTomadaBadge(pair.reopeningOrder.acao_tomada)}</TableCell>
                         <TableCell>{formatDate(pair.reopeningOrder.data_criacao)}</TableCell>
                         <TableCell className="text-right font-medium">
                           {pair.timeBetween.toFixed(1)} horas
@@ -842,7 +977,7 @@ export function MetricsOverview() {
                   })}
                       {getFilteredReopeningPairs.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-4 text-muted-foreground">
                             Nenhum par de reabertura encontrado no período selecionado
                           </TableCell>
                         </TableRow>
@@ -954,7 +1089,22 @@ export function MetricsOverview() {
                 </TableHeader>
                 <TableBody>
                         {Object.entries(getReopeningMetrics.reopeningsByOriginalType)
-                        .sort((a, b) => b[1].reopenings - a[1].reopenings)
+                        .sort((a, b) => {
+                          // Array com a ordem desejada dos tipos principais
+                          const orderPriority = ["Corretiva", "Corretiva BL", "Ponto Principal", "Ponto Principal BL"];
+                          
+                          // Se ambos são tipos principais, usar a ordem definida
+                          if (orderPriority.includes(a[0]) && orderPriority.includes(b[0])) {
+                            return orderPriority.indexOf(a[0]) - orderPriority.indexOf(b[0]);
+                          }
+                          
+                          // Se só um é tipo principal, ele vem primeiro
+                          if (orderPriority.includes(a[0])) return -1;
+                          if (orderPriority.includes(b[0])) return 1;
+                          
+                          // Caso contrário, ordenar alfabeticamente
+                          return a[0].localeCompare(b[0]);
+                        })
                         .map(([type, data]) => (
                     <TableRow key={type}>
                       <TableCell className="font-medium">{type}</TableCell>
@@ -2420,10 +2570,30 @@ function ImportData() {
         subtipo = "Corretiva BL";
       }
       
+      // Padronizar a Ação Tomada conforme regras específicas
+      let acaoTomada = row["Ação Tomada"] as string | null || null;
+      const status = String(row["Status"] || "");
+      
+      // Regra 1: Se o status for "Cancelada" e a ação tomada tiver conteúdo, substituir por "Cancelada via CCS"
+      if (status.toUpperCase() === "CANCELADA" && acaoTomada && acaoTomada.trim() !== "") {
+        acaoTomada = "Cancelada via CCS";
+      }
+      // Regra 2: Se o status for "Cancelada" e a ação tomada estiver vazia, preencher com "Cliente Cancelou via SAC"
+      else if (status.toUpperCase() === "CANCELADA" && (!acaoTomada || acaoTomada.trim() === "")) {
+        acaoTomada = "Cliente Cancelou via SAC";
+      }
+      // Regra 3: Se o status for "Finalizada", a ação tomada pode permanecer como está (N/A se estiver vazia)
+      
+      // Tratar nome do técnico quando é "undefined" ou vazio em OS cancelada
+      let nomeTecnico = String(row["Técnico"] || "");
+      if (status.toUpperCase() === "CANCELADA" && (!nomeTecnico || nomeTecnico.trim() === "" || nomeTecnico.toLowerCase() === "undefined")) {
+        nomeTecnico = "Sem técnico atribuído";
+      }
+      
       const order: ServiceOrder = {
         codigo_os: String(row["Código OS"]),
         id_tecnico: row["ID Técnico"] ? String(row["ID Técnico"]) : "",
-        nome_tecnico: String(row["Técnico"]),
+        nome_tecnico: nomeTecnico,
         sigla_tecnico: String(row["SGL"]),
         tipo_servico: String(row["Tipo de serviço"]),
         subtipo_servico: subtipo,
@@ -2440,7 +2610,8 @@ function ImportData() {
         info_cto: row["Info: info_cto"] as string | null || null,
         info_porta: row["Info: info_porta"] as string | null || null,
         info_endereco_completo: row["Info: info_endereco_completo"] as string | null || null,
-        info_empresa_parceira: row["Info: info_empresa_parceira"] as string | null || null
+        info_empresa_parceira: row["Info: info_empresa_parceira"] as string | null || null,
+        acao_tomada: acaoTomada
       };
       
       return order;
@@ -2957,6 +3128,17 @@ function ImportData() {
                   <div>• Status</div>
                   <div>• Criação</div>
                   <div>• Finalização</div>
+                </div>
+                <h3 className="text-sm font-semibold mb-2 mt-4">Campos Opcionais - Ordens de Serviço</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                  <div>• Cidade</div>
+                  <div>• Bairro</div>
+                  <div>• Info: ponto_de_ref</div>
+                  <div>• Info: info_cto</div>
+                  <div>• Info: info_porta</div>
+                  <div>• Info: info_endereco_completo</div>
+                  <div>• Info: info_empresa_parceira</div>
+                  <div>• Ação Tomada</div>
                 </div>
               </div>
             )}

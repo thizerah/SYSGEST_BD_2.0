@@ -194,6 +194,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
       (order.subtipo_servico && order.subtipo_servico.toLowerCase().includes(searchTerm)) ||
       (order.nome_cliente && order.nome_cliente.toLowerCase().includes(searchTerm)) ||
       (order.motivo && order.motivo.toLowerCase().includes(searchTerm)) ||
+      (order.acao_tomada && order.acao_tomada.toLowerCase().includes(searchTerm)) ||
       (order.info_endereco_completo && order.info_endereco_completo.toLowerCase().includes(searchTerm));
     
     const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
@@ -533,6 +534,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
                     <TableHead>Técnico</TableHead>
                     <TableHead>Tipo de Serviço</TableHead>
                     <TableHead>Motivo</TableHead>
+                    <TableHead>Ação Tomada</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Data de Criação</TableHead>
                     <TableHead>Data de Finalização</TableHead>
@@ -543,7 +545,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
                 <TableBody>
                   {paginatedOrders.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-4">
+                      <TableCell colSpan={10} className="text-center py-4">
                         Nenhuma ordem de serviço encontrada
                       </TableCell>
                     </TableRow>
@@ -554,6 +556,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
                         <TableCell>{order.nome_tecnico || "N/A"}</TableCell>
                         <TableCell>{order.subtipo_servico || "N/A"}</TableCell>
                         <TableCell>{order.motivo || "N/A"}</TableCell>
+                        <TableCell>{order.acao_tomada || "N/A"}</TableCell>
                         <TableCell>{order.nome_cliente || "N/A"}</TableCell>
                         <TableCell>{formatDate(order.data_criacao)}</TableCell>
                         <TableCell>{formatDate(order.data_finalizacao)}</TableCell>
