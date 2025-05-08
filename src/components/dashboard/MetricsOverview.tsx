@@ -808,6 +808,50 @@ export function MetricsOverview() {
           <NoDataMessage />
         ) : (
           <>
+        {/* Filtro por tipo de serviço original - MOVIDO PARA AQUI */}
+        <Card className="mb-4">
+          <CardContent className="py-4">
+            <div className="flex flex-col space-y-2">
+              <label htmlFor="originalServiceTypeFilter" className="text-sm font-medium">
+                Filtros por:
+              </label>
+              <div className="flex items-center space-x-3">
+                <div className="w-full md:w-1/3">
+                  <label htmlFor="originalServiceTypeFilter" className="text-xs text-muted-foreground block mb-1">
+                    Tipo de Serviço da OS Original:
+                  </label>
+                  <select
+                    id="originalServiceTypeFilter"
+                    value={originalServiceTypeFilter}
+                    onChange={(e) => setOriginalServiceTypeFilter(e.target.value)}
+                    className="w-full p-2 border rounded-md text-sm"
+                  >
+                    <option value="">Todos os tipos</option>
+                    {uniqueOriginalServiceTypes.map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+                {originalServiceTypeFilter && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setOriginalServiceTypeFilter("")}
+                    className="mt-5"
+                  >
+                    Limpar filtro
+                  </Button>
+                )}
+              </div>
+            </div>
+            {originalServiceTypeFilter && (
+              <div className="mt-2 text-xs text-muted-foreground">
+                <span className="text-primary font-medium">{getFilteredReopeningPairs.length}</span> reaberturas encontradas com o tipo de serviço original: <span className="font-medium">{originalServiceTypeFilter}</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+            
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Reopened Orders Count */}
           <Card>
@@ -907,47 +951,7 @@ export function MetricsOverview() {
             </CardDescription>
           </CardHeader>
           <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
-            {/* Filtro por tipo de serviço original */}
-            <div className="mb-4">
-              <div className="flex flex-col space-y-2">
-                <label htmlFor="originalServiceTypeFilter" className="text-sm font-medium">
-                  Filtros por:
-                </label>
-                <div className="flex items-center space-x-3">
-                  <div className="w-full md:w-1/3">
-                    <label htmlFor="originalServiceTypeFilter" className="text-xs text-muted-foreground block mb-1">
-                      Tipo de Serviço da OS Original:
-                    </label>
-                    <select
-                      id="originalServiceTypeFilter"
-                      value={originalServiceTypeFilter}
-                      onChange={(e) => setOriginalServiceTypeFilter(e.target.value)}
-                      className="w-full p-2 border rounded-md text-sm"
-                    >
-                      <option value="">Todos os tipos</option>
-                      {uniqueOriginalServiceTypes.map((type) => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {originalServiceTypeFilter && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setOriginalServiceTypeFilter("")}
-                      className="mt-5"
-                    >
-                      Limpar filtro
-                    </Button>
-                  )}
-                </div>
-              </div>
-              {originalServiceTypeFilter && (
-                <div className="mt-2 text-xs text-muted-foreground">
-                  <span className="text-primary font-medium">{getFilteredReopeningPairs.length}</span> reaberturas encontradas com o tipo de serviço original: <span className="font-medium">{originalServiceTypeFilter}</span>
-                </div>
-              )}
-            </div>
+            {/* O filtro que estava aqui foi movido para cima */}
             <div className="overflow-x-auto w-full">
               <Table className="w-full">
                 <TableHeader>
