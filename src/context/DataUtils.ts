@@ -89,7 +89,7 @@ export const getServiceGoalBySubtype = (subtypeService: string = "", reason: str
     case "Ponto Principal FIBRA":
       return 48; // Meta de 48 horas
     case "Assistência Técnica FIBRA":
-      return 24; // Meta de 24 horas
+      return 34; // Meta de 34 horas
     case "Assistência Técnica TV":
       return 34; // Meta de 34 horas
     default:
@@ -105,7 +105,7 @@ export const standardizeServiceCategory = (typeService: string = "", reason: str
   let result = "";
   let ruleApplied = "";
   
-  // Regras específicas baseadas no Tipo de Serviço
+  // Regras específicas baseadas no Tipo de Serviço e Motivo
   
   // Tipo de Serviço: Corretiva (Assistência Técnica TV)
   if (lowerType === "corretiva") {
@@ -125,65 +125,68 @@ export const standardizeServiceCategory = (typeService: string = "", reason: str
     ruleApplied = "Regra 2.1: Substituição para Upgrade SKY 4K Plus (não incluído nas métricas)";
   }
   
-  // Tipo de Serviço: Ponto Principal → Motivo: Individual
+  // Tipo de Serviço: Ponto Principal → Motivo: Individual (caso específico)
   else if (lowerType === "ponto principal" && lowerReason === "individual") {
     result = "Ponto Principal TV";
     ruleApplied = "Regra 3: PP + Individual";
   }
   
-  // Tipo de Serviço: Ponto Principal BL → Motivo: Instalacao Banda Larga Fibra
+  // Tipo de Serviço: Ponto Principal (todos os motivos)
+  else if (lowerType === "ponto principal") {
+    result = "Ponto Principal TV";
+    ruleApplied = "Regra 3.1: PP (qualquer motivo)";
+  }
+  
+  // Tipo de Serviço: Ponto Principal BL → Motivo: Instalacao Banda Larga Fibra (caso específico)
   else if (lowerType === "ponto principal bl" && lowerReason === "instalacao banda larga fibra") {
     result = "Ponto Principal FIBRA";
     ruleApplied = "Regra 4: PP BL + Instalacao BL Fibra";
   }
   
-  // Condições de fallback (regras originais)
-  
-  // Se Tipo de Servico inclui "ponto principal" e (inclui "bl" ou "fibra") → Ponto Principal FIBRA
-  else if (lowerType.includes("ponto principal") && (lowerType.includes("bl") || lowerType.includes("fibra"))) {
-    // Verificar se deve ser filtrado por motivo
-    if (lowerType === "ponto principal bl") {
-      result = "Não classificado";
-      ruleApplied = "Regra 5a: PP BL sem motivo específico";
-    } else {
-      result = "Ponto Principal FIBRA";
-      ruleApplied = "Regra 5b: PP + (BL ou Fibra)";
-    }
+  // Tipo de Serviço: Ponto Principal BL (todos os motivos)
+  else if (lowerType === "ponto principal bl") {
+    result = "Ponto Principal FIBRA";
+    ruleApplied = "Regra 4.1: PP BL (qualquer motivo)";
   }
   
-  // Se Tipo de Servico inclui "ponto principal" sem "bl" ou "fibra" → Ponto Principal TV
-  else if (lowerType.includes("ponto principal") && !lowerType.includes("bl") && !lowerType.includes("fibra")) {
-    // Verificar se deve ser filtrado por motivo
-    if (lowerType === "ponto principal") {
-      result = "Não classificado";
-      ruleApplied = "Regra 6a: PP sem motivo específico";
-    } else {
-      result = "Ponto Principal TV";
-      ruleApplied = "Regra 6b: PP (sem BL/Fibra)";
-    }
+  // Condições de fallback para casos mais genéricos
+  
+  // Se Tipo de Servico inclui "ponto principal" mas não é exatamente "ponto principal" ou "ponto principal bl"
+  // Com componente BL ou Fibra
+  else if (lowerType.includes("ponto principal") && (lowerType.includes("bl") || lowerType.includes("fibra")) 
+          && lowerType !== "ponto principal" && lowerType !== "ponto principal bl") {
+    result = "Ponto Principal FIBRA";
+    ruleApplied = "Regra 5: PP + (BL ou Fibra) - Outros casos";
+  }
+  
+  // Sem componente BL ou Fibra
+  else if (lowerType.includes("ponto principal") && !lowerType.includes("bl") && !lowerType.includes("fibra") 
+          && lowerType !== "ponto principal") {
+    result = "Ponto Principal TV";
+    ruleApplied = "Regra 6: PP (sem BL/Fibra) - Outros casos";
   }
   
   // Outras regras para cobrir tipos não especificados diretamente
-  else if (lowerType.includes("corretiva") && !lowerType.includes("bl")) {
+  else if (lowerType.includes("corretiva") && !lowerType.includes("bl") && lowerType !== "corretiva") {
     result = "Assistência Técnica TV";
-    ruleApplied = "Regra 7a: Corretiva genérica";
+    ruleApplied = "Regra 7: Corretiva genérica - Outros casos";
   }
   
-  else if (lowerType.includes("corretiva bl") || lowerType.includes("fibra")) {
+  else if ((lowerType.includes("corretiva") && lowerType.includes("bl") && lowerType !== "corretiva bl") || lowerType.includes("fibra")) {
     result = "Assistência Técnica FIBRA";
-    ruleApplied = "Regra 7b: Corretiva BL/Fibra genérica";
+    ruleApplied = "Regra 8: Corretiva BL/Fibra genérica - Outros casos";
   }
   
   // Regra para qualquer tipo de "Substituição" não coberto por regras anteriores
   else if (lowerType.includes("substituição")) {
     result = "Não classificado";
-    ruleApplied = "Regra 7c: Substituição (não incluído nas métricas)";
+    ruleApplied = "Regra 9: Substituição (não incluído nas métricas)";
   }
   
   // Caso contrário → Categoria não identificada
   else {
     result = "Não classificado";
-    ruleApplied = "Regra 8: Não atende aos critérios específicos";
+    ruleApplied = "Regra 10: Não atende aos critérios específicos";
   }
   
   console.log(`[DEBUG] Tipo: "${typeService}", Motivo: "${reason}" => ${result} (${ruleApplied})`);

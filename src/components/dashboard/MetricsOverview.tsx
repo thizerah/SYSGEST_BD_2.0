@@ -364,7 +364,7 @@ export function MetricsOverview() {
         type => order.subtipo_servico?.includes(type)
       );
       
-      if (isOriginalType && VALID_STATUS.some(status => order.status?.includes(status))) {
+      if (isOriginalType) {
         const type = order.subtipo_servico || "Desconhecido";
         originalOrdersByType[type] = (originalOrdersByType[type] || 0) + 1;
         allServiceTypes.add(type);
@@ -449,9 +449,31 @@ export function MetricsOverview() {
       reopeningsByReason[reason].byOriginalType[originalType]++;
     });
     
-    // Calcular taxa geral de reabertura - considerando total de ordens analisadas
-    const reopeningRate = filteredServiceOrders.length > 0 
-      ? parseFloat(((reopenedOrders / filteredServiceOrders.length) * 100).toFixed(2))
+    // Calcular taxa geral de reabertura - considerando os tipos filtrados, se houver
+    let totalMainServices = 0;
+    let filteredReopenings = reopenedOrders;
+    
+    if (originalServiceTypeFilter) {
+      // Se há um filtro de tipo, contar apenas serviços desse tipo exato
+      totalMainServices = filteredServiceOrders.filter(order => 
+        order.subtipo_servico === originalServiceTypeFilter
+      ).length;
+      
+      // Contar apenas as reaberturas relacionadas a ordens do tipo filtrado
+      filteredReopenings = getFilteredReopeningPairs.filter(pair => 
+        pair.originalOrder.subtipo_servico === originalServiceTypeFilter
+      ).length;
+    } else {
+      // Se não há filtro, contar todos os tipos principais
+      totalMainServices = filteredServiceOrders.filter(order => 
+        ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
+          type => order.subtipo_servico?.includes(type)
+        )
+      ).length;
+    }
+    
+    const reopeningRate = totalMainServices > 0 
+      ? parseFloat(((filteredReopenings / totalMainServices) * 100).toFixed(2))
       : 0;
     
     return {
@@ -465,7 +487,7 @@ export function MetricsOverview() {
       reopeningsByOriginalType,
       reopeningsByReason
     };
-  }, [getFilteredReopeningPairs, filteredServiceOrders, selectedMonth, selectedYear, showData]);
+  }, [getFilteredReopeningPairs, filteredServiceOrders, selectedMonth, selectedYear, showData, originalServiceTypeFilter]);
   
   // Extrair tipos de serviço únicos das ordens originais para o filtro
   const uniqueOriginalServiceTypes = useMemo(() => {
@@ -786,7 +808,7 @@ export function MetricsOverview() {
           <NoDataMessage />
         ) : (
           <>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Reopened Orders Count */}
           <Card>
             <CardHeader className="pb-2">
@@ -802,26 +824,51 @@ export function MetricsOverview() {
             </CardContent>
           </Card>
           
+          {/* Total Original Services */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">
+                Total de Ordens Abertas
+              </CardTitle>
+              <CardDescription>
+                {originalServiceTypeFilter 
+                  ? `Total de ${originalServiceTypeFilter}`
+                  : "Soma de Corretiva, Corretiva BL, Ponto Principal e Ponto Principal BL"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {filteredServiceOrders.filter(order => {
+                  if (originalServiceTypeFilter) {
+                    // Se há um filtro, mostrar apenas as ordens do tipo exato filtrado
+                    return order.subtipo_servico === originalServiceTypeFilter;
+                  } else {
+                    // Se não há filtro, mostrar todos os tipos principais
+                    return ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
+                      type => order.subtipo_servico?.includes(type)
+                    );
+                  }
+                }).length}
+              </div>
+            </CardContent>
+          </Card>
+          
           {/* Reopening Rate */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">
-                Taxa de Reabertura
+                Chance de reabertura (Taxa de Reabertura)
               </CardTitle>
               <CardDescription>
                 Percentual de reaberturas sobre o total
               </CardDescription>
             </CardHeader>
             <CardContent>
-                  <div className="text-2xl font-bold">{getReopeningMetrics.reopeningRate}%</div>
+              <div className="text-2xl font-bold">{getReopeningMetrics.reopeningRate}%</div>
               <Progress 
-                    value={getReopeningMetrics.reopeningRate} 
+                value={getReopeningMetrics.reopeningRate} 
                 className="h-2 mt-2"
               />
-              <div className="flex items-center justify-between mt-3 border-t pt-2">
-                <div className="font-medium text-sm">Chance de reabertura:</div>
-                    <div className="text-sm font-bold text-orange-500">{getReopeningMetrics.reopeningRate}%</div>
-              </div>
             </CardContent>
           </Card>
           
@@ -1095,6 +1142,14 @@ export function MetricsOverview() {
                 </TableHeader>
                 <TableBody>
                         {Object.entries(getReopeningMetrics.reopeningsByOriginalType)
+                        .filter(([type, data]) => {
+                          // Se houver um filtro, mostrar apenas o tipo filtrado
+                          if (originalServiceTypeFilter) {
+                            return type === originalServiceTypeFilter;
+                          }
+                          // Caso contrário, mostrar todos os tipos
+                          return true;
+                        })
                         .sort((a, b) => {
                           // Array com a ordem desejada dos tipos principais
                           const orderPriority = ["Corretiva", "Corretiva BL", "Ponto Principal", "Ponto Principal BL"];
@@ -1116,7 +1171,7 @@ export function MetricsOverview() {
                       <TableCell className="font-medium">{type}</TableCell>
                       <TableCell className="text-right">{data.totalOriginals}</TableCell>
                       <TableCell className="text-right">{data.reopenings}</TableCell>
-                      <TableCell className="text-right">{data.reopeningRate.toFixed(1)}%</TableCell>
+                      <TableCell className="text-right">{data.reopeningRate.toFixed(2)}%</TableCell>
                     </TableRow>
                         ))
                       }
@@ -1300,7 +1355,7 @@ export function MetricsOverview() {
                     Reabertura por Técnico
                   </CardTitle>
                   <CardDescription>
-                    Quantidade de reaberturas por técnico com alertas visuais
+                    Quantidade de reaberturas por técnico com alertas visuais (ordenado pelo menor ao maior % de reabertura)
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -1329,18 +1384,27 @@ export function MetricsOverview() {
                             // Só exibir técnicos que têm dados no período filtrado
                             if (totalOrders === 0) return null;
                             
-                            return (
-                              <TableRow key={name}>
-                                <TableCell className="font-medium">{name}</TableCell>
-                                <TableCell className="text-right">{totalOrders}</TableCell>
-                                <TableCell className="text-right">{reopenings}</TableCell>
-                                <TableCell className="text-right">{reopeningRate.toFixed(1)}%</TableCell>
+                            return {
+                              name,
+                              totalOrders,
+                              reopenings,
+                              reopeningRate,
+                              alertEmoji
+                            };
+                          })
+                          .filter(Boolean)
+                          .sort((a, b) => a.reopeningRate - b.reopeningRate) // Ordenar por % de reabertura (do menor para o maior)
+                          .map(tech => (
+                              <TableRow key={tech.name}>
+                                <TableCell className="font-medium">{tech.name}</TableCell>
+                                <TableCell className="text-right">{tech.totalOrders}</TableCell>
+                                <TableCell className="text-right">{tech.reopenings}</TableCell>
+                                <TableCell className="text-right">{tech.reopeningRate.toFixed(2)}%</TableCell>
                                 <TableCell className="text-right">
-                                  <span className="text-lg">{alertEmoji}</span>
+                                  <span className="text-lg">{tech.alertEmoji}</span>
                                 </TableCell>
                               </TableRow>
-                            );
-                        }).filter(Boolean)}
+                          ))}
                         
                         {technicians.filter(name => name && filteredServiceOrders.some(o => o.nome_tecnico === name)).length === 0 && (
                           <TableRow>
@@ -1547,8 +1611,8 @@ function getServiceGoal(serviceType: string): number {
     'Ponto Principal FIBRA': 48,
     'Ponto Principal': 48,
     'Ponto Principal BL': 48,
-    'Assistência Técnica Fibra': 24,
-    'Assistência Técnica FIBRA': 24,
+    'Assistência Técnica Fibra': 34,
+    'Assistência Técnica FIBRA': 34,
     'Assistência Técnica TV': 34,
     'Corretiva': 48,
     'Corretiva BL': 48,

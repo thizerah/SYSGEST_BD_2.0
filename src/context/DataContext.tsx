@@ -442,13 +442,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     const originalOrdersByType: Record<string, number> = {};
     
-    // Contabilizar apenas ordens não canceladas para o total de originais
-    metricsOrdersForRate.forEach(order => {
+    // Contabilizar todas as ordens do tipo específico, não apenas as finalizadas
+    (filteredOrders || serviceOrders).forEach(order => {
       const isOriginalType = ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
         type => order.subtipo_servico?.includes(type)
       );
       
-      if (isOriginalType && VALID_STATUS.some(status => order.status?.includes(status))) {
+      if (isOriginalType) {
         const type = order.subtipo_servico || "Desconhecido";
         originalOrdersByType[type] = (originalOrdersByType[type] || 0) + 1;
         
