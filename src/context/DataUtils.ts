@@ -138,7 +138,7 @@ export const standardizeServiceCategory = (typeService: string = "", reason: str
   }
   
   // Tipo de Serviço: Ponto Principal BL → Motivo: Instalacao Banda Larga Fibra (caso específico)
-  else if (lowerType === "ponto principal bl" && lowerReason === "instalacao banda larga fibra") {
+  else if (lowerType === "ponto principal bl" && lowerReason.includes("instalacao banda larga fibra")) {
     result = "Ponto Principal FIBRA";
     ruleApplied = "Regra 4: PP BL + Instalacao BL Fibra";
   }

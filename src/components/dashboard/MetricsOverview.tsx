@@ -61,6 +61,8 @@ import { Text } from "@/components/ui/text";
 import { supabase } from "@/lib/supabase";
 import { clearDefaultUsers } from "@/utils/clearDefaultUsers";
 import { RegisterForm } from "@/components/auth/RegisterForm";
+import { PermanenciaPorTipoServico } from "./PermanenciaPorTipoServico";
+import { ValorDeFaceVendas } from "@/components/dashboard/ValorDeFaceVendas";
 
 export function MetricsOverview() {
   const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs } = useData();
@@ -77,6 +79,12 @@ export function MetricsOverview() {
   const [filteringTimeout, setFilteringTimeout] = useState<NodeJS.Timeout | null>(null);
   // Novo estado para filtro de tipo de serviço original
   const [originalServiceTypeFilter, setOriginalServiceTypeFilter] = useState<string>("");
+  
+  // Resetar o filtro de tipo de serviço original quando mudar de guia
+  useEffect(() => {
+    // Reset do filtro ao mudar de guia
+    setOriginalServiceTypeFilter("");
+  }, [activeTab]);
   
   // Função para determinar a cor do alerta baseado na taxa de reabertura
   const getReopeningAlertColor = (rate: number) => {
@@ -713,6 +721,10 @@ export function MetricsOverview() {
             <BarChart2 className="mr-2 h-4 w-4" />
             Vendedor
           </TabsTrigger>
+          <TabsTrigger value="indicadores" className="flex items-center">
+            <BarChart2 className="mr-2 h-4 w-4" />
+            Indicadores
+          </TabsTrigger>
           <TabsTrigger value="users" className="flex items-center">
             <UserCog className="mr-2 h-4 w-4" />
             Usuários
@@ -1342,6 +1354,573 @@ export function MetricsOverview() {
         <VendedorTabContent />
       </TabsContent>
       
+      {/* Indicadores Tab */}
+      <TabsContent value="indicadores" className="space-y-4">
+        <FilterControls />
+        
+        {!showData ? (
+          <NoDataMessage />
+        ) : (
+          <>
+            {/* Quadro unificado de métricas de desempenho */}
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  <div className="flex items-center">
+                    <BarChart2 className="mr-2 h-5 w-5" />
+                    Indicadores de Desempenho
+                  </div>
+                </CardTitle>
+                <CardDescription>
+                  Percentuais de Tempo de Atendimento e Reaberturas por tipo de serviço
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Assistência Técnica TV */}
+                  <div className="border rounded-md p-4 shadow-sm">
+                    <h3 className="text-lg font-medium text-center mb-3">Assistência Técnica TV</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="text-sm text-muted-foreground text-center">Tempo de Atendimento</div>
+                        {(() => {
+                          const metrics = Object.entries(timeMetrics.servicesByType)
+                            .filter(([type]) => type === 'Assistência Técnica TV')
+                            .map(([_, data]) => data)[0];
+                          
+                          if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
+                          
+                          const goalPercent = metrics.percentWithinGoal;
+                          // Critério específico para Assistência Técnica TV
+                          const progressClass = goalPercent >= 85 
+                            ? "bg-green-600/20" 
+                            : goalPercent >= 40
+                              ? "bg-yellow-500/20" 
+                              : "bg-red-600/20";
+                          const indicatorClass = goalPercent >= 85 
+                            ? "!bg-green-600" 
+                            : goalPercent >= 40
+                              ? "!bg-yellow-500" 
+                              : "!bg-red-600";
+                          
+                          return (
+                            <>
+                              <div className="text-center text-2xl font-bold">{goalPercent.toFixed(2)}%</div>
+                              <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
+                                <div 
+                                  className={indicatorClass + " h-full rounded-full"} 
+                                  style={{ width: `${goalPercent}%` }}
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-sm text-muted-foreground text-center">Reaberturas</div>
+                        {(() => {
+                          const data = getReopeningMetrics.reopeningsByOriginalType["Corretiva"];
+                          
+                          if (!data) return <div className="text-center text-2xl font-bold">-</div>;
+                          
+                          // Critérios para Reaberturas de Assistência Técnica TV
+                          const reopeningClass = data.reopeningRate < 8
+                            ? "bg-green-100" 
+                            : data.reopeningRate < 16
+                              ? "bg-yellow-100" 
+                              : "bg-red-100";
+                          const reopeningIndicatorClass = data.reopeningRate < 8
+                            ? "bg-green-400" 
+                            : data.reopeningRate < 16
+                              ? "bg-yellow-400" 
+                              : "bg-red-400";
+                          
+                          return (
+                            <>
+                              <div className="text-center text-2xl font-bold">{data.reopeningRate.toFixed(2)}%</div>
+                              <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
+                                <div 
+                                  className={reopeningIndicatorClass + " h-full rounded-full"} 
+                                  style={{ width: `${data.reopeningRate}%` }}
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Ponto Principal TV */}
+                  <div className="border rounded-md p-4 shadow-sm">
+                    <h3 className="text-lg font-medium text-center mb-3">Ponto Principal TV</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="text-sm text-muted-foreground text-center">Tempo de Atendimento</div>
+                        {(() => {
+                          const metrics = Object.entries(timeMetrics.servicesByType)
+                            .filter(([type]) => type === 'Ponto Principal TV')
+                            .map(([_, data]) => data)[0];
+                          
+                          if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
+                          
+                          const goalPercent = metrics.percentWithinGoal;
+                          // Critério específico para Ponto Principal TV
+                          const progressClass = goalPercent >= 75
+                            ? "bg-green-600/20" 
+                            : "bg-red-600/20";
+                          const indicatorClass = goalPercent >= 75
+                            ? "!bg-green-600" 
+                            : "!bg-red-600";
+                          
+                          return (
+                            <>
+                              <div className="text-center text-2xl font-bold">{goalPercent.toFixed(2)}%</div>
+                              <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
+                                <div 
+                                  className={indicatorClass + " h-full rounded-full"} 
+                                  style={{ width: `${goalPercent}%` }}
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-sm text-muted-foreground text-center">Reaberturas</div>
+                        {(() => {
+                          const data = getReopeningMetrics.reopeningsByOriginalType["Ponto Principal"];
+                          
+                          if (!data) return <div className="text-center text-2xl font-bold">-</div>;
+                          
+                          // Critérios para Reaberturas de Ponto Principal TV
+                          const reopeningClass = data.reopeningRate < 2
+                            ? "bg-green-100" 
+                            : "bg-red-100";
+                          const reopeningIndicatorClass = data.reopeningRate < 2
+                            ? "bg-green-400" 
+                            : "bg-red-400";
+                          
+                          return (
+                            <>
+                              <div className="text-center text-2xl font-bold">{data.reopeningRate.toFixed(2)}%</div>
+                              <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
+                                <div 
+                                  className={reopeningIndicatorClass + " h-full rounded-full"} 
+                                  style={{ width: `${data.reopeningRate}%` }}
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Assistência Técnica FIBRA */}
+                  <div className="border rounded-md p-4 shadow-sm">
+                    <h3 className="text-lg font-medium text-center mb-3">Assistência Técnica FIBRA</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="text-sm text-muted-foreground text-center">Tempo de Atendimento</div>
+                        {(() => {
+                          const metrics = Object.entries(timeMetrics.servicesByType)
+                            .filter(([type]) => type === 'Assistência Técnica FIBRA')
+                            .map(([_, data]) => data)[0];
+                          
+                          if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
+                          
+                          const goalPercent = metrics.percentWithinGoal;
+                          // Critério específico para Assistência Técnica FIBRA
+                          const progressClass = goalPercent >= 75
+                            ? "bg-green-600/20" 
+                            : goalPercent >= 30
+                              ? "bg-yellow-500/20" 
+                              : "bg-red-600/20";
+                          const indicatorClass = goalPercent >= 75
+                            ? "!bg-green-600" 
+                            : goalPercent >= 30
+                              ? "!bg-yellow-500" 
+                              : "!bg-red-600";
+                          
+                          return (
+                            <>
+                              <div className="text-center text-2xl font-bold">{goalPercent.toFixed(2)}%</div>
+                              <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
+                                <div 
+                                  className={indicatorClass + " h-full rounded-full"} 
+                                  style={{ width: `${goalPercent}%` }}
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-sm text-muted-foreground text-center">Reaberturas</div>
+                        {(() => {
+                          const data = getReopeningMetrics.reopeningsByOriginalType["Corretiva BL"];
+                          
+                          if (!data) return <div className="text-center text-2xl font-bold">-</div>;
+                          
+                          // Critérios para Reaberturas de Assistência Técnica FIBRA
+                          const reopeningClass = data.reopeningRate < 3.5
+                            ? "bg-green-100" 
+                            : data.reopeningRate < 10.5
+                              ? "bg-yellow-100" 
+                              : "bg-red-100";
+                          const reopeningIndicatorClass = data.reopeningRate < 3.5
+                            ? "bg-green-400" 
+                            : data.reopeningRate < 10.5
+                              ? "bg-yellow-400" 
+                              : "bg-red-400";
+                          
+                          return (
+                            <>
+                              <div className="text-center text-2xl font-bold">{data.reopeningRate.toFixed(2)}%</div>
+                              <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
+                                <div 
+                                  className={reopeningIndicatorClass + " h-full rounded-full"} 
+                                  style={{ width: `${data.reopeningRate}%` }}
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Ponto Principal FIBRA */}
+                  <div className="border rounded-md p-4 shadow-sm">
+                    <h3 className="text-lg font-medium text-center mb-3">Ponto Principal FIBRA</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="text-sm text-muted-foreground text-center">Tempo de Atendimento</div>
+                        {(() => {
+                          const metrics = Object.entries(timeMetrics.servicesByType)
+                            .filter(([type]) => type === 'Ponto Principal FIBRA')
+                            .map(([_, data]) => data)[0];
+                          
+                          if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
+                          
+                          const goalPercent = metrics.percentWithinGoal;
+                          // Critério específico para Ponto Principal FIBRA
+                          const progressClass = goalPercent >= 75
+                            ? "bg-green-600/20" 
+                            : "bg-red-600/20";
+                          const indicatorClass = goalPercent >= 75
+                            ? "!bg-green-600" 
+                            : "!bg-red-600";
+                          
+                          return (
+                            <>
+                              <div className="text-center text-2xl font-bold">{goalPercent.toFixed(2)}%</div>
+                              <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
+                                <div 
+                                  className={indicatorClass + " h-full rounded-full"} 
+                                  style={{ width: `${goalPercent}%` }}
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-sm text-muted-foreground text-center">Reaberturas</div>
+                        {(() => {
+                          const data = getReopeningMetrics.reopeningsByOriginalType["Ponto Principal BL"];
+                          
+                          if (!data) return <div className="text-center text-2xl font-bold">-</div>;
+                          
+                          // Critérios para Reaberturas de Ponto Principal FIBRA
+                          const reopeningClass = data.reopeningRate <= 5
+                            ? "bg-green-100" 
+                            : "bg-red-100";
+                          const reopeningIndicatorClass = data.reopeningRate <= 5
+                            ? "bg-green-400" 
+                            : "bg-red-400";
+                          
+                          return (
+                            <>
+                              <div className="text-center text-2xl font-bold">{data.reopeningRate.toFixed(2)}%</div>
+                              <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
+                                <div 
+                                  className={reopeningIndicatorClass + " h-full rounded-full"} 
+                                  style={{ width: `${data.reopeningRate}%` }}
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Painel de Faixas de Desempenho e Bonificações */}
+            <Card className="w-full mt-4">
+              <CardHeader>
+                <CardTitle>
+                  <div className="flex items-center">
+                    <BarChart2 className="mr-2 h-5 w-5" />
+                    Faixas de Desempenho e Bonificações - Serviços
+                  </div>
+                </CardTitle>
+                <CardDescription>
+                  Associação entre TA e Reabertura e resultados de bonificação
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  {/* A) Assistência Técnica TV ↔ Corretiva */}
+                  {(() => {
+                    // Obter o percentual de TA para Assistência Técnica TV
+                    const taPercentage = Object.entries(timeMetrics.servicesByType)
+                      .filter(([type]) => type === 'Assistência Técnica TV')
+                      .map(([_, metrics]) => metrics.percentWithinGoal)[0] || 0;
+                    
+                    // Obter o percentual de Reabertura para Corretiva
+                    const reopeningRate = getReopeningMetrics.reopeningsByOriginalType["Corretiva"]?.reopeningRate || 0;
+                    
+                    // Determinar a bonificação com base nas tabelas
+                    let bonusPercentage = 0;
+                    if (taPercentage < 40) {
+                      bonusPercentage = 0;
+                    } else if (taPercentage < 55) {
+                      if (reopeningRate < 8) bonusPercentage = 30;
+                      else if (reopeningRate < 12) bonusPercentage = 20;
+                      else if (reopeningRate < 16) bonusPercentage = 10;
+                      else bonusPercentage = 0;
+                    } else if (taPercentage < 70) {
+                      if (reopeningRate < 8) bonusPercentage = 40;
+                      else if (reopeningRate < 12) bonusPercentage = 30;
+                      else if (reopeningRate < 16) bonusPercentage = 20;
+                      else bonusPercentage = 0;
+                    } else if (taPercentage < 85) {
+                      if (reopeningRate < 8) bonusPercentage = 50;
+                      else if (reopeningRate < 12) bonusPercentage = 40;
+                      else if (reopeningRate < 16) bonusPercentage = 30;
+                      else bonusPercentage = 0;
+                    } else {
+                      if (reopeningRate < 8) bonusPercentage = 60;
+                      else if (reopeningRate < 12) bonusPercentage = 50;
+                      else if (reopeningRate < 16) bonusPercentage = 40;
+                      else bonusPercentage = 0;
+                    }
+                    
+                    const cardClass = bonusPercentage > 0 ? "bg-green-50" : "bg-red-50";
+                    const textClass = bonusPercentage > 0 ? "text-green-700" : "text-red-700";
+                    
+                    return (
+                      <Card className={cardClass}>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium">
+                            Assistência Técnica TV
+                          </CardTitle>
+                          <CardDescription>
+                            TA: {taPercentage.toFixed(2)}% | Reabertura: {reopeningRate.toFixed(2)}%
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className={`text-xl font-bold ${textClass}`}>
+                            {bonusPercentage > 0 ? `${bonusPercentage}% bonificação` : "Não Elegível"}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
+                  
+                  {/* B) Assistência Técnica FIBRA ↔ Corretiva BL */}
+                  {(() => {
+                    // Obter o percentual de TA para Assistência Técnica FIBRA
+                    const taPercentage = Object.entries(timeMetrics.servicesByType)
+                      .filter(([type]) => type === 'Assistência Técnica FIBRA')
+                      .map(([_, metrics]) => metrics.percentWithinGoal)[0] || 0;
+                    
+                    // Obter o percentual de Reabertura para Corretiva BL
+                    const reopeningRate = getReopeningMetrics.reopeningsByOriginalType["Corretiva BL"]?.reopeningRate || 0;
+                    
+                    // Determinar a bonificação com base nas tabelas
+                    let bonusPercentage = 0;
+                    if (taPercentage < 30) {
+                      bonusPercentage = 0;
+                    } else if (taPercentage < 45) {
+                      if (reopeningRate < 3.5) bonusPercentage = 30;
+                      else if (reopeningRate < 7) bonusPercentage = 20;
+                      else if (reopeningRate < 10.5) bonusPercentage = 10;
+                      else bonusPercentage = 0;
+                    } else if (taPercentage < 60) {
+                      if (reopeningRate < 3.5) bonusPercentage = 40;
+                      else if (reopeningRate < 7) bonusPercentage = 30;
+                      else if (reopeningRate < 10.5) bonusPercentage = 20;
+                      else bonusPercentage = 0;
+                    } else if (taPercentage < 75) {
+                      if (reopeningRate < 3.5) bonusPercentage = 50;
+                      else if (reopeningRate < 7) bonusPercentage = 40;
+                      else if (reopeningRate < 10.5) bonusPercentage = 30;
+                      else bonusPercentage = 0;
+                    } else {
+                      if (reopeningRate < 3.5) bonusPercentage = 60;
+                      else if (reopeningRate < 7) bonusPercentage = 50;
+                      else if (reopeningRate < 10.5) bonusPercentage = 40;
+                      else bonusPercentage = 0;
+                    }
+                    
+                    const cardClass = bonusPercentage > 0 ? "bg-green-50" : "bg-red-50";
+                    const textClass = bonusPercentage > 0 ? "text-green-700" : "text-red-700";
+                    
+                    return (
+                      <Card className={cardClass}>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium">
+                            Assistência Técnica FIBRA
+                          </CardTitle>
+                          <CardDescription>
+                            TA: {taPercentage.toFixed(2)}% | Reabertura: {reopeningRate.toFixed(2)}%
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className={`text-xl font-bold ${textClass}`}>
+                            {bonusPercentage > 0 ? `${bonusPercentage}% bonificação` : "Não Elegível"}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
+                  
+                  {/* C) Ponto Principal TV ↔ Ponto Principal */}
+                  {(() => {
+                    // Obter o percentual de TA para Ponto Principal TV
+                    const taPercentage = Object.entries(timeMetrics.servicesByType)
+                      .filter(([type]) => type === 'Ponto Principal TV')
+                      .map(([_, metrics]) => metrics.percentWithinGoal)[0] || 0;
+                    
+                    // Obter o percentual de Reabertura para Ponto Principal
+                    const reopeningRate = getReopeningMetrics.reopeningsByOriginalType["Ponto Principal"]?.reopeningRate || 0;
+                    
+                    // Determinar a bonificação com base nas tabelas
+                    let result = "Não Elegível";
+                    let isEligible = false;
+                    
+                    if (taPercentage >= 75 && reopeningRate <= 2) {
+                      result = "R$20,00";
+                      isEligible = true;
+                    }
+                    
+                    const cardClass = isEligible ? "bg-green-50" : "bg-red-50";
+                    const textClass = isEligible ? "text-green-700" : "text-red-700";
+                    
+                    return (
+                      <Card className={cardClass}>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium">
+                            Ponto Principal TV
+                          </CardTitle>
+                          <CardDescription>
+                            TA: {taPercentage.toFixed(2)}% | Reabertura: {reopeningRate.toFixed(2)}%
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className={`text-xl font-bold ${textClass}`}>
+                            {result}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
+                  
+                  {/* D) Ponto Principal FIBRA ↔ Ponto Principal BL */}
+                  {(() => {
+                    // Obter o percentual de TA para Ponto Principal FIBRA
+                    const taPercentage = Object.entries(timeMetrics.servicesByType)
+                      .filter(([type]) => type === 'Ponto Principal FIBRA')
+                      .map(([_, metrics]) => metrics.percentWithinGoal)[0] || 0;
+                    
+                    // Obter o percentual de Reabertura para Ponto Principal BL
+                    const reopeningRate = getReopeningMetrics.reopeningsByOriginalType["Ponto Principal BL"]?.reopeningRate || 0;
+                    
+                    // Determinar a bonificação com base nas tabelas
+                    let result = "Não Elegível";
+                    let isEligible = false;
+                    
+                    if (taPercentage >= 75 && reopeningRate <= 5) {
+                      result = "R$40,00";
+                      isEligible = true;
+                    }
+                    
+                    const cardClass = isEligible ? "bg-green-50" : "bg-red-50";
+                    const textClass = isEligible ? "text-green-700" : "text-red-700";
+                    
+                    return (
+                      <Card className={cardClass}>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium">
+                            Ponto Principal FIBRA
+                          </CardTitle>
+                          <CardDescription>
+                            TA: {taPercentage.toFixed(2)}% | Reabertura: {reopeningRate.toFixed(2)}%
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className={`text-xl font-bold ${textClass}`}>
+                            {result}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Quadro Por Tipo de Serviço — Detalhamento por tipo (POS e BL-DGO) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              {/* Quadro de Permanência POS */}
+              <Card className="w-full">
+                <CardHeader>
+                  <CardTitle>
+                    <div className="flex items-center">
+                      <MapPin className="mr-2 h-5 w-5" />
+                      Permanência POS
+                    </div>
+                  </CardTitle>
+                  <CardDescription>
+                    Informações de permanência para serviços POS
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PermanenciaPorTipoServico sigla="POS" />
+                </CardContent>
+              </Card>
+              
+              {/* Quadro de Permanência Fibra */}
+              <Card className="w-full">
+                <CardHeader>
+                  <CardTitle>
+                    <div className="flex items-center">
+                      <MapPin className="mr-2 h-5 w-5" />
+                      Permanência Fibra
+                    </div>
+                  </CardTitle>
+                  <CardDescription>
+                    Informações de permanência para serviços BL-DGO
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PermanenciaPorTipoServico sigla="BL-DGO" />
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* Novo quadro de Faixas de Desempenho e Bonificações - Vendas */}
+            <ValorDeFaceVendas />
+          </>
+        )}
+      </TabsContent>
+      
       {/* Technicians Metrics Tab */}
       <TabsContent value="technicians" className="space-y-4">
         <FilterControls />
@@ -1598,7 +2177,7 @@ export function MetricsOverview() {
   </Tabs>
     
     {/* Mostrar a tabela de ordens de serviço apenas para as guias principais quando um filtro está aplicado */}
-    {activeTab !== "users" && activeTab !== "import" && activeTab !== "reopening" && activeTab !== "technicians" && activeTab !== "vendedor" && activeTab !== "permanencia" && showData && (
+    {activeTab !== "users" && activeTab !== "import" && activeTab !== "reopening" && activeTab !== "technicians" && activeTab !== "vendedor" && activeTab !== "permanencia" && activeTab !== "indicadores" && showData && (
       <div className="mt-6">
         <ServiceOrderTable filteredOrders={filteredServiceOrders} />
       </div>
@@ -4017,6 +4596,48 @@ function PermanenciaTabContent() {
           </div>
         </CardContent>
       </Card>
+      
+      {/* Quadros de permanência */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        {/* Quadro de Permanência POS */}
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle>
+              <div className="flex items-center">
+                <MapPin className="mr-2 h-5 w-5" />
+                Permanência POS
+              </div>
+            </CardTitle>
+            <CardDescription>
+              Informações de permanência para serviços POS
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PermanenciaPorTipoServico sigla="POS" />
+          </CardContent>
+        </Card>
+        
+        {/* Quadro de Permanência Fibra */}
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle>
+              <div className="flex items-center">
+                <MapPin className="mr-2 h-5 w-5" />
+                Permanência Fibra
+              </div>
+            </CardTitle>
+            <CardDescription>
+              Informações de permanência para serviços BL-DGO
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PermanenciaPorTipoServico sigla="BL-DGO" />
+          </CardContent>
+        </Card>
+      </div>
+      
+      {/* Novo quadro de Faixas de Desempenho e Bonificações - Vendas */}
+      <ValorDeFaceVendas />
     </>
   );
 }
