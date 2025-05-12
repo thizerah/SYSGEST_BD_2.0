@@ -42,6 +42,8 @@ interface DataContextType {
     reopeningRate: number;
     averageTimeBetween: number;
     reopeningsByTechnician: Record<string, number>;
+    reopeningsByTechnicianTV: Record<string, number>;
+    reopeningsByTechnicianFibra: Record<string, number>;
     reopeningsByType: Record<string, number>;
     reopeningsByCity: Record<string, number>;
     reopeningsByNeighborhood: Record<string, number>;
@@ -399,170 +401,116 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const calculateReopeningMetrics = (filteredOrders?: ServiceOrder[]) => {
-    // Incluir também ordens canceladas na análise de reabertura
-    const ordersForReopeningAnalysis = (filteredOrders || serviceOrders).filter(order => 
-      order.include_in_metrics || (order.status === "Cancelada" && 
-                                 (order.subtipo_servico === "Corretiva" || 
-                                  order.subtipo_servico === "Corretiva BL"))
-    );
-    
-    // Para o denominador da taxa de reabertura, usar apenas ordens não canceladas
-    const metricsOrdersForRate = (filteredOrders || serviceOrders).filter(order => 
-      order.include_in_metrics && order.status !== "Cancelada"
-    );
-    
-    const ordersByClient: Record<string, ServiceOrder[]> = {};
-    
-    ordersForReopeningAnalysis.forEach(order => {
-      if (order.codigo_cliente && order.codigo_cliente.trim() !== '') {
-        if (!ordersByClient[order.codigo_cliente]) {
-          ordersByClient[order.codigo_cliente] = [];
-        }
-        ordersByClient[order.codigo_cliente].push(order);
-      }
-    });
-
-    console.log("Ordens agrupadas por código de cliente:", Object.keys(ordersByClient).length);
+    const reopeningPairs = getReopeningPairs(filteredOrders);
     
     let reopenedOrders = 0;
     let totalTimeBetween = 0;
+    
+    // Objeto para armazenar quantidade de reaberturas por técnico
     const reopeningsByTechnician: Record<string, number> = {};
+    
+    // Objetos para armazenar reaberturas por técnico e por segmento
+    const reopeningsByTechnicianTV: Record<string, number> = {};
+    const reopeningsByTechnicianFibra: Record<string, number> = {};
+    
+    // Objeto para armazenar reaberturas por tipo
     const reopeningsByType: Record<string, number> = {};
+    
+    // Objeto para armazenar reaberturas por cidade
     const reopeningsByCity: Record<string, number> = {};
+    
+    // Objeto para armazenar reaberturas por bairro
     const reopeningsByNeighborhood: Record<string, number> = {};
+    
+    // Objeto para armazenar reaberturas por tipo original com taxas
     const reopeningsByOriginalType: Record<string, { 
       reopenings: number; 
       totalOriginals: number; 
       reopeningRate: number 
     }> = {};
+    
+    // Objeto para armazenar reaberturas por motivo
     const reopeningsByReason: Record<string, {
       byOriginalType: Record<string, number>;
       total: number;
     }> = {};
     
+    // Contador para ordens originais por tipo
     const originalOrdersByType: Record<string, number> = {};
     
-    // Contabilizar todas as ordens do tipo específico, não apenas as finalizadas
-    (filteredOrders || serviceOrders).forEach(order => {
-      const isOriginalType = ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
-        type => order.subtipo_servico?.includes(type)
-      );
-      
-      if (isOriginalType) {
-        const type = order.subtipo_servico || "Desconhecido";
-        originalOrdersByType[type] = (originalOrdersByType[type] || 0) + 1;
-        
-        if (!reopeningsByOriginalType[type]) {
-          reopeningsByOriginalType[type] = {
-            reopenings: 0,
-            totalOriginals: 0,
-            reopeningRate: 0
-          };
-        }
-        reopeningsByOriginalType[type].totalOriginals++;
-      }
+    // Ordens para análise (excluindo canceladas)
+    const metricsOrders = (filteredOrders || serviceOrders).filter(order => 
+      order.include_in_metrics && !order.status.includes("Cancelada")
+    );
+    
+    // Adicionalmente, para o cálculo da taxa, consideramos apenas os tipos de serviço que podem gerar reaberturas
+    const metricsOrdersForRate = metricsOrders.filter(order => 
+      VALID_SUBTYPES.some(type => order.subtipo_servico?.includes(type))
+    );
+    
+    // Contar ordens originais por tipo para análise de taxa
+    metricsOrdersForRate.forEach(order => {
+      const type = order.subtipo_servico || "Desconhecido";
+      originalOrdersByType[type] = (originalOrdersByType[type] || 0) + 1;
     });
     
-    Object.entries(ordersByClient).forEach(([clientCode, orders]) => {
-      if (orders.length <= 1) return;
+    // Processar pares de reabertura
+    reopeningPairs.forEach(pair => {
+      reopenedOrders++;
+      totalTimeBetween += pair.timeBetween;
       
-      console.log(`Analisando cliente ${clientCode} com ${orders.length} ordens`);
+      const techName = pair.reopeningOrder.nome_tecnico || "Desconhecido";
+      reopeningsByTechnician[techName] = (reopeningsByTechnician[techName] || 0) + 1;
       
-      orders.sort((a, b) => 
-        new Date(a.data_criacao).getTime() - new Date(b.data_criacao).getTime()
-      );
-
-      for (let i = 0; i < orders.length; i++) {
-        const currOrder = orders[i];
-        
-        if (currOrder.tipo_servico?.includes("Assistência Técnica")) {
-          for (let j = 0; j < i; j++) {
-            const prevOrder = orders[j];
-            
-            // Para ordens canceladas, usar uma lógica especial para verificar finalização
-            const isPrevOrderFinalized = prevOrder.status === "Cancelada" || 
-                                       VALID_STATUS.some(status => prevOrder.status?.includes(status));
-            
-            const isPrevOrderOriginal = ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
-              type => prevOrder.subtipo_servico?.includes(type)
-            );
-            
-            // Para ordens canceladas, garantir que a data de finalização exista
-            const prevFinalizationDate = prevOrder.status === "Cancelada" && !prevOrder.data_finalizacao
-                                       ? prevOrder.data_criacao  // Usar data_criacao para canceladas sem finalização
-                                       : prevOrder.data_finalizacao;
-            
-            if (isPrevOrderFinalized && isPrevOrderOriginal && 
-                prevFinalizationDate && currOrder.data_criacao &&
-                new Date(currOrder.data_criacao) > new Date(prevFinalizationDate)) {
-              
-              // Calcular a diferença em dias entre a finalização da OS primária e criação da secundária
-              const prevFinalization = new Date(prevFinalizationDate);
-              const currCreation = new Date(currOrder.data_criacao);
-              
-              // Diferença em milissegundos
-              const diffTime = currCreation.getTime() - prevFinalization.getTime();
-              // Converter para dias (1000ms * 60s * 60min * 24h)
-              const diffDays = diffTime / (1000 * 60 * 60 * 24);
-              
-              // Verificar se a diferença é de até 30 dias corridos
-              if (diffDays <= 30 && currOrder.codigo_os !== prevOrder.codigo_os) {
-                reopenedOrders++;
-                
-                console.log(`Reabertura detectada - Cliente: ${currOrder.codigo_cliente}, OS Original: ${prevOrder.codigo_os}, OS Reabertura: ${currOrder.codigo_os}`);
-                console.log(`Tipo Original: ${prevOrder.subtipo_servico}, Tipo Reabertura: ${currOrder.subtipo_servico}`);
-                console.log(`Data finalização original: ${prevFinalizationDate}, Data criação reabertura: ${currOrder.data_criacao}`);
-                console.log(`Diferença em dias: ${diffDays.toFixed(1)} dias`);
-                
-                const timeBetween = (currCreation.getTime() - prevFinalization.getTime()) / (1000 * 60 * 60);
-                totalTimeBetween += timeBetween;
-                
-                const techName = currOrder.nome_tecnico || "Desconhecido";
-                reopeningsByTechnician[techName] = (reopeningsByTechnician[techName] || 0) + 1;
-                
-                const serviceType = currOrder.subtipo_servico || "Desconhecido";
-                reopeningsByType[serviceType] = (reopeningsByType[serviceType] || 0) + 1;
-                
-                const originalType = prevOrder.subtipo_servico || "Desconhecido";
-                if (!reopeningsByOriginalType[originalType]) {
-                  reopeningsByOriginalType[originalType] = {
-                    reopenings: 0,
-                    totalOriginals: originalOrdersByType[originalType] || 1,
-                    reopeningRate: 0
-                  };
-                }
-                reopeningsByOriginalType[originalType].reopenings++;
-                
-                // Capturando o motivo da reabertura
-                const reason = currOrder.motivo || "Motivo não especificado";
-                if (!reopeningsByReason[reason]) {
-                  reopeningsByReason[reason] = {
-                    byOriginalType: {},
-                    total: 0
-                  };
-                }
-                reopeningsByReason[reason].total++;
-                
-                if (!reopeningsByReason[reason].byOriginalType[originalType]) {
-                  reopeningsByReason[reason].byOriginalType[originalType] = 0;
-                }
-                reopeningsByReason[reason].byOriginalType[originalType]++;
-                
-                // Usar os nomes normalizados para cidade e bairro
-                const city = normalizeCityName(currOrder.cidade) || "Desconhecido";
-                const neighborhood = normalizeNeighborhoodName(currOrder.bairro) || "Desconhecido";
-                
-                reopeningsByCity[city] = (reopeningsByCity[city] || 0) + 1;
-                reopeningsByNeighborhood[neighborhood] = (reopeningsByNeighborhood[neighborhood] || 0) + 1;
-                
-                break;
-              }
-            }
-          }
-        }
+      // Processar por segmento
+      const originalCategory = pair.originalServiceCategory || "Não classificado";
+      
+      if (originalCategory.includes("TV")) {
+        reopeningsByTechnicianTV[techName] = (reopeningsByTechnicianTV[techName] || 0) + 1;
+      } else if (originalCategory.includes("FIBRA")) {
+        reopeningsByTechnicianFibra[techName] = (reopeningsByTechnicianFibra[techName] || 0) + 1;
       }
+      
+      const serviceType = pair.reopeningOrder.subtipo_servico || "Desconhecido";
+      reopeningsByType[serviceType] = (reopeningsByType[serviceType] || 0) + 1;
+      
+      const city = normalizeCityName(pair.reopeningOrder.cidade) || "Desconhecido";
+      reopeningsByCity[city] = (reopeningsByCity[city] || 0) + 1;
+      
+      const neighborhood = normalizeNeighborhoodName(pair.reopeningOrder.bairro) || "Desconhecido";
+      reopeningsByNeighborhood[neighborhood] = (reopeningsByNeighborhood[neighborhood] || 0) + 1;
+      
+      const originalType = pair.originalOrder.subtipo_servico || "Desconhecido";
+      
+      if (!reopeningsByOriginalType[originalType]) {
+        reopeningsByOriginalType[originalType] = {
+          reopenings: 0,
+          totalOriginals: originalOrdersByType[originalType] || 1,
+          reopeningRate: 0
+        };
+      }
+      
+      reopeningsByOriginalType[originalType].reopenings++;
+      
+      const reason = pair.reopeningOrder.motivo || "Motivo não especificado";
+      
+      if (!reopeningsByReason[reason]) {
+        reopeningsByReason[reason] = {
+          byOriginalType: {},
+          total: 0
+        };
+      }
+      
+      reopeningsByReason[reason].total++;
+      
+      if (!reopeningsByReason[reason].byOriginalType[originalType]) {
+        reopeningsByReason[reason].byOriginalType[originalType] = 0;
+      }
+      
+      reopeningsByReason[reason].byOriginalType[originalType]++;
     });
     
+    // Calcular taxas de reabertura por tipo
     Object.keys(reopeningsByOriginalType).forEach(type => {
       const { reopenings, totalOriginals } = reopeningsByOriginalType[type];
       reopeningsByOriginalType[type].reopeningRate = totalOriginals > 0 
@@ -570,8 +518,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : 0;
     });
     
-    // Calcular taxa geral de reabertura - considerando total de ordens analisadas
-    // Usar apenas ordens não canceladas no denominador
+    // Calcular taxa geral de reabertura
     const reopeningRate = metricsOrdersForRate.length > 0 
       ? parseFloat(((reopenedOrders / metricsOrdersForRate.length) * 100).toFixed(2)) 
       : 0;
@@ -580,15 +527,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ? parseFloat((totalTimeBetween / reopenedOrders).toFixed(2))
       : 0;
     
-    console.log(`Total reaberturas detectadas: ${reopenedOrders}`);
-    console.log(`Taxa de reabertura: ${reopeningRate}%`);
-    console.log(`Tempo médio entre OS: ${averageTimeBetween} horas`);
-    
     return {
       reopenedOrders,
       reopeningRate,
       averageTimeBetween,
       reopeningsByTechnician,
+      reopeningsByTechnicianTV,
+      reopeningsByTechnicianFibra,
       reopeningsByType,
       reopeningsByCity,
       reopeningsByNeighborhood,
@@ -668,11 +613,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               if (diffDays <= 30) {
                 const timeBetween = (currCreation.getTime() - prevFinalization.getTime()) / (1000 * 60 * 60);
                 
+                // Identificar a categoria do serviço (TV ou Fibra) para ambas as ordens
+                const originalServiceCategory = standardizeServiceCategory(
+                  prevOrder.subtipo_servico || "",
+                  prevOrder.motivo || ""
+                );
+                
+                const reopeningServiceCategory = standardizeServiceCategory(
+                  currOrder.subtipo_servico || "",
+                  currOrder.motivo || ""
+                );
+                
                 reopeningPairs.push({
                   originalOrder: prevOrder,
                   reopeningOrder: currOrder,
                   timeBetween: parseFloat(timeBetween.toFixed(2)),
-                  daysBetween: parseFloat(diffDays.toFixed(1))
+                  daysBetween: parseFloat(diffDays.toFixed(1)),
+                  originalServiceCategory,
+                  reopeningServiceCategory
                 });
                 
                 break;

@@ -137,7 +137,7 @@ export function ValorDeFaceVendas() {
   };
   
   return (
-    <Card className="w-full mt-4">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle>
           <div className="flex items-center">

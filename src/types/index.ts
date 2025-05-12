@@ -101,6 +101,8 @@ export interface ReopeningPair {
   reopeningOrder: ServiceOrder;
   timeBetween: number; // Tempo entre ordens em horas
   daysBetween: number; // Tempo entre ordens em dias
+  originalServiceCategory?: string; // Categoria do serviço original (TV ou Fibra)
+  reopeningServiceCategory?: string; // Categoria do serviço de reabertura (TV ou Fibra)
 }
 
 // Interface para dados de vendas

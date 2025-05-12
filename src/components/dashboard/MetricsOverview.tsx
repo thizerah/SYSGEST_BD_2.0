@@ -21,7 +21,8 @@ import {
   Filter,
   Pencil,
   UserPlus,
-  RefreshCcw
+  RefreshCcw,
+  Search
 } from "lucide-react";
 import { 
   ChartContainer, 
@@ -63,6 +64,7 @@ import { clearDefaultUsers } from "@/utils/clearDefaultUsers";
 import { RegisterForm } from "@/components/auth/RegisterForm";
 import { PermanenciaPorTipoServico } from "./PermanenciaPorTipoServico";
 import { ValorDeFaceVendas } from "@/components/dashboard/ValorDeFaceVendas";
+import { standardizeServiceCategory } from "@/context/DataUtils";
 
 export function MetricsOverview() {
   const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs } = useData();
@@ -394,6 +396,8 @@ export function MetricsOverview() {
         reopeningRate: 0,
         averageTimeBetween: 0,
         reopeningsByTechnician: {},
+        reopeningsByTechnicianTV: {},
+        reopeningsByTechnicianFibra: {},
         reopeningsByType: {},
         reopeningsByCity: {},
         reopeningsByNeighborhood: {},
@@ -410,6 +414,8 @@ export function MetricsOverview() {
         reopeningRate: 0,
         averageTimeBetween: 0,
         reopeningsByTechnician: {},
+        reopeningsByTechnicianTV: {},
+        reopeningsByTechnicianFibra: {},
         reopeningsByType: {},
         reopeningsByCity: {},
         reopeningsByNeighborhood: {},
@@ -432,9 +438,21 @@ export function MetricsOverview() {
     
     // Reaberturas por técnico
     const reopeningsByTechnician: Record<string, number> = {};
+    const reopeningsByTechnicianTV: Record<string, number> = {};
+    const reopeningsByTechnicianFibra: Record<string, number> = {};
+    
     getFilteredReopeningPairs.forEach(pair => {
       const techName = pair.reopeningOrder.nome_tecnico || "Desconhecido";
       reopeningsByTechnician[techName] = (reopeningsByTechnician[techName] || 0) + 1;
+      
+      // Verificar categoria do serviço para separar por segmento
+      const originalCategory = pair.originalServiceCategory || "";
+      
+      if (originalCategory.includes("TV")) {
+        reopeningsByTechnicianTV[techName] = (reopeningsByTechnicianTV[techName] || 0) + 1;
+      } else if (originalCategory.includes("FIBRA")) {
+        reopeningsByTechnicianFibra[techName] = (reopeningsByTechnicianFibra[techName] || 0) + 1;
+      }
     });
     
     // Reaberturas por tipo de serviço
@@ -587,6 +605,8 @@ export function MetricsOverview() {
       reopeningRate,
       averageTimeBetween,
       reopeningsByTechnician,
+      reopeningsByTechnicianTV,
+      reopeningsByTechnicianFibra,
       reopeningsByType,
       reopeningsByCity,
       reopeningsByNeighborhood,
@@ -2013,7 +2033,7 @@ export function MetricsOverview() {
                     </div>
                   </CardTitle>
                   <CardDescription>
-                    Informações de permanência para serviços BL-DGO
+                    Informações de permanência para serviços FIBRA
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -2023,7 +2043,9 @@ export function MetricsOverview() {
             </div>
             
             {/* Novo quadro de Faixas de Desempenho e Bonificações - Vendas */}
-            <ValorDeFaceVendas />
+            <div className="mb-6">
+              <ValorDeFaceVendas />
+            </div>
           </>
         )}
       </TabsContent>
@@ -2045,19 +2067,36 @@ export function MetricsOverview() {
                     Reabertura por Técnico
                   </CardTitle>
                   <CardDescription>
-                    Quantidade de reaberturas por técnico com alertas visuais (ordenado pelo menor ao maior % de reabertura)
+                    Quantidade e percentual de reaberturas por técnico, por tipo de serviço e segmento (TV/Fibra), ordenados pelo menor % de reabertura total e maior volume de serviços
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
-                        <TableRow>
-                          <TableHead>Técnico</TableHead>
-                          <TableHead className="text-right">Total OS</TableHead>
-                          <TableHead className="text-right">Reaberturas</TableHead>
-                          <TableHead className="text-right">% Reabertura</TableHead>
-                          <TableHead className="text-right">Alerta</TableHead>
+                        <TableRow className="bg-muted">
+                          <TableHead rowSpan={2} className="align-middle">Técnico</TableHead>
+                          <TableHead rowSpan={2} className="text-center align-middle">Total<br/>OS</TableHead>
+                          <TableHead rowSpan={2} className="text-center align-middle">Total<br/>Reab.</TableHead>
+                          <TableHead rowSpan={2} className="text-center align-middle">Taxa<br/>Total %</TableHead>
+                          <TableHead className="text-center" colSpan={3}>Ponto Principal TV</TableHead>
+                          <TableHead className="text-center" colSpan={3}>Ponto Principal FIBRA</TableHead>
+                          <TableHead className="text-center" colSpan={3}>Assistência Técnica TV</TableHead>
+                          <TableHead className="text-center" colSpan={3}>Assistência Técnica FIBRA</TableHead>
+                        </TableRow>
+                        <TableRow className="bg-muted">
+                          <TableHead className="text-center py-2">Serv.</TableHead>
+                          <TableHead className="text-center py-2">Reab.</TableHead>
+                          <TableHead className="text-center py-2">%</TableHead>
+                          <TableHead className="text-center py-2">Serv.</TableHead>
+                          <TableHead className="text-center py-2">Reab.</TableHead>
+                          <TableHead className="text-center py-2">%</TableHead>
+                          <TableHead className="text-center py-2">Serv.</TableHead>
+                          <TableHead className="text-center py-2">Reab.</TableHead>
+                          <TableHead className="text-center py-2">%</TableHead>
+                          <TableHead className="text-center py-2">Serv.</TableHead>
+                          <TableHead className="text-center py-2">Reab.</TableHead>
+                          <TableHead className="text-center py-2">%</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -2067,9 +2106,65 @@ export function MetricsOverview() {
                             const techOrders = filteredServiceOrders.filter(o => o.nome_tecnico === name);
                             const totalOrders = techOrders.length;
                             const reopenings = getReopeningMetrics.reopeningsByTechnician[name] || 0;
-                            const reopeningRate = totalOrders > 0 ? (reopenings / totalOrders) * 100 : 0;
-                            const alertEmoji = getReopeningAlertEmoji(reopeningRate);
-                            const alertColor = getReopeningAlertColor(reopeningRate);
+                            
+                            // Contadores específicos por tipo
+                            let pontoTVReopenings = 0;
+                            let pontoFibraReopenings = 0;
+                            let assistenciaTVReopenings = 0;
+                            let assistenciaFibraReopenings = 0;
+                            
+                            // Contadores de serviços por tipo
+                            let pontoPrincipalTVServices = 0;
+                            let pontoPrincipalFibraServices = 0;
+                            let assistenciaTecnicaTVServices = 0;
+                            let assistenciaTecnicaFibraServices = 0;
+                            
+                            // Contar serviços por categoria
+                            techOrders.forEach(order => {
+                              const category = standardizeServiceCategory(
+                                order.subtipo_servico || "",
+                                order.motivo || ""
+                              );
+                              
+                              if (category.includes("Ponto Principal TV")) {
+                                pontoPrincipalTVServices++;
+                              } else if (category.includes("Ponto Principal FIBRA")) {
+                                pontoPrincipalFibraServices++;
+                              } else if (category.includes("Assistência Técnica TV")) {
+                                assistenciaTecnicaTVServices++;
+                              } else if (category.includes("Assistência Técnica FIBRA")) {
+                                assistenciaTecnicaFibraServices++;
+                              }
+                            });
+                            
+                            // Contagem por tipo de reabertura usando os pares
+                            const techReopeningPairs = getFilteredReopeningPairs.filter(
+                              pair => pair.reopeningOrder.nome_tecnico === name
+                            );
+                            
+                            techReopeningPairs.forEach(pair => {
+                              const originalCategory = pair.originalServiceCategory;
+                              if (originalCategory?.includes("Ponto Principal TV")) {
+                                pontoTVReopenings++;
+                              } else if (originalCategory?.includes("Ponto Principal FIBRA")) {
+                                pontoFibraReopenings++;
+                              } else if (originalCategory?.includes("Assistência Técnica TV")) {
+                                assistenciaTVReopenings++;
+                              } else if (originalCategory?.includes("Assistência Técnica FIBRA")) {
+                                assistenciaFibraReopenings++;
+                              }
+                            });
+                            
+                            // Calcular os percentuais para cada tipo de serviço
+                            const pontoTVRate = pontoPrincipalTVServices > 0 ? (pontoTVReopenings / pontoPrincipalTVServices) * 100 : 0;
+                            const pontoFibraRate = pontoPrincipalFibraServices > 0 ? (pontoFibraReopenings / pontoPrincipalFibraServices) * 100 : 0;
+                            const assistenciaTVRate = assistenciaTecnicaTVServices > 0 ? (assistenciaTVReopenings / assistenciaTecnicaTVServices) * 100 : 0;
+                            const assistenciaFibraRate = assistenciaTecnicaFibraServices > 0 ? (assistenciaFibraReopenings / assistenciaTecnicaFibraServices) * 100 : 0;
+                            
+                            // Calcular a taxa de reabertura total com base na soma dos serviços por tipo
+                            const totalServices = pontoPrincipalTVServices + pontoPrincipalFibraServices + 
+                                                assistenciaTecnicaTVServices + assistenciaTecnicaFibraServices;
+                            const totalReopeningRate = totalServices > 0 ? (reopenings / totalServices) * 100 : 0;
                             
                             // Só exibir técnicos que têm dados no período filtrado
                             if (totalOrders === 0) return null;
@@ -2078,27 +2173,105 @@ export function MetricsOverview() {
                               name,
                               totalOrders,
                               reopenings,
-                              reopeningRate,
-                              alertEmoji
+                              totalReopeningRate,
+                              pontoPrincipalTVServices,
+                              pontoTVReopenings,
+                              pontoTVRate,
+                              pontoPrincipalFibraServices,
+                              pontoFibraReopenings,
+                              pontoFibraRate,
+                              assistenciaTecnicaTVServices,
+                              assistenciaTVReopenings,
+                              assistenciaTVRate,
+                              assistenciaTecnicaFibraServices,
+                              assistenciaFibraReopenings,
+                              assistenciaFibraRate
                             };
                           })
                           .filter(Boolean)
-                          .sort((a, b) => a.reopeningRate - b.reopeningRate) // Ordenar por % de reabertura (do menor para o maior)
-                          .map(tech => (
-                              <TableRow key={tech.name}>
+                          .sort((a, b) => {
+                            // Primeiro critério: menor % de reabertura total
+                            if (a.totalReopeningRate !== b.totalReopeningRate) {
+                              return a.totalReopeningRate - b.totalReopeningRate;
+                            }
+                            // Segundo critério: maior quantidade de serviços total
+                            const aTotal = a.pontoPrincipalTVServices + a.pontoPrincipalFibraServices + 
+                                          a.assistenciaTecnicaTVServices + a.assistenciaTecnicaFibraServices;
+                            const bTotal = b.pontoPrincipalTVServices + b.pontoPrincipalFibraServices + 
+                                          b.assistenciaTecnicaTVServices + b.assistenciaTecnicaFibraServices;
+                            return bTotal - aTotal;
+                          })
+                          .map((tech, index) => {
+                            // Funções para colorir percentuais conforme as regras específicas por tipo
+                            const getPontoPrincipalFibraColor = (rate: number) => {
+                              if (rate < 5.00) return "text-green-600";
+                              return "text-red-600";
+                            };
+                            
+                            const getPontoPrincipalTVColor = (rate: number) => {
+                              if (rate < 2.00) return "text-green-600";
+                              return "text-red-600";
+                            };
+                            
+                            const getAssistenciaTVColor = (rate: number) => {
+                              if (rate < 3.50) return "text-green-600";
+                              if (rate < 10.50) return "text-amber-600";
+                              return "text-red-600";
+                            };
+                            
+                            const getAssistenciaFibraColor = (rate: number) => {
+                              if (rate < 8.00) return "text-green-600";
+                              if (rate < 16.00) return "text-amber-600";
+                              return "text-red-600";
+                            };
+                            
+                            // Função para colorir taxa total
+                            const getTotalReopeningColor = (rate: number) => {
+                              if (rate < 5.00) return "text-green-600";
+                              if (rate < 10.00) return "text-amber-600";
+                              return "text-red-600";
+                            };
+                              
+                            return (
+                              <TableRow 
+                                key={tech.name} 
+                                className={index % 2 === 0 ? "bg-sky-50" : "bg-white"}
+                              >
                                 <TableCell className="font-medium">{tech.name}</TableCell>
-                                <TableCell className="text-right">{tech.totalOrders}</TableCell>
-                                <TableCell className="text-right">{tech.reopenings}</TableCell>
-                                <TableCell className="text-right">{tech.reopeningRate.toFixed(2)}%</TableCell>
-                                <TableCell className="text-right">
-                                  <span className="text-lg">{tech.alertEmoji}</span>
+                                <TableCell className="text-center">
+                                  {tech.pontoPrincipalTVServices + tech.pontoPrincipalFibraServices + 
+                                   tech.assistenciaTecnicaTVServices + tech.assistenciaTecnicaFibraServices}
+                                </TableCell>
+                                <TableCell className="text-center font-bold">{tech.reopenings}</TableCell>
+                                <TableCell className={`text-center font-medium ${getTotalReopeningColor(tech.totalReopeningRate)}`}>
+                                  {tech.totalReopeningRate.toFixed(2)}%
+                                </TableCell>
+                                <TableCell className="text-center">{tech.pontoPrincipalTVServices}</TableCell>
+                                <TableCell className="text-center">{tech.pontoTVReopenings}</TableCell>
+                                <TableCell className={`text-center ${getPontoPrincipalTVColor(tech.pontoTVRate)}`}>
+                                  {tech.pontoTVRate.toFixed(2)}%
+                                </TableCell>
+                                <TableCell className="text-center">{tech.pontoPrincipalFibraServices}</TableCell>
+                                <TableCell className="text-center">{tech.pontoFibraReopenings}</TableCell>
+                                <TableCell className={`text-center ${getPontoPrincipalFibraColor(tech.pontoFibraRate)}`}>
+                                  {tech.pontoFibraRate.toFixed(2)}%
+                                </TableCell>
+                                <TableCell className="text-center">{tech.assistenciaTecnicaTVServices}</TableCell>
+                                <TableCell className="text-center">{tech.assistenciaTVReopenings}</TableCell>
+                                <TableCell className={`text-center ${getAssistenciaTVColor(tech.assistenciaTVRate)}`}>
+                                  {tech.assistenciaTVRate.toFixed(2)}%
+                                </TableCell>
+                                <TableCell className="text-center">{tech.assistenciaTecnicaFibraServices}</TableCell>
+                                <TableCell className="text-center">{tech.assistenciaFibraReopenings}</TableCell>
+                                <TableCell className={`text-center ${getAssistenciaFibraColor(tech.assistenciaFibraRate)}`}>
+                                  {tech.assistenciaFibraRate.toFixed(2)}%
                                 </TableCell>
                               </TableRow>
-                          ))}
+                          )})}
                         
                         {technicians.filter(name => name && filteredServiceOrders.some(o => o.nome_tecnico === name)).length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
+                            <TableCell colSpan={16} className="text-center py-4 text-muted-foreground">
                               Nenhum técnico encontrado no período selecionado
                             </TableCell>
                           </TableRow>
@@ -3945,8 +4118,16 @@ function ImportData() {
 // Componente separado para o conteúdo da tab Permanência
 function PermanenciaTabContent() {
   // UseData hook para obter dados do contexto
-  const { vendas, primeirosPagamentos } = useData();
-  const permanenciaMetrics = useData().calculatePermanenciaMetrics();
+  const data = useData();
+  const { vendas, primeirosPagamentos } = data;
+  const permanenciaMetrics = data.calculatePermanenciaMetrics();
+  
+  // Estado para controlar a página atual na tabela de propostas
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const itensPorPagina = 10;
+  
+  // Estado para controlar a busca
+  const [termoBusca, setTermoBusca] = useState("");
   
   // Estados para filtros
   const [filtroSigla, setFiltroSigla] = useState<string[]>([]);
@@ -4216,6 +4397,27 @@ function PermanenciaTabContent() {
         if (!dentroDeAlgumaFaixa) return false;
       }
       
+      // Aplicar filtro de busca
+      if (termoBusca.trim() !== "") {
+        const busca = termoBusca.toLowerCase();
+        const numeroProposta = venda.numero_proposta?.toLowerCase() || "";
+        const cpf = venda.cpf?.toLowerCase() || "";
+        const nomeFantasia = venda.nome_fantasia?.toLowerCase() || "";
+        const produtoPrincipal = venda.produto_principal?.toLowerCase() || "";
+        const nomeProprietario = venda.nome_proprietario?.toLowerCase() || "";
+        
+        // Verificar se algum dos campos contém o termo de busca
+        const contemTermoBusca = 
+          numeroProposta.includes(busca) || 
+          cpf.includes(busca) || 
+          nomeFantasia.includes(busca) || 
+          produtoPrincipal.includes(busca) || 
+          nomeProprietario.includes(busca) ||
+          sigla.toLowerCase().includes(busca);
+        
+        if (!contemTermoBusca) return false;
+      }
+      
       return true;
     });
 
@@ -4246,7 +4448,8 @@ function PermanenciaTabContent() {
     filtroDiasCorridos, 
     getSigla, 
     calcularDiasCorridos, 
-    verificarDiasDentroFaixa
+    verificarDiasDentroFaixa,
+    termoBusca
   ]);
   
   // Ordenar as propostas filtradas por data de importação (mais recentes primeiro)
@@ -4384,7 +4587,7 @@ function PermanenciaTabContent() {
   
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         {/* Primeira card com métrica geral */}
         <Card>
           <CardHeader className="pb-2">
@@ -4422,66 +4625,46 @@ function PermanenciaTabContent() {
           </CardContent>
         </Card>
         
-        {/* Segunda card com detalhes por tipo */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle>Por Tipo de Serviço</CardTitle>
+        {/* Quadro de Permanência POS */}
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle>
+              <div className="flex items-center">
+                <MapPin className="mr-2 h-5 w-5" />
+                Permanência POS
+              </div>
+            </CardTitle>
             <CardDescription>
-              Detalhamento por tipo (POS e BL-DGO)
+              Informações de permanência para serviços POS
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-6">
-            <div>
-              <h3 className="font-semibold text-sm mb-2">POS</h3>
-              <Progress value={dadosPOS.percentual_adimplentes} className="h-2 bg-green-100" />
-              <div className="flex justify-between text-xs mt-1">
-                <span>Adimplentes: {dadosPOS.adimplentes}</span>
-                <span className="font-bold text-green-600">{dadosPOS.percentual_adimplentes.toFixed(2)}%</span>
-              </div>
-              
-              <Progress value={dadosPOS.percentual_inadimplentes} className="h-2 mt-2 bg-amber-100" />
-              <div className="flex justify-between text-xs mt-1">
-                <span>Inadimplentes: {dadosPOS.inadimplentes}</span>
-                <span className="font-bold text-amber-600">{dadosPOS.percentual_inadimplentes.toFixed(2)}%</span>
-              </div>
-              
-              <Progress value={dadosPOS.percentual_cancelados} className="h-2 mt-2 bg-red-100" />
-              <div className="flex justify-between text-xs mt-1">
-                <span>Cancelados: {dadosPOS.cancelados}</span>
-                <span className="font-bold text-red-600">{dadosPOS.percentual_cancelados.toFixed(2)}%</span>
-              </div>
-              
-              <div className="text-xs text-muted-foreground mt-2">
-                Total: {dadosPOS.total}
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="font-semibold text-sm mb-2">BL-DGO</h3>
-              <Progress value={dadosBLDGO.percentual_adimplentes} className="h-2 bg-green-100" />
-              <div className="flex justify-between text-xs mt-1">
-                <span>Adimplentes: {dadosBLDGO.adimplentes}</span>
-                <span className="font-bold text-green-600">{dadosBLDGO.percentual_adimplentes.toFixed(2)}%</span>
-              </div>
-              
-              <Progress value={dadosBLDGO.percentual_inadimplentes} className="h-2 mt-2 bg-amber-100" />
-              <div className="flex justify-between text-xs mt-1">
-                <span>Inadimplentes: {dadosBLDGO.inadimplentes}</span>
-                <span className="font-bold text-amber-600">{dadosBLDGO.percentual_inadimplentes.toFixed(2)}%</span>
-              </div>
-              
-              <Progress value={dadosBLDGO.percentual_cancelados} className="h-2 mt-2 bg-red-100" />
-              <div className="flex justify-between text-xs mt-1">
-                <span>Cancelados: {dadosBLDGO.cancelados}</span>
-                <span className="font-bold text-red-600">{dadosBLDGO.percentual_cancelados.toFixed(2)}%</span>
-              </div>
-              
-              <div className="text-xs text-muted-foreground mt-2">
-                Total: {dadosBLDGO.total}
-              </div>
-            </div>
+          <CardContent>
+            <PermanenciaPorTipoServico sigla="POS" />
           </CardContent>
         </Card>
+        
+        {/* Quadro de Permanência Fibra */}
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle>
+              <div className="flex items-center">
+                <MapPin className="mr-2 h-5 w-5" />
+                Permanência Fibra
+              </div>
+            </CardTitle>
+            <CardDescription>
+              Informações de permanência para serviços FIBRA
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PermanenciaPorTipoServico sigla="BL-DGO" />
+          </CardContent>
+        </Card>
+      </div>
+      
+      {/* Novo quadro de Faixas de Desempenho e Bonificações - Vendas */}
+      <div className="mb-6">
+        <ValorDeFaceVendas />
       </div>
       
       <Card>
@@ -4495,6 +4678,23 @@ function PermanenciaTabContent() {
           {/* Filtros */}
           <div className="mb-4">
             <div className="flex flex-wrap gap-4">
+              <div className="relative">
+                <Label htmlFor="busca" className="text-xs">Buscar</Label>
+                <div className="relative">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="busca"
+                    placeholder="Buscar propostas..."
+                    className="pl-8 w-[200px]"
+                    value={termoBusca}
+                    onChange={(e) => {
+                      setTermoBusca(e.target.value);
+                      setPaginaAtual(1);
+                    }}
+                  />
+                </div>
+              </div>
+              
               <div>
                 <Label htmlFor="filtro-sigla" className="text-xs">Sigla (múltipla)</Label>
                 <MultiSelect 
@@ -4572,12 +4772,14 @@ function PermanenciaTabContent() {
                   variant="outline"
                   size="sm"
                   onClick={() => {
+                    setTermoBusca("");
                     setFiltroSigla([]);
                     setFiltroVendedor("_all");
                     setFiltroPasso([]);
                     setFiltroStatus([]);
                     setFiltroDataHabilitacao([]);
                     setFiltroDiasCorridos([]);
+                    setPaginaAtual(1);
                   }}
                 >
                   Limpar Filtros
@@ -4617,7 +4819,7 @@ function PermanenciaTabContent() {
             </div>
             <div className="flex items-center">
               <div className="w-3 h-3 rounded-full bg-pink-500 mr-1"></div>
-              <span className="text-xs">I - Inclusão (Cliente Ativo - BL-DGO)</span>
+              <span className="text-xs">I - Inclusão (Cliente Ativo - FIBRA)</span>
             </div>
           </div>
           
@@ -4642,7 +4844,10 @@ function PermanenciaTabContent() {
               </TableHeader>
               <TableBody>
                 {propostasFiltradas.length > 0 ? (
-                  propostasFiltradas.map((proposta, index) => {
+                  // Aplicar paginação para exibir apenas os itens da página atual
+                  propostasFiltradas
+                    .slice((paginaAtual - 1) * itensPorPagina, paginaAtual * itensPorPagina)
+                    .map((proposta, index) => {
                     const pagamento = pagamentosPorProposta.get(proposta.numero_proposta);
                     const sigla = getSigla(proposta);
                     const diasCorridos = proposta.data_habilitacao ? calcularDiasCorridos(proposta.data_habilitacao) : 0;
@@ -4700,51 +4905,68 @@ function PermanenciaTabContent() {
                 )}
               </TableBody>
             </Table>
+            
+            {/* Paginação */}
+            {propostasFiltradas.length > itensPorPagina && (
+              <div className="flex items-center justify-between mt-4">
+                <div className="text-sm text-muted-foreground">
+                  Mostrando {Math.min(propostasFiltradas.length, (paginaAtual - 1) * itensPorPagina + 1)}-
+                  {Math.min(propostasFiltradas.length, paginaAtual * itensPorPagina)} de {propostasFiltradas.length}
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
+                    disabled={paginaAtual === 1}
+                  >
+                    Anterior
+                  </Button>
+                  
+                  {Array.from({ length: Math.min(5, Math.ceil(propostasFiltradas.length / itensPorPagina)) }, (_, i) => {
+                    const totalPaginas = Math.ceil(propostasFiltradas.length / itensPorPagina);
+                    let numeroPagina;
+                    
+                    if (totalPaginas <= 5) {
+                      // Se há 5 páginas ou menos, mostra todas
+                      numeroPagina = i + 1;
+                    } else if (paginaAtual <= 3) {
+                      // Se está nas primeiras páginas, mostra 1-5
+                      numeroPagina = i + 1;
+                    } else if (paginaAtual >= totalPaginas - 2) {
+                      // Se está nas últimas páginas, mostra as últimas 5
+                      numeroPagina = totalPaginas - 4 + i;
+                    } else {
+                      // Se está no meio, mostra 2 antes e 2 depois da atual
+                      numeroPagina = paginaAtual - 2 + i;
+                    }
+                    
+                    return (
+                      <Button
+                        key={numeroPagina}
+                        variant={paginaAtual === numeroPagina ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setPaginaAtual(numeroPagina)}
+                      >
+                        {numeroPagina}
+                      </Button>
+                    );
+                  })}
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPaginaAtual(p => Math.min(Math.ceil(propostasFiltradas.length / itensPorPagina), p + 1))}
+                    disabled={paginaAtual === Math.ceil(propostasFiltradas.length / itensPorPagina)}
+                  >
+                    Próxima
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
-      
-      {/* Quadros de permanência */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-        {/* Quadro de Permanência POS */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>
-              <div className="flex items-center">
-                <MapPin className="mr-2 h-5 w-5" />
-                Permanência POS
-              </div>
-            </CardTitle>
-            <CardDescription>
-              Informações de permanência para serviços POS
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PermanenciaPorTipoServico sigla="POS" />
-          </CardContent>
-        </Card>
-        
-        {/* Quadro de Permanência Fibra */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>
-              <div className="flex items-center">
-                <MapPin className="mr-2 h-5 w-5" />
-                Permanência Fibra
-              </div>
-            </CardTitle>
-            <CardDescription>
-              Informações de permanência para serviços BL-DGO
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PermanenciaPorTipoServico sigla="BL-DGO" />
-          </CardContent>
-        </Card>
-      </div>
-      
-      {/* Novo quadro de Faixas de Desempenho e Bonificações - Vendas */}
-      <ValorDeFaceVendas />
     </>
   );
 }
@@ -4954,10 +5176,10 @@ function VendedorTabContent() {
       <Card>
         <CardHeader>
           <CardTitle>
-            Desempenho BL-DGO
+            Desempenho FIBRA
           </CardTitle>
           <CardDescription>
-            Análise de status de clientes por vendedor para serviços BL-DGO
+            Análise de status de clientes por vendedor para serviços FIBRA
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -4998,7 +5220,7 @@ function VendedorTabContent() {
                 ) : (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
-                      Nenhum dado de vendedor disponível para BL-DGO
+                      Nenhum dado de vendedor disponível para FIBRA
                     </TableCell>
                   </TableRow>
                 )}
