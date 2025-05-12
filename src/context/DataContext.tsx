@@ -643,12 +643,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               type => prevOrder.subtipo_servico?.includes(type)
             );
             
+            // Verificar se a OS tem "Cliente Cancelou via SAC" como ação tomada
+            const isClienteCancelou = prevOrder.acao_tomada?.includes("Cliente Cancelou via SAC");
+            
             // Para ordens canceladas, garantir que a data de finalização exista
             const prevFinalizationDate = prevOrder.status === "Cancelada" && !prevOrder.data_finalizacao
                                        ? prevOrder.data_criacao  // Usar data_criacao para canceladas sem finalização
                                        : prevOrder.data_finalizacao;
             
             if (isPrevOrderFinalized && isPrevOrderOriginal && 
+                !isClienteCancelou && // Não considerar como reabertura se o cliente cancelou via SAC
                 prevFinalizationDate && currOrder.data_criacao &&
                 new Date(currOrder.data_criacao) > new Date(prevFinalizationDate) &&
                 currOrder.codigo_os !== prevOrder.codigo_os) {

@@ -137,59 +137,107 @@ export function MetricsOverview() {
     if (!selectedMonth || !selectedYear) return [];
     
     return serviceOrders.filter(order => {
-      if (!order.data_finalizacao) return false;
-      
-      try {
-        // Extrair os componentes da data do formato original da string
-        // Formato esperado: DD/MM/YYYY HH:mm ou YYYY-MM-DDTHH:mm:ss.sssZ
-        let day, month, year;
-        
-        if (order.data_finalizacao.includes('/')) {
-          // Formato DD/MM/YYYY
-          const dateParts = order.data_finalizacao.split(' ')[0].split('/');
-          day = parseInt(dateParts[0], 10);
-          month = parseInt(dateParts[1], 10);
-          year = parseInt(dateParts[2], 10);
-        } else if (order.data_finalizacao.includes('-')) {
-          // Formato ISO YYYY-MM-DD
-          const dateParts = order.data_finalizacao.split('T')[0].split('-');
-          year = parseInt(dateParts[0], 10);
-          month = parseInt(dateParts[1], 10);
-          day = parseInt(dateParts[2], 10);
-        } else {
-          // Formato não reconhecido, tentar com o construtor Date
-          const date = new Date(order.data_finalizacao);
-          day = date.getDate();
-          month = date.getMonth() + 1; // JavaScript meses são 0-indexed
-          year = date.getFullYear();
+      // Verificar data de finalização
+      let includeByFinalization = false;
+      if (order.data_finalizacao) {
+        try {
+          // Extrair os componentes da data do formato original da string
+          // Formato esperado: DD/MM/YYYY HH:mm ou YYYY-MM-DDTHH:mm:ss.sssZ
+          let day, month, year;
+          
+          if (order.data_finalizacao.includes('/')) {
+            // Formato DD/MM/YYYY
+            const dateParts = order.data_finalizacao.split(' ')[0].split('/');
+            day = parseInt(dateParts[0], 10);
+            month = parseInt(dateParts[1], 10);
+            year = parseInt(dateParts[2], 10);
+          } else if (order.data_finalizacao.includes('-')) {
+            // Formato ISO YYYY-MM-DD
+            const dateParts = order.data_finalizacao.split('T')[0].split('-');
+            year = parseInt(dateParts[0], 10);
+            month = parseInt(dateParts[1], 10);
+            day = parseInt(dateParts[2], 10);
+          } else {
+            // Formato não reconhecido, tentar com o construtor Date
+            const date = new Date(order.data_finalizacao);
+            day = date.getDate();
+            month = date.getMonth() + 1; // JavaScript meses são 0-indexed
+            year = date.getFullYear();
+          }
+          
+          // Verificar se a extração foi bem-sucedida
+          if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+            // Converter para o formato esperado pelo filtro
+            const orderMonth = month.toString().padStart(2, '0');
+            const orderYear = year.toString();
+            
+            // Verificar se a data de finalização está no mês/ano selecionado
+            includeByFinalization = (orderMonth === selectedMonth && orderYear === selectedYear);
+            
+            if (includeByFinalization) {
+              console.log(`✅ OS incluída por FINALIZAÇÃO: ${order.codigo_os}, Data finalizacao: ${order.data_finalizacao}, 
+                Mês/Ano: ${orderMonth}/${orderYear}, Filtro: ${selectedMonth}/${selectedYear}`);
+            }
+          }
+        } catch (error) {
+          console.error(`Erro ao processar data de finalização: ${order.data_finalizacao}`, error);
         }
-        
-        // Verificar se a extração foi bem-sucedida
-        if (isNaN(day) || isNaN(month) || isNaN(year)) {
-          console.error(`Data inválida: ${order.data_finalizacao}`);
-          return false;
-        }
-        
-        // Converter para o formato esperado pelo filtro
-        const orderMonth = month.toString().padStart(2, '0');
-        const orderYear = year.toString();
-        
-        // Para depuração
-        if (orderMonth === selectedMonth && orderYear === selectedYear) {
-          console.log(`✅ OS incluída: ${order.codigo_os}, Data finalizacao: ${order.data_finalizacao}, 
-            Mês/Ano identificado: ${orderMonth}/${orderYear}, 
-            Filtro selecionado: ${selectedMonth}/${selectedYear}`);
-        } else {
-          console.log(`❌ OS excluída: ${order.codigo_os}, Data finalizacao: ${order.data_finalizacao}, 
-            Mês/Ano identificado: ${orderMonth}/${orderYear}, 
-            Filtro selecionado: ${selectedMonth}/${selectedYear}`);
-        }
-        
-        return orderMonth === selectedMonth && orderYear === selectedYear;
-      } catch (error) {
-        console.error(`Erro ao processar data: ${order.data_finalizacao}`, error);
-        return false;
       }
+      
+      // Verificar data de criação
+      let includeByCreation = false;
+      if (order.data_criacao) {
+        try {
+          // Extrair os componentes da data do formato original da string
+          let day, month, year;
+          
+          if (order.data_criacao.includes('/')) {
+            // Formato DD/MM/YYYY
+            const dateParts = order.data_criacao.split(' ')[0].split('/');
+            day = parseInt(dateParts[0], 10);
+            month = parseInt(dateParts[1], 10);
+            year = parseInt(dateParts[2], 10);
+          } else if (order.data_criacao.includes('-')) {
+            // Formato ISO YYYY-MM-DD
+            const dateParts = order.data_criacao.split('T')[0].split('-');
+            year = parseInt(dateParts[0], 10);
+            month = parseInt(dateParts[1], 10);
+            day = parseInt(dateParts[2], 10);
+          } else {
+            // Formato não reconhecido, tentar com o construtor Date
+            const date = new Date(order.data_criacao);
+            day = date.getDate();
+            month = date.getMonth() + 1; // JavaScript meses são 0-indexed
+            year = date.getFullYear();
+          }
+          
+          // Verificar se a extração foi bem-sucedida
+          if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+            // Converter para o formato esperado pelo filtro
+            const orderMonth = month.toString().padStart(2, '0');
+            const orderYear = year.toString();
+            
+            // Verificar se a data de criação está no mês/ano selecionado
+            includeByCreation = (orderMonth === selectedMonth && orderYear === selectedYear);
+            
+            if (includeByCreation) {
+              console.log(`✅ OS incluída por CRIAÇÃO: ${order.codigo_os}, Data criação: ${order.data_criacao}, 
+                Mês/Ano: ${orderMonth}/${orderYear}, Filtro: ${selectedMonth}/${selectedYear}`);
+            }
+          }
+        } catch (error) {
+          console.error(`Erro ao processar data de criação: ${order.data_criacao}`, error);
+        }
+      }
+      
+      // Incluir a OS se ela satisfizer qualquer um dos critérios (criação OU finalização no mês)
+      const shouldInclude = includeByFinalization || includeByCreation;
+      
+      if (!shouldInclude) {
+        console.log(`❌ OS excluída: ${order.codigo_os}`);
+      }
+      
+      return shouldInclude;
     });
   }, [serviceOrders, selectedMonth, selectedYear]);
   
@@ -273,9 +321,59 @@ export function MetricsOverview() {
     });
   }, [getReopeningPairs, selectedMonth, selectedYear, showData, originalServiceTypeFilter]);
   
+  // Filtrar ordens de serviço apenas pela data de finalização (para métricas de tempo)
+  const filteredServiceOrdersByFinalization = useMemo(() => {
+    if (!selectedMonth || !selectedYear) return [];
+    
+    return serviceOrders.filter(order => {
+      if (!order.data_finalizacao) return false;
+      
+      try {
+        // Extrair os componentes da data do formato original da string
+        // Formato esperado: DD/MM/YYYY HH:mm ou YYYY-MM-DDTHH:mm:ss.sssZ
+        let day, month, year;
+        
+        if (order.data_finalizacao.includes('/')) {
+          // Formato DD/MM/YYYY
+          const dateParts = order.data_finalizacao.split(' ')[0].split('/');
+          day = parseInt(dateParts[0], 10);
+          month = parseInt(dateParts[1], 10);
+          year = parseInt(dateParts[2], 10);
+        } else if (order.data_finalizacao.includes('-')) {
+          // Formato ISO YYYY-MM-DD
+          const dateParts = order.data_finalizacao.split('T')[0].split('-');
+          year = parseInt(dateParts[0], 10);
+          month = parseInt(dateParts[1], 10);
+          day = parseInt(dateParts[2], 10);
+        } else {
+          // Formato não reconhecido, tentar com o construtor Date
+          const date = new Date(order.data_finalizacao);
+          day = date.getDate();
+          month = date.getMonth() + 1; // JavaScript meses são 0-indexed
+          year = date.getFullYear();
+        }
+        
+        // Verificar se a extração foi bem-sucedida
+        if (isNaN(day) || isNaN(month) || isNaN(year)) {
+          console.error(`Data inválida: ${order.data_finalizacao}`);
+          return false;
+        }
+        
+        // Converter para o formato esperado pelo filtro
+        const orderMonth = month.toString().padStart(2, '0');
+        const orderYear = year.toString();
+        
+        return orderMonth === selectedMonth && orderYear === selectedYear;
+      } catch (error) {
+        console.error(`Erro ao processar data: ${order.data_finalizacao}`, error);
+        return false;
+      }
+    });
+  }, [serviceOrders, selectedMonth, selectedYear]);
+  
   // Obter métricas apenas com as ordens filtradas
   const timeMetrics = useMemo(() => {
-    if (!showData || filteredServiceOrders.length === 0) {
+    if (!showData || filteredServiceOrdersByFinalization.length === 0) {
       return {
         ordersWithinGoal: 0,
         ordersOutsideGoal: 0,
@@ -285,8 +383,8 @@ export function MetricsOverview() {
       };
     }
     
-    return calculateTimeMetrics(filteredServiceOrders);
-  }, [calculateTimeMetrics, filteredServiceOrders, showData]);
+    return calculateTimeMetrics(filteredServiceOrdersByFinalization);
+  }, [calculateTimeMetrics, filteredServiceOrdersByFinalization, showData]);
   
   // Obter métricas de reabertura apenas com base nos pares filtrados
   const getReopeningMetrics = useMemo(() => {
@@ -427,7 +525,7 @@ export function MetricsOverview() {
     Object.keys(reopeningsByOriginalType).forEach(type => {
       const { reopenings, totalOriginals } = reopeningsByOriginalType[type];
       reopeningsByOriginalType[type].reopeningRate = totalOriginals > 0 
-        ? parseFloat(((reopenings / totalOriginals) * 100).toFixed(1))
+        ? (reopenings / totalOriginals) * 100
         : 0;
     });
     
@@ -481,7 +579,7 @@ export function MetricsOverview() {
     }
     
     const reopeningRate = totalMainServices > 0 
-      ? parseFloat(((filteredReopenings / totalMainServices) * 100).toFixed(2))
+      ? (filteredReopenings / totalMainServices) * 100
       : 0;
     
     return {
@@ -588,7 +686,9 @@ export function MetricsOverview() {
           {activeTab === "reopening" ? (
             "Selecione o mês e ano para visualizar reaberturas criadas no período"
           ) : (
-            "Selecione o mês e ano para visualizar os dados (Data de Finalização)"
+            activeTab === "time" ? 
+            "Selecione o mês e ano para visualizar os dados (Data de Finalização)" :
+            "Selecione o mês e ano para visualizar os dados (Data de Criação ou Finalização)"
           )}
         </CardDescription>
       </CardHeader>
@@ -656,12 +756,12 @@ export function MetricsOverview() {
         </div>
         {activeTab === "time" && (
           <div className="mt-2 text-xs text-muted-foreground">
-            <strong>Nota:</strong> Os dados mostrados são das ordens de serviço <strong>finalizadas</strong> no mês e ano selecionados.
+            <strong>Nota:</strong> Os dados mostrados são das ordens de serviço <strong>finalizadas</strong> no mês e ano selecionados. O cálculo de tempo de atendimento considera apenas OSs que já foram concluídas.
           </div>
         )}
         {activeTab === "reopening" && (
           <div className="mt-2 text-xs text-muted-foreground">
-            <strong>Nota:</strong> As reaberturas mostradas são aquelas <strong>criadas</strong> no mês e ano selecionados, mesmo que a OS original tenha sido finalizada em um mês anterior. A taxa de reabertura considera apenas os tipos de serviço que podem gerar reaberturas.
+            <strong>Nota:</strong> As reaberturas mostradas são aquelas <strong>criadas</strong> no mês e ano selecionados, mesmo que a OS original tenha sido finalizada em um mês anterior. A taxa de reabertura considera apenas os tipos de serviço que podem gerar reaberturas. O "Total de Ordens Abertas" considera as OSs <strong>criadas ou finalizadas</strong> no mês selecionado.
           </div>
         )}
       </CardContent>
@@ -920,7 +1020,7 @@ export function MetricsOverview() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{getReopeningMetrics.reopeningRate}%</div>
+              <div className="text-2xl font-bold">{getReopeningMetrics.reopeningRate.toFixed(2).replace('.', ',')}%</div>
               <Progress 
                 value={getReopeningMetrics.reopeningRate} 
                 className="h-2 mt-2"
@@ -1060,6 +1160,8 @@ export function MetricsOverview() {
                       
                       <p className="mt-1"><strong>Importante:</strong> O filtro de Mês/Ano considera a <strong>data de criação da OS de reabertura</strong> (não a data da OS original). 
                       Isso significa que você verá as reaberturas que foram <strong>criadas</strong> no mês selecionado, mesmo que a OS original tenha sido finalizada em um mês anterior.</p>
+                      
+                      <p className="mt-1"><strong>Importante:</strong> OSs com Ação Tomada Original contendo "Cliente Cancelou via SAC" não são consideradas como OSs primárias de reabertura.</p>
                     </div>
                     <div className="flex items-center gap-4 text-xs mt-2">
                       <div>Indicadores de proximidade ao limite:</div>
@@ -1187,7 +1289,9 @@ export function MetricsOverview() {
                       <TableCell className="font-medium">{type}</TableCell>
                       <TableCell className="text-right">{data.totalOriginals}</TableCell>
                       <TableCell className="text-right">{data.reopenings}</TableCell>
-                      <TableCell className="text-right">{data.reopeningRate.toFixed(2)}%</TableCell>
+                      <TableCell className="text-right">
+                        {(data.reopenings / data.totalOriginals * 100).toFixed(2)}%
+                      </TableCell>
                     </TableRow>
                         ))
                       }
@@ -1201,6 +1305,9 @@ export function MetricsOverview() {
                   )}
                 </TableBody>
               </Table>
+              <div className="mt-2 text-xs text-muted-foreground italic">
+                <p><strong>Nota:</strong> Na coluna "Serviços" são contabilizadas todas as ordens que foram <strong>criadas OU finalizadas</strong> no mês selecionado.</p>
+              </div>
             </div>
           </CardContent>
         </Card>
