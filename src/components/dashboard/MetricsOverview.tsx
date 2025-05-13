@@ -442,7 +442,7 @@ export function MetricsOverview() {
     const reopeningsByTechnicianFibra: Record<string, number> = {};
     
     getFilteredReopeningPairs.forEach(pair => {
-      const techName = pair.reopeningOrder.nome_tecnico || "Desconhecido";
+      const techName = pair.originalOrder.nome_tecnico || "Desconhecido";
       reopeningsByTechnician[techName] = (reopeningsByTechnician[techName] || 0) + 1;
       
       // Verificar categoria do serviço para separar por segmento
@@ -1814,27 +1814,27 @@ export function MetricsOverview() {
                     
                     // Determinar a bonificação com base nas tabelas
                     let bonusPercentage = 0;
-                    if (taPercentage < 40) {
+                    if (taPercentage < 30) {
                       bonusPercentage = 0;
-                    } else if (taPercentage < 55) {
-                      if (reopeningRate < 8) bonusPercentage = 30;
-                      else if (reopeningRate < 12) bonusPercentage = 20;
-                      else if (reopeningRate < 16) bonusPercentage = 10;
+                    } else if (taPercentage < 45) {
+                      if (reopeningRate < 3.5) bonusPercentage = 30;
+                      else if (reopeningRate < 7) bonusPercentage = 20;
+                      else if (reopeningRate < 10.5) bonusPercentage = 10;
                       else bonusPercentage = 0;
-                    } else if (taPercentage < 70) {
-                      if (reopeningRate < 8) bonusPercentage = 40;
-                      else if (reopeningRate < 12) bonusPercentage = 30;
-                      else if (reopeningRate < 16) bonusPercentage = 20;
+                    } else if (taPercentage < 60) {
+                      if (reopeningRate < 3.5) bonusPercentage = 40;
+                      else if (reopeningRate < 7) bonusPercentage = 30;
+                      else if (reopeningRate < 10.5) bonusPercentage = 20;
                       else bonusPercentage = 0;
-                    } else if (taPercentage < 85) {
-                      if (reopeningRate < 8) bonusPercentage = 50;
-                      else if (reopeningRate < 12) bonusPercentage = 40;
-                      else if (reopeningRate < 16) bonusPercentage = 30;
+                    } else if (taPercentage < 75) {
+                      if (reopeningRate < 3.5) bonusPercentage = 50;
+                      else if (reopeningRate < 7) bonusPercentage = 40;
+                      else if (reopeningRate < 10.5) bonusPercentage = 30;
                       else bonusPercentage = 0;
                     } else {
-                      if (reopeningRate < 8) bonusPercentage = 60;
-                      else if (reopeningRate < 12) bonusPercentage = 50;
-                      else if (reopeningRate < 16) bonusPercentage = 40;
+                      if (reopeningRate < 3.5) bonusPercentage = 60;
+                      else if (reopeningRate < 7) bonusPercentage = 50;
+                      else if (reopeningRate < 10.5) bonusPercentage = 40;
                       else bonusPercentage = 0;
                     }
                     
@@ -1872,27 +1872,27 @@ export function MetricsOverview() {
                     
                     // Determinar a bonificação com base nas tabelas
                     let bonusPercentage = 0;
-                    if (taPercentage < 30) {
+                    if (taPercentage < 40) {
                       bonusPercentage = 0;
-                    } else if (taPercentage < 45) {
-                      if (reopeningRate < 3.5) bonusPercentage = 30;
-                      else if (reopeningRate < 7) bonusPercentage = 20;
-                      else if (reopeningRate < 10.5) bonusPercentage = 10;
+                    } else if (taPercentage < 55) {
+                      if (reopeningRate < 8) bonusPercentage = 30;
+                      else if (reopeningRate < 12) bonusPercentage = 20;
+                      else if (reopeningRate < 16) bonusPercentage = 10;
                       else bonusPercentage = 0;
-                    } else if (taPercentage < 60) {
-                      if (reopeningRate < 3.5) bonusPercentage = 40;
-                      else if (reopeningRate < 7) bonusPercentage = 30;
-                      else if (reopeningRate < 10.5) bonusPercentage = 20;
+                    } else if (taPercentage < 70) {
+                      if (reopeningRate < 8) bonusPercentage = 40;
+                      else if (reopeningRate < 12) bonusPercentage = 30;
+                      else if (reopeningRate < 16) bonusPercentage = 20;
                       else bonusPercentage = 0;
-                    } else if (taPercentage < 75) {
-                      if (reopeningRate < 3.5) bonusPercentage = 50;
-                      else if (reopeningRate < 7) bonusPercentage = 40;
-                      else if (reopeningRate < 10.5) bonusPercentage = 30;
+                    } else if (taPercentage < 85) {
+                      if (reopeningRate < 8) bonusPercentage = 50;
+                      else if (reopeningRate < 12) bonusPercentage = 40;
+                      else if (reopeningRate < 16) bonusPercentage = 30;
                       else bonusPercentage = 0;
                     } else {
-                      if (reopeningRate < 3.5) bonusPercentage = 60;
-                      else if (reopeningRate < 7) bonusPercentage = 50;
-                      else if (reopeningRate < 10.5) bonusPercentage = 40;
+                      if (reopeningRate < 8) bonusPercentage = 60;
+                      else if (reopeningRate < 12) bonusPercentage = 50;
+                      else if (reopeningRate < 16) bonusPercentage = 40;
                       else bonusPercentage = 0;
                     }
                     
@@ -2139,7 +2139,7 @@ export function MetricsOverview() {
                             
                             // Contagem por tipo de reabertura usando os pares
                             const techReopeningPairs = getFilteredReopeningPairs.filter(
-                              pair => pair.reopeningOrder.nome_tecnico === name
+                              pair => pair.originalOrder.nome_tecnico === name
                             );
                             
                             techReopeningPairs.forEach(pair => {

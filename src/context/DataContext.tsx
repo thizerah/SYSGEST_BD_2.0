@@ -459,7 +459,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       reopenedOrders++;
       totalTimeBetween += pair.timeBetween;
       
-      const techName = pair.reopeningOrder.nome_tecnico || "Desconhecido";
+      // Alteração: Usar o técnico da OS original em vez do técnico da reabertura
+      const techName = pair.originalOrder.nome_tecnico || "Desconhecido";
       reopeningsByTechnician[techName] = (reopeningsByTechnician[techName] || 0) + 1;
       
       // Processar por segmento
