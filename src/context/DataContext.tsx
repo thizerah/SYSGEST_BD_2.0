@@ -750,8 +750,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           adimplentes++;
         } else if (pagamento.passo === '0' || pagamento.passo === '1') {
           adimplentes++;
-        } else if (pagamento.status_pacote === 'I') {
-          // Considerar inclusões como clientes ativos (adimplentes)
+        } else if (pagamento.status_pacote === 'NC') {
+          // Considerar "Não Cobrança" como clientes ativos (adimplentes)
           adimplentes++;
         } else {
           inadimplentes++;

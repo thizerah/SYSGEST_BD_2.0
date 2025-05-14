@@ -81,6 +81,8 @@ export function MetricsOverview() {
   const [filteringTimeout, setFilteringTimeout] = useState<NodeJS.Timeout | null>(null);
   // Novo estado para filtro de tipo de serviço original
   const [originalServiceTypeFilter, setOriginalServiceTypeFilter] = useState<string>("");
+  // Estado para o filtro de data de habilitação (usado nos componentes de permanência)
+  const [filtroDataHabilitacao, setFiltroDataHabilitacao] = useState<string[]>([]);
   
   // Resetar o filtro de tipo de serviço original quando mudar de guia
   useEffect(() => {
@@ -1473,7 +1475,7 @@ export function MetricsOverview() {
       
       {/* Permanência Tab */}
       <TabsContent value="permanencia" className="space-y-4">
-          <PermanenciaTabContent />
+          <PermanenciaTabContent setFiltroGlobal={setFiltroDataHabilitacao} />
       </TabsContent>
       
       {/* Vendedor Tab */}
@@ -2019,7 +2021,7 @@ export function MetricsOverview() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <PermanenciaPorTipoServico sigla="POS" />
+                  <PermanenciaPorTipoServico sigla="POS" datasHabilitacaoFiltradas={filtroDataHabilitacao} />
                 </CardContent>
               </Card>
               
@@ -2037,7 +2039,7 @@ export function MetricsOverview() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <PermanenciaPorTipoServico sigla="BL-DGO" />
+                  <PermanenciaPorTipoServico sigla="BL-DGO" datasHabilitacaoFiltradas={filtroDataHabilitacao} />
                 </CardContent>
               </Card>
             </div>
@@ -4116,7 +4118,7 @@ function ImportData() {
 }
 
 // Componente separado para o conteúdo da tab Permanência
-function PermanenciaTabContent() {
+function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dispatch<React.SetStateAction<string[]>> }) {
   // UseData hook para obter dados do contexto
   const data = useData();
   const { vendas, primeirosPagamentos } = data;
@@ -4136,6 +4138,11 @@ function PermanenciaTabContent() {
   const [filtroStatus, setFiltroStatus] = useState<string[]>([]);
   const [filtroDataHabilitacao, setFiltroDataHabilitacao] = useState<string[]>([]);
   const [filtroDiasCorridos, setFiltroDiasCorridos] = useState<string[]>([]);
+  
+  // Sincronizar o estado local do filtro com o estado global
+  useEffect(() => {
+    setFiltroGlobal(filtroDataHabilitacao);
+  }, [filtroDataHabilitacao, setFiltroGlobal]);
   
   // Função para calcular dias corridos
   const calcularDiasCorridos = useCallback((dataHabilitacao: string): number => {
@@ -4223,7 +4230,7 @@ function PermanenciaTabContent() {
         passo: "0", // Passo 0 para inclusões
         data_passo_cobranca: "", // Sem cobrança ainda
         vencimento_fatura: dataVencimento.toISOString(),
-        status_pacote: "I", // I de Inclusão
+        status_pacote: "NC", // NC de Não Cobrança (anteriormente I de Inclusão)
         data_importacao: new Date().toISOString() // Data atual como data de importação
       };
     });
@@ -4502,8 +4509,8 @@ function PermanenciaTabContent() {
         adimplentes++;
       } else if (pagamento.passo === '0' || pagamento.passo === '1') {
         adimplentes++;
-      } else if (pagamento.status_pacote === 'I') {
-        // Considerar inclusões de BL-DGO como clientes ativos (adimplentes)
+      } else if (pagamento.status_pacote === 'NC') {
+        // Considerar "Não Cobrança" de BL-DGO como clientes ativos (adimplentes)
         adimplentes++;
       } else {
         inadimplentes++;
@@ -4639,7 +4646,7 @@ function PermanenciaTabContent() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <PermanenciaPorTipoServico sigla="POS" />
+            <PermanenciaPorTipoServico sigla="POS" datasHabilitacaoFiltradas={filtroDataHabilitacao} />
           </CardContent>
         </Card>
         
@@ -4657,7 +4664,7 @@ function PermanenciaTabContent() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <PermanenciaPorTipoServico sigla="BL-DGO" />
+            <PermanenciaPorTipoServico sigla="BL-DGO" datasHabilitacaoFiltradas={filtroDataHabilitacao} />
           </CardContent>
         </Card>
       </div>
@@ -4819,7 +4826,7 @@ function PermanenciaTabContent() {
             </div>
             <div className="flex items-center">
               <div className="w-3 h-3 rounded-full bg-pink-500 mr-1"></div>
-              <span className="text-xs">I - Inclusão (Cliente Ativo - FIBRA)</span>
+              <span className="text-xs">NC - Não Cobrança (Cliente FIBRA com informação no sirius mas sem cobrança no arquivo Primeiro Pagamento)</span>
             </div>
           </div>
           
@@ -4877,7 +4884,7 @@ function PermanenciaTabContent() {
                                 pagamento.status_pacote === 'C' ? 'bg-red-600 hover:bg-red-700' : 
                                 pagamento.status_pacote === 'S' ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500' : 
                                 pagamento.status_pacote === 'N' ? 'bg-green-600 hover:bg-green-700' : 
-                                pagamento.status_pacote === 'I' ? 'bg-pink-500 hover:bg-pink-600' : ''
+                                pagamento.status_pacote === 'NC' ? 'bg-pink-500 hover:bg-pink-600' : ''
                               }
                             >
                               {pagamento.status_pacote}

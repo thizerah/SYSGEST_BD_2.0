@@ -5,17 +5,28 @@ import { Venda } from "@/types";
 
 interface PermanenciaPorTipoServicoProps {
   sigla: "POS" | "BL-DGO";
+  datasHabilitacaoFiltradas?: string[];
 }
 
-export function PermanenciaPorTipoServico({ sigla }: PermanenciaPorTipoServicoProps) {
+export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas }: PermanenciaPorTipoServicoProps) {
   const { vendas, primeirosPagamentos } = useData();
 
   const dados = useMemo(() => {
-    // Filtrar vendas pela sigla
+    // Filtrar vendas pela sigla (e pelas datas de habilitação, se fornecidas)
     const vendasFiltradas = vendas.filter(venda => {
       const agrupamento = venda.agrupamento_produto || '';
       const produto = venda.produto_principal || '';
-      return agrupamento.includes(sigla) || produto.includes(sigla);
+      const pertenceSigla = agrupamento.includes(sigla) || produto.includes(sigla);
+      
+      // Verificar filtro de data de habilitação, se fornecido
+      if (datasHabilitacaoFiltradas && datasHabilitacaoFiltradas.length > 0 && venda.data_habilitacao) {
+        // Normalizar a data para o formato YYYY-MM-DD
+        const dataHabilitacao = new Date(venda.data_habilitacao);
+        const dataFormatada = dataHabilitacao.toISOString().split('T')[0];
+        return pertenceSigla && datasHabilitacaoFiltradas.includes(dataFormatada);
+      }
+      
+      return pertenceSigla;
     });
     
     // Mapear vendas por número de proposta
@@ -37,7 +48,16 @@ export function PermanenciaPorTipoServico({ sigla }: PermanenciaPorTipoServicoPr
       // Verificar se não tem pagamento correspondente
       const naoTemPagamento = !primeirosPagamentos.some(p => p.proposta === venda.numero_proposta);
       
-      return sigla === "BL-DGO" && ehSiglaCorreta && naoTemPagamento;
+      // Verificar filtro de data de habilitação, se fornecido
+      let atendeFiltroData = true;
+      if (datasHabilitacaoFiltradas && datasHabilitacaoFiltradas.length > 0 && venda.data_habilitacao) {
+        // Normalizar a data para o formato YYYY-MM-DD
+        const dataHabilitacao = new Date(venda.data_habilitacao);
+        const dataFormatada = dataHabilitacao.toISOString().split('T')[0];
+        atendeFiltroData = datasHabilitacaoFiltradas.includes(dataFormatada);
+      }
+      
+      return sigla === "BL-DGO" && ehSiglaCorreta && naoTemPagamento && atendeFiltroData;
     });
     
     // Contar clientes por categoria
@@ -56,7 +76,7 @@ export function PermanenciaPorTipoServico({ sigla }: PermanenciaPorTipoServicoPr
         adimplentes++;
       } else if (pagamento.passo === '0' || pagamento.passo === '1') {
         adimplentes++;
-      } else if (pagamento.status_pacote === 'I') {
+      } else if (pagamento.status_pacote === 'NC') {
         adimplentes++;
       } else {
         inadimplentes++;
@@ -77,7 +97,7 @@ export function PermanenciaPorTipoServico({ sigla }: PermanenciaPorTipoServicoPr
       percentual_inadimplentes: total > 0 ? (inadimplentes / total) * 100 : 0,
       percentual_cancelados: total > 0 ? (cancelados / total) * 100 : 0
     };
-  }, [sigla, vendas, primeirosPagamentos]);
+  }, [sigla, vendas, primeirosPagamentos, datasHabilitacaoFiltradas]);
 
   return (
     <div className="p-2">
@@ -112,6 +132,12 @@ export function PermanenciaPorTipoServico({ sigla }: PermanenciaPorTipoServicoPr
       <div className="text-sm text-muted-foreground mt-4 font-medium">
         Total de clientes: {dados.total}
       </div>
+      
+      {datasHabilitacaoFiltradas && datasHabilitacaoFiltradas.length > 0 && (
+        <div className="text-xs text-blue-600 mt-2">
+          * Filtrado por data(s) de habilitação selecionada(s)
+        </div>
+      )}
     </div>
   );
 } 
