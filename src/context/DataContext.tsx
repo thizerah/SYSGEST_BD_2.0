@@ -578,6 +578,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const currOrder = orders[i];
         
         if (currOrder.tipo_servico?.includes("Assistência Técnica")) {
+          // Rastrear a ordem de reabertura mais recente para este cliente
+          let lastReopeningIndex = -1;
+          let lastReopeningTime = 0;
+          
+          // Verificar todas as ordens anteriores (possíveis ordens originais ou reaberturas anteriores)
           for (let j = 0; j < i; j++) {
             const prevOrder = orders[j];
             
@@ -606,37 +611,80 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const prevFinalization = new Date(prevFinalizationDate);
               const currCreation = new Date(currOrder.data_criacao);
               
-              // Calcular a diferença em dias entre a finalização da OS primária e criação da secundária
-              const diffTime = currCreation.getTime() - prevFinalization.getTime();
-              const diffDays = diffTime / (1000 * 60 * 60 * 24);
+              // Verificar se estão no mesmo mês vigente
+              const sameMonth = prevFinalization.getMonth() === currCreation.getMonth() && 
+                               prevFinalization.getFullYear() === currCreation.getFullYear();
               
-              // Verificar se a diferença é de até 30 dias corridos
-              if (diffDays <= 30) {
-                const timeBetween = (currCreation.getTime() - prevFinalization.getTime()) / (1000 * 60 * 60);
-                
-                // Identificar a categoria do serviço (TV ou Fibra) para ambas as ordens
-                const originalServiceCategory = standardizeServiceCategory(
-                  prevOrder.subtipo_servico || "",
-                  prevOrder.motivo || ""
-                );
-                
-                const reopeningServiceCategory = standardizeServiceCategory(
-                  currOrder.subtipo_servico || "",
-                  currOrder.motivo || ""
-                );
-                
-                reopeningPairs.push({
-                  originalOrder: prevOrder,
-                  reopeningOrder: currOrder,
-                  timeBetween: parseFloat(timeBetween.toFixed(2)),
-                  daysBetween: parseFloat(diffDays.toFixed(1)),
-                  originalServiceCategory,
-                  reopeningServiceCategory
-                });
-                
-                break;
+              // Verificar a exceção: último dia do mês anterior e primeiro dia do mês atual
+              const isLastDayOfMonth = (date: Date): boolean => {
+                // Cria uma data para o primeiro dia do próximo mês
+                const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+                // Subtrai um dia para obter o último dia do mês atual
+                const lastDay = new Date(nextMonth.getTime() - 86400000);
+                return date.getDate() === lastDay.getDate();
+              };
+              
+              const isFirstDayOfMonth = (date: Date): boolean => {
+                return date.getDate() === 1;
+              };
+              
+              // Verificar se é último dia do mês -> primeiro dia do mês seguinte
+              const isConsecutiveDaysAcrossMonths = 
+                // Verifica se prevFinalization é o último dia do mês
+                isLastDayOfMonth(prevFinalization) && 
+                // Verifica se currCreation é o primeiro dia do mês
+                isFirstDayOfMonth(currCreation) && 
+                // Verifica se a diferença de meses é 1 (mês seguinte)
+                ((currCreation.getMonth() - prevFinalization.getMonth() + 12) % 12 === 1) &&
+                // Se mudou de dezembro para janeiro, verifica se o ano é consecutivo
+                ((currCreation.getMonth() === 0 && prevFinalization.getMonth() === 11) 
+                  ? currCreation.getFullYear() - prevFinalization.getFullYear() === 1
+                  : currCreation.getFullYear() === prevFinalization.getFullYear());
+              
+              // Só considerar reabertura se estiver no mesmo mês OU se for a exceção de data consecutiva entre meses
+              if (sameMonth || isConsecutiveDaysAcrossMonths) {
+                // Guardar o índice e o timestamp da finalização da ordem mais recente
+                if (prevFinalization.getTime() > lastReopeningTime) {
+                  lastReopeningTime = prevFinalization.getTime();
+                  lastReopeningIndex = j;
+                }
               }
             }
+          }
+          
+          // Se encontramos uma ordem válida para fazer o pareamento
+          if (lastReopeningIndex >= 0) {
+            const mostRecentOrder = orders[lastReopeningIndex];
+            const mostRecentFinalizationDate = mostRecentOrder.status === "Cancelada" && !mostRecentOrder.data_finalizacao
+                                             ? mostRecentOrder.data_criacao
+                                             : mostRecentOrder.data_finalizacao;
+            
+            const mostRecentFinalization = new Date(mostRecentFinalizationDate);
+            const currCreation = new Date(currOrder.data_criacao);
+            
+            // Calcular tempos entre as ordens
+            const timeBetween = (currCreation.getTime() - mostRecentFinalization.getTime()) / (1000 * 60 * 60);
+            const diffDays = (currCreation.getTime() - mostRecentFinalization.getTime()) / (1000 * 60 * 60 * 24);
+            
+            // Identificar a categoria do serviço para ambas as ordens
+            const originalServiceCategory = standardizeServiceCategory(
+              mostRecentOrder.subtipo_servico || "",
+              mostRecentOrder.motivo || ""
+            );
+            
+            const reopeningServiceCategory = standardizeServiceCategory(
+              currOrder.subtipo_servico || "",
+              currOrder.motivo || ""
+            );
+            
+            reopeningPairs.push({
+              originalOrder: mostRecentOrder, // Aqui estamos usando a ordem mais recente como "original"
+              reopeningOrder: currOrder,
+              timeBetween: parseFloat(timeBetween.toFixed(2)),
+              daysBetween: parseFloat(diffDays.toFixed(1)),
+              originalServiceCategory,
+              reopeningServiceCategory
+            });
           }
         }
       }

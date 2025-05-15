@@ -1093,7 +1093,7 @@ export function MetricsOverview() {
                     <TableHead>Cliente</TableHead>
                     <TableHead>OS Original</TableHead>
                     <TableHead>Ação Tomada Original</TableHead>
-                    <TableHead>Data Finalização Original</TableHead>
+                    <TableHead>Data Criação Original</TableHead>
                     <TableHead>OS Reabertura</TableHead>
                     <TableHead>Ação Tomada Reabertura</TableHead>
                     <TableHead>Data Criação Reabertura</TableHead>
@@ -1152,7 +1152,7 @@ export function MetricsOverview() {
                         <TableCell className="font-medium">{pair.originalOrder.nome_cliente}</TableCell>
                         <TableCell>{pair.originalOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.originalOrder.subtipo_servico}</span></TableCell>
                         <TableCell>{getAcaoTomadaBadge(pair.originalOrder.acao_tomada, pair.originalOrder.status)}</TableCell>
-                        <TableCell>{formatDate(pair.originalOrder.data_finalizacao)}</TableCell>
+                        <TableCell>{formatDate(pair.originalOrder.data_criacao)}</TableCell>
                         <TableCell>{pair.reopeningOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.reopeningOrder.subtipo_servico}</span></TableCell>
                         <TableCell>{getAcaoTomadaBadge(pair.reopeningOrder.acao_tomada, pair.reopeningOrder.status)}</TableCell>
                         <TableCell>{formatDate(pair.reopeningOrder.data_criacao)}</TableCell>
@@ -1177,8 +1177,9 @@ export function MetricsOverview() {
                   </Table>
                   <div className="mt-2 space-y-1">
                     <div className="text-xs text-muted-foreground italic">
-                      <p>Nota: As reaberturas são identificadas quando uma nova OS é criada em até 30 dias corridos após a finalização da OS original.
-                      Ordens criadas após este prazo não são consideradas como reaberturas.</p>
+                      <p>Nota: As reaberturas são identificadas quando uma nova OS é criada no mesmo mês que a OS original foi finalizada.
+                      <strong> Exceção:</strong> Se a OS original foi finalizada no último dia do mês e a reabertura ocorreu no primeiro dia do mês seguinte, 
+                      também é considerada uma reabertura válida.</p>
                       
                       <p className="mt-1"><strong>Importante:</strong> O filtro de Mês/Ano considera a <strong>data de criação da OS de reabertura</strong> (não a data da OS original). 
                       Isso significa que você verá as reaberturas que foram <strong>criadas</strong> no mês selecionado, mesmo que a OS original tenha sido finalizada em um mês anterior.</p>
