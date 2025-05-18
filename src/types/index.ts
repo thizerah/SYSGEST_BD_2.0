@@ -118,6 +118,7 @@ export interface Venda {
   status_proposta: string;
   data_habilitacao: string;
   dias_corridos?: number; // Calculado: data_habilitacao - data_atual
+  telefone_celular?: string; // Telefone celular do cliente
 }
 
 // Interface para dados de primeiro pagamento

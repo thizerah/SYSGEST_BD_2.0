@@ -4252,6 +4252,7 @@ function ImportData() {
       // Buscar os novos campos opcionais
       const cpfColumn = findColumnContaining("cpf");
       const nomeFantasiaColumn = findColumnContaining("nome fantasia");
+      const telefoneCelularColumn = findColumnContaining("telefone celular");
       
       if (!numeroProposta || !idVendedor || !nomeProprietario || !agrupamentoProduto || 
           !produtoPrincipal || !valor || !statusProposta || !dataHabilitacao) {
@@ -4264,6 +4265,7 @@ function ImportData() {
         nome_proprietario: String(row[nomeProprietario]),
         cpf: cpfColumn ? String(row[cpfColumn] || "") : "",
         nome_fantasia: nomeFantasiaColumn ? String(row[nomeFantasiaColumn] || "") : "",
+        telefone_celular: telefoneCelularColumn ? String(row[telefoneCelularColumn] || "") : "",
         agrupamento_produto: String(row[agrupamentoProduto]),
         produto_principal: String(row[produtoPrincipal]),
         valor: parseValue(String(row[valor])),
@@ -4969,6 +4971,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
         const nomeFantasia = venda.nome_fantasia?.toLowerCase() || "";
         const produtoPrincipal = venda.produto_principal?.toLowerCase() || "";
         const nomeProprietario = venda.nome_proprietario?.toLowerCase() || "";
+        const telefoneCelular = venda.telefone_celular?.toLowerCase() || "";
         
         // Verificar se algum dos campos contém o termo de busca
         const contemTermoBusca = 
@@ -4977,6 +4980,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
           nomeFantasia.includes(busca) || 
           produtoPrincipal.includes(busca) || 
           nomeProprietario.includes(busca) ||
+          telefoneCelular.includes(busca) ||
           sigla.toLowerCase().includes(busca);
         
         if (!contemTermoBusca) return false;
@@ -5395,6 +5399,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   <TableHead>Proposta</TableHead>
                   <TableHead>CPF</TableHead>
                   <TableHead>Nome Fantasia</TableHead>
+                  <TableHead>Telefone</TableHead>
                   <TableHead>Sigla</TableHead>
                   <TableHead>Produto</TableHead>
                   <TableHead>Vendedor</TableHead>
@@ -5421,6 +5426,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                         <TableCell className="font-medium">{proposta.numero_proposta}</TableCell>
                         <TableCell>{proposta.cpf || "-"}</TableCell>
                         <TableCell>{proposta.nome_fantasia || "-"}</TableCell>
+                        <TableCell>{proposta.telefone_celular || "-"}</TableCell>
                         <TableCell>{sigla}</TableCell>
                         <TableCell>{proposta.produto_principal}</TableCell>
                         <TableCell>{proposta.nome_proprietario}</TableCell>
@@ -5462,7 +5468,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center py-4 text-muted-foreground">
+                    <TableCell colSpan={13} className="text-center py-4 text-muted-foreground">
                       Nenhuma proposta encontrada com os filtros aplicados.
                     </TableCell>
                   </TableRow>
