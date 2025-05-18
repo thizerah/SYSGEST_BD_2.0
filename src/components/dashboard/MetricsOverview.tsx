@@ -2280,6 +2280,562 @@ export function MetricsOverview() {
                           </TableRow>
                         )}
                       </TableBody>
+                      <TableFooter>
+                        <TableRow>
+                          <TableCell className="font-bold text-left border-r border-muted">Total Geral</TableCell>
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrders.length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {getReopeningMetrics.reopenedOrders}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {getReopeningMetrics.reopeningRate.toFixed(2)}%
+                          </TableCell>
+                          
+                          {/* Ponto Principal TV */}
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Ponto Principal TV";
+                            }).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {getFilteredReopeningPairs.filter(pair => 
+                              pair.originalServiceCategory?.includes("Ponto Principal TV")
+                            ).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {(() => {
+                              const services = filteredServiceOrders.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Ponto Principal TV";
+                              }).length;
+                              const reopenings = getFilteredReopeningPairs.filter(pair => 
+                                pair.originalServiceCategory?.includes("Ponto Principal TV")
+                              ).length;
+                              return services > 0 ? ((reopenings / services) * 100).toFixed(2) + "%" : "0.00%";
+                            })()}
+                          </TableCell>
+
+                          {/* Ponto Principal FIBRA */}
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Ponto Principal FIBRA";
+                            }).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {getFilteredReopeningPairs.filter(pair => 
+                              pair.originalServiceCategory?.includes("Ponto Principal FIBRA")
+                            ).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {(() => {
+                              const services = filteredServiceOrders.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Ponto Principal FIBRA";
+                              }).length;
+                              const reopenings = getFilteredReopeningPairs.filter(pair => 
+                                pair.originalServiceCategory?.includes("Ponto Principal FIBRA")
+                              ).length;
+                              return services > 0 ? ((reopenings / services) * 100).toFixed(2) + "%" : "0.00%";
+                            })()}
+                          </TableCell>
+
+                          {/* Assistência Técnica TV */}
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Assistência Técnica TV";
+                            }).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {getFilteredReopeningPairs.filter(pair => 
+                              pair.originalServiceCategory?.includes("Assistência Técnica TV")
+                            ).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {(() => {
+                              const services = filteredServiceOrders.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Assistência Técnica TV";
+                              }).length;
+                              const reopenings = getFilteredReopeningPairs.filter(pair => 
+                                pair.originalServiceCategory?.includes("Assistência Técnica TV")
+                              ).length;
+                              return services > 0 ? ((reopenings / services) * 100).toFixed(2) + "%" : "0.00%";
+                            })()}
+                          </TableCell>
+
+                          {/* Assistência Técnica FIBRA */}
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Assistência Técnica FIBRA";
+                            }).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {getFilteredReopeningPairs.filter(pair => 
+                              pair.originalServiceCategory?.includes("Assistência Técnica FIBRA")
+                            ).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {(() => {
+                              const services = filteredServiceOrders.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Assistência Técnica FIBRA";
+                              }).length;
+                              const reopenings = getFilteredReopeningPairs.filter(pair => 
+                                pair.originalServiceCategory?.includes("Assistência Técnica FIBRA")
+                              ).length;
+                              return services > 0 ? ((reopenings / services) * 100).toFixed(2) + "%" : "0.00%";
+                            })()}
+                          </TableCell>
+                        </TableRow>
+                      </TableFooter>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              {/* Novo Card - Tempo de Atendimento por Técnico */}
+              <Card className="col-span-1 md:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Clock className="mr-2 h-5 w-5" />
+                    Tempo de Atendimento por Técnico
+                  </CardTitle>
+                  <CardDescription>
+                    Quantidade de OS finalizadas por técnico, por segmento (TV/Fibra), categorizadas por tempo de atendimento atingido ou perdido
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted">
+                          <TableHead rowSpan={2} className="align-middle">Técnico</TableHead>
+                          <TableHead rowSpan={2} className="text-center align-middle">Total</TableHead>
+                          <TableHead rowSpan={2} className="text-center align-middle">% Meta</TableHead>
+                          
+                          <TableHead className="text-center border-b border-muted" colSpan={3}>Assist. TV</TableHead>
+                          <TableHead className="text-center border-b border-muted" colSpan={3}>Assist. FIBRA</TableHead>
+                          <TableHead className="text-center border-b border-muted" colSpan={3}>Ponto TV</TableHead>
+                          <TableHead className="text-center border-b border-muted" colSpan={3}>Ponto FIBRA</TableHead>
+                        </TableRow>
+                        <TableRow className="bg-muted">
+                          {/* Assistência Técnica TV */}
+                          <TableHead className="text-center py-1 bg-muted/40">Na Meta</TableHead>
+                          <TableHead className="text-center py-1 bg-muted/40">Fora</TableHead>
+                          <TableHead className="text-center py-1 bg-muted/40">%</TableHead>
+                          
+                          {/* Assistência Técnica Fibra */}
+                          <TableHead className="text-center py-1">Na Meta</TableHead>
+                          <TableHead className="text-center py-1">Fora</TableHead>
+                          <TableHead className="text-center py-1">%</TableHead>
+                          
+                          {/* Ponto Principal TV */}
+                          <TableHead className="text-center py-1 bg-muted/40">Na Meta</TableHead>
+                          <TableHead className="text-center py-1 bg-muted/40">Fora</TableHead>
+                          <TableHead className="text-center py-1 bg-muted/40">%</TableHead>
+                          
+                          {/* Ponto Principal Fibra */}
+                          <TableHead className="text-center py-1">Na Meta</TableHead>
+                          <TableHead className="text-center py-1">Fora</TableHead>
+                          <TableHead className="text-center py-1">%</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {technicians
+                          .filter(name => name) // Filtrar nomes vazios
+                          .map(name => {
+                            // Filtrar apenas ordens finalizadas por este técnico
+                            const techOrders = filteredServiceOrdersByFinalization.filter(
+                              o => o.nome_tecnico === name && o.data_finalizacao && o.include_in_metrics
+                            );
+                            
+                            // Total de ordens finalizadas
+                            const totalFinalized = techOrders.length;
+                            
+                            // Contadores por categoria e status de meta
+                            const assistTvWithinGoal = techOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Assistência Técnica TV" && o.atingiu_meta === true;
+                            }).length;
+                            
+                            const assistTvOutsideGoal = techOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Assistência Técnica TV" && o.atingiu_meta === false;
+                            }).length;
+                            
+                            const assistFibraWithinGoal = techOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Assistência Técnica FIBRA" && o.atingiu_meta === true;
+                            }).length;
+                            
+                            const assistFibraOutsideGoal = techOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Assistência Técnica FIBRA" && o.atingiu_meta === false;
+                            }).length;
+                            
+                            const pontoTvWithinGoal = techOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Ponto Principal TV" && o.atingiu_meta === true;
+                            }).length;
+                            
+                            const pontoTvOutsideGoal = techOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Ponto Principal TV" && o.atingiu_meta === false;
+                            }).length;
+                            
+                            const pontoFibraWithinGoal = techOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Ponto Principal FIBRA" && o.atingiu_meta === true;
+                            }).length;
+                            
+                            const pontoFibraOutsideGoal = techOrders.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Ponto Principal FIBRA" && o.atingiu_meta === false;
+                            }).length;
+                            
+                            // Total dentro da meta (todos os tipos)
+                            const totalWithinGoal = assistTvWithinGoal + assistFibraWithinGoal + 
+                                                  pontoTvWithinGoal + pontoFibraWithinGoal;
+                            
+                            // Calcular percentuais para cada tipo
+                            const totalAssistTv = assistTvWithinGoal + assistTvOutsideGoal;
+                            const percentAssistTv = totalAssistTv > 0 
+                              ? (assistTvWithinGoal / totalAssistTv) * 100 
+                              : 0;
+                              
+                            const totalAssistFibra = assistFibraWithinGoal + assistFibraOutsideGoal;
+                            const percentAssistFibra = totalAssistFibra > 0 
+                              ? (assistFibraWithinGoal / totalAssistFibra) * 100 
+                              : 0;
+                              
+                            const totalPontoTv = pontoTvWithinGoal + pontoTvOutsideGoal;
+                            const percentPontoTv = totalPontoTv > 0 
+                              ? (pontoTvWithinGoal / totalPontoTv) * 100 
+                              : 0;
+                              
+                            const totalPontoFibra = pontoFibraWithinGoal + pontoFibraOutsideGoal;
+                            const percentPontoFibra = totalPontoFibra > 0 
+                              ? (pontoFibraWithinGoal / totalPontoFibra) * 100 
+                              : 0;
+                            
+                            // Percentual geral
+                            const percentWithinGoal = totalFinalized > 0 
+                              ? (totalWithinGoal / totalFinalized) * 100 
+                              : 0;
+                            
+                            // Só exibir técnicos que têm dados no período filtrado
+                            if (totalFinalized === 0) return null;
+                            
+                            return {
+                              name,
+                              totalFinalized,
+                              totalWithinGoal,
+                              percentWithinGoal,
+                              assistTvWithinGoal,
+                              assistTvOutsideGoal,
+                              percentAssistTv,
+                              assistFibraWithinGoal,
+                              assistFibraOutsideGoal,
+                              percentAssistFibra,
+                              pontoTvWithinGoal,
+                              pontoTvOutsideGoal,
+                              percentPontoTv,
+                              pontoFibraWithinGoal,
+                              pontoFibraOutsideGoal,
+                              percentPontoFibra
+                            };
+                          })
+                          .filter(Boolean)
+                          .sort((a, b) => {
+                            // Ordenar pelo percentual dentro da meta (maior primeiro)
+                            const percentComparison = b.percentWithinGoal - a.percentWithinGoal;
+                            
+                            // Em caso de empate, ordenar pelo volume total de OS (maior primeiro)
+                            if (percentComparison === 0) {
+                              return b.totalFinalized - a.totalFinalized;
+                            }
+                            
+                            return percentComparison;
+                          })
+                          .map((tech, index) => {
+                            // Funções para colorir percentuais
+                            const getMetaColor = (rate: number) => 
+                              rate >= 75 ? "text-green-600 font-medium" : rate >= 50 ? "text-yellow-600 font-medium" : "text-red-600 font-medium";
+                            
+                            return (
+                              <TableRow key={tech.name}>
+                                <TableCell className="font-medium py-2">{tech.name}</TableCell>
+                                <TableCell className="text-center py-2">{tech.totalFinalized}</TableCell>
+                                <TableCell className={`text-center py-2 ${getMetaColor(tech.percentWithinGoal)}`}>
+                                  {tech.percentWithinGoal.toFixed(2)}%
+                                </TableCell>
+                                
+                                <TableCell className="text-center py-2">{tech.assistTvWithinGoal}</TableCell>
+                                <TableCell className="text-center py-2">{tech.assistTvOutsideGoal}</TableCell>
+                                <TableCell className={`text-center py-2 ${getMetaColor(tech.percentAssistTv)}`}>
+                                  {tech.percentAssistTv.toFixed(2)}%
+                                </TableCell>
+                                
+                                <TableCell className="text-center py-2">{tech.assistFibraWithinGoal}</TableCell>
+                                <TableCell className="text-center py-2">{tech.assistFibraOutsideGoal}</TableCell>
+                                <TableCell className={`text-center py-2 ${getMetaColor(tech.percentAssistFibra)}`}>
+                                  {tech.percentAssistFibra.toFixed(2)}%
+                                </TableCell>
+                                
+                                <TableCell className="text-center py-2">{tech.pontoTvWithinGoal}</TableCell>
+                                <TableCell className="text-center py-2">{tech.pontoTvOutsideGoal}</TableCell>
+                                <TableCell className={`text-center py-2 ${getMetaColor(tech.percentPontoTv)}`}>
+                                  {tech.percentPontoTv.toFixed(2)}%
+                                </TableCell>
+                                
+                                <TableCell className="text-center py-2">{tech.pontoFibraWithinGoal}</TableCell>
+                                <TableCell className="text-center py-2">{tech.pontoFibraOutsideGoal}</TableCell>
+                                <TableCell className={`text-center py-2 ${getMetaColor(tech.percentPontoFibra)}`}>
+                                  {tech.percentPontoFibra.toFixed(2)}%
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        
+                        {technicians.filter(name => name && filteredServiceOrdersByFinalization.some(o => o.nome_tecnico === name)).length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={15} className="text-center py-2 text-muted-foreground">
+                              Nenhum técnico encontrado no período selecionado
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                      <TableFooter>
+                        <TableRow>
+                          <TableCell className="font-bold text-left border-r border-muted">Total Geral</TableCell>
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics).length}
+                          </TableCell>
+                          <TableCell className={`text-center font-medium ${
+                            (() => {
+                              const percentWithinGoal = filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics).length > 0 
+                                ? (filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics && o.atingiu_meta === true).length / 
+                                   filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics).length) * 100 
+                                : 0;
+                              return percentWithinGoal >= 75 
+                                ? "text-green-600" 
+                                : percentWithinGoal >= 50 
+                                  ? "text-yellow-600" 
+                                  : "text-red-600";
+                            })()
+                          }`}>
+                            {(() => {
+                              const percentWithinGoal = filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics).length > 0 
+                                ? (filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics && o.atingiu_meta === true).length / 
+                                   filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics).length) * 100 
+                                : 0;
+                              return percentWithinGoal.toFixed(2) + "%";
+                            })()}
+                          </TableCell>
+
+                          {/* Assistência Técnica TV */}
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrdersByFinalization.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Assistência Técnica TV" && o.atingiu_meta === true && o.include_in_metrics;
+                            }).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrdersByFinalization.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Assistência Técnica TV" && o.atingiu_meta === false && o.include_in_metrics;
+                            }).length}
+                          </TableCell>
+                          <TableCell className={`text-center font-medium ${
+                            (() => {
+                              const total = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Assistência Técnica TV" && o.include_in_metrics;
+                              }).length;
+                              
+                              const within = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Assistência Técnica TV" && o.atingiu_meta === true && o.include_in_metrics;
+                              }).length;
+                              
+                              const percent = total > 0 ? (within / total) * 100 : 0;
+                              return percent >= 75 
+                                ? "text-green-600" 
+                                : percent >= 50 
+                                  ? "text-yellow-600" 
+                                  : "text-red-600";
+                            })()
+                          }`}>
+                            {(() => {
+                              const total = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Assistência Técnica TV" && o.include_in_metrics;
+                              }).length;
+                              
+                              const within = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Assistência Técnica TV" && o.atingiu_meta === true && o.include_in_metrics;
+                              }).length;
+                              
+                              const percent = total > 0 ? (within / total) * 100 : 0;
+                              return percent.toFixed(2) + "%";
+                            })()}
+                          </TableCell>
+                          
+                          {/* Assistência Técnica Fibra */}
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrdersByFinalization.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Assistência Técnica FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
+                            }).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrdersByFinalization.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Assistência Técnica FIBRA" && o.atingiu_meta === false && o.include_in_metrics;
+                            }).length}
+                          </TableCell>
+                          <TableCell className={`text-center font-medium ${
+                            (() => {
+                              const total = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Assistência Técnica FIBRA" && o.include_in_metrics;
+                              }).length;
+                              
+                              const within = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Assistência Técnica FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
+                              }).length;
+                              
+                              const percent = total > 0 ? (within / total) * 100 : 0;
+                              return percent >= 75 
+                                ? "text-green-600" 
+                                : percent >= 50 
+                                  ? "text-yellow-600" 
+                                  : "text-red-600";
+                            })()
+                          }`}>
+                            {(() => {
+                              const total = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Assistência Técnica FIBRA" && o.include_in_metrics;
+                              }).length;
+                              
+                              const within = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Assistência Técnica FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
+                              }).length;
+                              
+                              const percent = total > 0 ? (within / total) * 100 : 0;
+                              return percent.toFixed(2) + "%";
+                            })()}
+                          </TableCell>
+                          
+                          {/* Ponto Principal TV */}
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrdersByFinalization.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Ponto Principal TV" && o.atingiu_meta === true && o.include_in_metrics;
+                            }).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrdersByFinalization.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Ponto Principal TV" && o.atingiu_meta === false && o.include_in_metrics;
+                            }).length}
+                          </TableCell>
+                          <TableCell className={`text-center font-medium ${
+                            (() => {
+                              const total = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Ponto Principal TV" && o.include_in_metrics;
+                              }).length;
+                              
+                              const within = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Ponto Principal TV" && o.atingiu_meta === true && o.include_in_metrics;
+                              }).length;
+                              
+                              const percent = total > 0 ? (within / total) * 100 : 0;
+                              return percent >= 75 
+                                ? "text-green-600" 
+                                : percent >= 50 
+                                  ? "text-yellow-600" 
+                                  : "text-red-600";
+                            })()
+                          }`}>
+                            {(() => {
+                              const total = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Ponto Principal TV" && o.include_in_metrics;
+                              }).length;
+                              
+                              const within = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Ponto Principal TV" && o.atingiu_meta === true && o.include_in_metrics;
+                              }).length;
+                              
+                              const percent = total > 0 ? (within / total) * 100 : 0;
+                              return percent.toFixed(2) + "%";
+                            })()}
+                          </TableCell>
+                          
+                          {/* Ponto Principal Fibra */}
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrdersByFinalization.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Ponto Principal FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
+                            }).length}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {filteredServiceOrdersByFinalization.filter(o => {
+                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                              return category === "Ponto Principal FIBRA" && o.atingiu_meta === false && o.include_in_metrics;
+                            }).length}
+                          </TableCell>
+                          <TableCell className={`text-center font-medium ${
+                            (() => {
+                              const total = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Ponto Principal FIBRA" && o.include_in_metrics;
+                              }).length;
+                              
+                              const within = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Ponto Principal FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
+                              }).length;
+                              
+                              const percent = total > 0 ? (within / total) * 100 : 0;
+                              return percent >= 75 
+                                ? "text-green-600" 
+                                : percent >= 50 
+                                  ? "text-yellow-600" 
+                                  : "text-red-600";
+                            })()
+                          }`}>
+                            {(() => {
+                              const total = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Ponto Principal FIBRA" && o.include_in_metrics;
+                              }).length;
+                              
+                              const within = filteredServiceOrdersByFinalization.filter(o => {
+                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                return category === "Ponto Principal FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
+                              }).length;
+                              
+                              const percent = total > 0 ? (within / total) * 100 : 0;
+                              return percent.toFixed(2) + "%";
+                            })()}
+                          </TableCell>
+                        </TableRow>
+                      </TableFooter>
                     </Table>
                   </div>
                 </CardContent>
@@ -2301,23 +2857,23 @@ export function MetricsOverview() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead rowSpan={2} className="align-middle text-center border-r border-muted">Técnico</TableHead>
+                          <TableHead rowSpan={2} className="align-middle text-left border-r border-muted">Técnico</TableHead>
                           <TableHead className="text-center border-b border-muted" colSpan={12}>Tipo de Serviço</TableHead>
                           <TableHead rowSpan={2} className="align-middle text-center font-bold border-l border-muted">Total</TableHead>
                         </TableRow>
                         <TableRow>
-                          <TableHead className="text-center py-2">Corretiva</TableHead>
-                          <TableHead className="text-center py-2">Corretiva<br/>BL</TableHead>
-                          <TableHead className="text-center py-2">Ponto<br/>Principal</TableHead>
-                          <TableHead className="text-center py-2">Ponto<br/>Principal<br/>BL</TableHead>
-                          <TableHead className="text-center py-2">Prestação<br/>de Serviço</TableHead>
-                          <TableHead className="text-center py-2">Prestação<br/>de Serviço<br/>BL</TableHead>
-                          <TableHead className="text-center py-2">Preventiva</TableHead>
-                          <TableHead className="text-center py-2">Preventiva<br/>BL</TableHead>
-                          <TableHead className="text-center py-2">Sistema<br/>Opcional</TableHead>
-                          <TableHead className="text-center py-2">Cancelamento<br/>Voluntário</TableHead>
-                          <TableHead className="text-center py-2">Kit TVRO</TableHead>
-                          <TableHead className="text-center py-2">Substituição</TableHead>
+                          <TableHead className="text-center py-1">Corretiva</TableHead>
+                          <TableHead className="text-center py-1">Corr.<br/>BL</TableHead>
+                          <TableHead className="text-center py-1">Ponto<br/>Princ.</TableHead>
+                          <TableHead className="text-center py-1">Ponto<br/>Princ. BL</TableHead>
+                          <TableHead className="text-center py-1">Prest.<br/>Serviço</TableHead>
+                          <TableHead className="text-center py-1">Prest.<br/>Serviço BL</TableHead>
+                          <TableHead className="text-center py-1">Prev.</TableHead>
+                          <TableHead className="text-center py-1">Prev.<br/>BL</TableHead>
+                          <TableHead className="text-center py-1">Sist.<br/>Opc.</TableHead>
+                          <TableHead className="text-center py-1">Canc.<br/>Vol.</TableHead>
+                          <TableHead className="text-center py-1">Kit<br/>TVRO</TableHead>
+                          <TableHead className="text-center py-1">Subst.</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -2354,7 +2910,7 @@ export function MetricsOverview() {
 
                             return (
                               <TableRow key={name} className="hover:bg-muted/50">
-                                <TableCell className="font-medium text-center border-r border-muted">{name}</TableCell>
+                                <TableCell className="font-medium text-left border-r border-muted">{name}</TableCell>
                                 <TableCell className="text-center">{servicesByType['Corretiva']}</TableCell>
                                 <TableCell className="text-center">{servicesByType['Corretiva BL']}</TableCell>
                                 <TableCell className="text-center">{servicesByType['Ponto Principal']}</TableCell>
@@ -2382,7 +2938,7 @@ export function MetricsOverview() {
                       </TableBody>
                       <TableFooter>
                         <TableRow>
-                          <TableCell className="font-bold text-center border-r border-muted">Total Geral</TableCell>
+                          <TableCell className="font-bold text-left border-r border-muted">Total Geral</TableCell>
                           <TableCell className="text-center">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Corretiva') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
