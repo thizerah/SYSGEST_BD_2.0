@@ -22,7 +22,8 @@ import {
   Pencil,
   UserPlus,
   RefreshCcw,
-  Search
+  Search,
+  MessageCircle
 } from "lucide-react";
 import { 
   ChartContainer, 
@@ -64,7 +65,7 @@ import { clearDefaultUsers } from "@/utils/clearDefaultUsers";
 import { RegisterForm } from "@/components/auth/RegisterForm";
 import { PermanenciaPorTipoServico } from "./PermanenciaPorTipoServico";
 import { ValorDeFaceVendas } from "@/components/dashboard/ValorDeFaceVendas";
-import { standardizeServiceCategory } from "@/context/DataUtils";
+import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName } from "@/context/DataUtils";
 
 export function MetricsOverview() {
   const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs } = useData();
@@ -467,14 +468,14 @@ export function MetricsOverview() {
     // Reaberturas por cidade
     const reopeningsByCity: Record<string, number> = {};
     getFilteredReopeningPairs.forEach(pair => {
-      const city = pair.reopeningOrder.cidade || "Desconhecido";
+      const city = normalizeCityName(pair.reopeningOrder.cidade) || "Desconhecido";
       reopeningsByCity[city] = (reopeningsByCity[city] || 0) + 1;
     });
     
     // Reaberturas por bairro
     const reopeningsByNeighborhood: Record<string, number> = {};
     getFilteredReopeningPairs.forEach(pair => {
-      const neighborhood = pair.reopeningOrder.bairro || "Desconhecido";
+      const neighborhood = normalizeNeighborhoodName(pair.reopeningOrder.bairro) || "Desconhecido";
       reopeningsByNeighborhood[neighborhood] = (reopeningsByNeighborhood[neighborhood] || 0) + 1;
     });
     
@@ -1394,13 +1395,12 @@ export function MetricsOverview() {
                 <div className="space-y-4 w-full">
                     {Object.entries(getReopeningMetrics.reopeningsByCity)
                   .sort((a, b) => b[1] - a[1])
-                    .slice(0, 10)
                     .map(([city, count]: [string, number]) => {
                         const percent = (count / getReopeningMetrics.reopenedOrders) * 100;
                     return (
                         <div key={city} className="space-y-1 w-full">
                           <div className="flex justify-between items-center w-full">
-                          <span className="font-medium">{city}</span>
+                          <span className="font-medium">{city.toUpperCase()}</span>
                           <span className="text-sm">{count} reaberturas</span>
                         </div>
                           <div className="bg-orange-100 rounded-full h-2 overflow-hidden w-full">
@@ -1445,7 +1445,7 @@ export function MetricsOverview() {
                     return (
                         <div key={neighborhood} className="space-y-1 w-full">
                           <div className="flex justify-between items-center w-full">
-                          <span className="font-medium">{neighborhood}</span>
+                          <span className="font-medium">{neighborhood.toUpperCase()}</span>
                           <span className="text-sm">{count} reaberturas</span>
                         </div>
                           <div className="bg-blue-100 rounded-full h-2 overflow-hidden w-full">
@@ -4698,6 +4698,26 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   const [filtroDataHabilitacao, setFiltroDataHabilitacao] = useState<string[]>([]);
   const [filtroDiasCorridos, setFiltroDiasCorridos] = useState<string[]>([]);
   
+  // Função para gerar link do WhatsApp com a mensagem padrão
+  const gerarLinkWhatsApp = useCallback((telefone: string, nomeFantasia: string, produto: string) => {
+    // Limpar telefone para conter apenas números
+    const telefoneLimpo = telefone.replace(/\D/g, '');
+    
+    // Verificar se o telefone tem pelo menos 10 dígitos (DDD + número)
+    if (telefoneLimpo.length < 10) {
+      return '';
+    }
+    
+    // Montar a mensagem personalizada
+    const mensagem = `Oi ${nomeFantasia}, tudo certo?\nPassando pra saber se você curtiu a programação do ${produto} e se recebeu o boleto direitinho.\nSe precisar de qualquer informação ou tiver alguma dúvida, é só me chamar por esse mesmo número. Estou por aqui! 😊`;
+    
+    // Codificar a mensagem para URL
+    const mensagemCodificada = encodeURIComponent(mensagem);
+    
+    // Montar o link com o código do país (55)
+    return `https://api.whatsapp.com/send?phone=55${telefoneLimpo}&text=${mensagemCodificada}`;
+  }, []);
+  
   // Sincronizar o estado local do filtro com o estado global
   useEffect(() => {
     setFiltroGlobal(filtroDataHabilitacao);
@@ -5392,25 +5412,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
           </div>
           
           {/* Tabela de propostas */}
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Proposta</TableHead>
-                  <TableHead>CPF</TableHead>
-                  <TableHead>Nome Fantasia</TableHead>
-                  <TableHead>Telefone</TableHead>
-                  <TableHead>Sigla</TableHead>
-                  <TableHead>Produto</TableHead>
-                  <TableHead>Vendedor</TableHead>
-                  <TableHead>Data Habilitação</TableHead>
-                  <TableHead>Dias Corridos</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Passo</TableHead>
-                  <TableHead>Vencimento da Fatura</TableHead>
-                  <TableHead>Data da Importação</TableHead>
-                </TableRow>
-              </TableHeader>
+                    <div className="overflow-x-auto">            <Table className="text-xs">              <TableHeader>                <TableRow>                  <TableHead className="text-xs p-2 font-medium">Proposta</TableHead>                  <TableHead className="text-xs p-2 font-medium">CPF</TableHead>                  <TableHead className="text-xs p-2 font-medium">Nome Fantasia</TableHead>                  <TableHead className="text-xs p-2 font-medium">Telefone</TableHead>                  <TableHead className="text-xs p-2 font-medium">Sigla</TableHead>                  <TableHead className="text-xs p-2 font-medium">Produto</TableHead>                  <TableHead className="text-xs p-2 font-medium">Vendedor</TableHead>                  <TableHead className="text-xs p-2 font-medium">Data Habilitação</TableHead>                  <TableHead className="text-xs p-2 font-medium">Dias Corridos</TableHead>                  <TableHead className="text-xs p-2 font-medium">Status</TableHead>                  <TableHead className="text-xs p-2 font-medium">Passo</TableHead>                  <TableHead className="text-xs p-2 font-medium">Vencimento da Fatura</TableHead>                  <TableHead className="text-xs p-2 font-medium">Data da Importação</TableHead>                  <TableHead className="text-xs p-2 font-medium">Ação</TableHead>                </TableRow>              </TableHeader>
               <TableBody>
                 {propostasFiltradas.length > 0 ? (
                   // Aplicar paginação para exibir apenas os itens da página atual
@@ -5423,20 +5425,20 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                     
                     return (
                       <TableRow key={index}>
-                        <TableCell className="font-medium">{proposta.numero_proposta}</TableCell>
-                        <TableCell>{proposta.cpf || "-"}</TableCell>
-                        <TableCell>{proposta.nome_fantasia || "-"}</TableCell>
-                        <TableCell>{proposta.telefone_celular || "-"}</TableCell>
-                        <TableCell>{sigla}</TableCell>
-                        <TableCell>{proposta.produto_principal}</TableCell>
-                        <TableCell>{proposta.nome_proprietario}</TableCell>
-                        <TableCell>
+                        <TableCell className="text-xs p-2 font-medium">{proposta.numero_proposta}</TableCell>
+                        <TableCell className="text-xs p-2">{proposta.cpf || "-"}</TableCell>
+                        <TableCell className="text-xs p-2">{proposta.nome_fantasia || "-"}</TableCell>
+                        <TableCell className="text-xs p-2">{proposta.telefone_celular || "-"}</TableCell>
+                        <TableCell className="text-xs p-2">{sigla}</TableCell>
+                        <TableCell className="text-xs p-2">{proposta.produto_principal}</TableCell>
+                        <TableCell className="text-xs p-2">{proposta.nome_proprietario}</TableCell>
+                        <TableCell className="text-xs p-2">
                           {proposta.data_habilitacao ? formatarDataParaExibicao(proposta.data_habilitacao) : '-'}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-xs p-2">
                           {proposta.data_habilitacao ? diasCorridos : '-'}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-xs p-2">
                           {pagamento ? (
                             <Badge 
                               variant={getStatusBadgeVariant(
@@ -5454,24 +5456,21 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                             </Badge>
                           ) : '-'}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-xs p-2">
                           {pagamento ? (pagamento.passo === '0' ? '0' : pagamento.passo || '0') : '-'}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-xs p-2">
                           {pagamento && pagamento.vencimento_fatura ? formatarDataParaExibicao(pagamento.vencimento_fatura) : '-'}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-xs p-2">
                           {pagamento && pagamento.data_importacao ? formatarDataParaExibicao(pagamento.data_importacao) : '-'}
                         </TableCell>
+                                                                            <TableCell className="text-xs p-2">                            {proposta.telefone_celular ? (                              <a                                 href={gerarLinkWhatsApp(proposta.telefone_celular || "", proposta.nome_fantasia || "", proposta.produto_principal || "")}                                target="_blank"                                rel="noreferrer"                              >                                <Button                                  variant="outline"                                  size="icon"                                  className="h-6 w-6 bg-green-500 hover:bg-green-600 border-green-500 hover:border-green-600"                                  title="Enviar mensagem WhatsApp"                                >                                  <MessageCircle className="h-3 w-3 text-white" />                                </Button>                              </a>                            ) : (                              <Button                                variant="outline"                                size="icon"                                className="h-6 w-6 opacity-50 cursor-not-allowed"                                disabled                                title="Telefone não disponível"                              >                                <MessageCircle className="h-3 w-3" />                              </Button>                            )}                          </TableCell>
                       </TableRow>
                     );
                   })
                 ) : (
-                  <TableRow>
-                    <TableCell colSpan={13} className="text-center py-4 text-muted-foreground">
-                      Nenhuma proposta encontrada com os filtros aplicados.
-                    </TableCell>
-                  </TableRow>
+                                                      <TableRow>                    <TableCell colSpan={14} className="text-center py-4 text-muted-foreground">                      Nenhuma proposta encontrada com os filtros aplicados.                    </TableCell>                  </TableRow>
                 )}
               </TableBody>
             </Table>

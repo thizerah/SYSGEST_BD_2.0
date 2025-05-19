@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { ServiceOrder } from "@/types";
+import { normalizeCityName, normalizeNeighborhoodName } from '@/context/DataUtils';
 
 interface ServiceOrderTableProps {
   filteredOrders?: ServiceOrder[];
@@ -67,8 +68,8 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
-      const matchesCity = !filter.city || filter.city === "all" || order.cidade === filter.city;
-      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || order.bairro === filter.neighborhood;
+      const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
+      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
@@ -85,8 +86,8 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     const relevantOrders = baseOrders.filter(order => {
       const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
-      const matchesCity = !filter.city || filter.city === "all" || order.cidade === filter.city;
-      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || order.bairro === filter.neighborhood;
+      const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
+      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
@@ -103,8 +104,8 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
-      const matchesCity = !filter.city || filter.city === "all" || order.cidade === filter.city;
-      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || order.bairro === filter.neighborhood;
+      const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
+      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
@@ -120,8 +121,8 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
-      const matchesCity = !filter.city || filter.city === "all" || order.cidade === filter.city;
-      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || order.bairro === filter.neighborhood;
+      const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
+      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
@@ -147,7 +148,13 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
       return matchesTechnician && matchesServiceType && matchesStatus && matchesNeighborhood && matchesMotivo && matchesMeta;
     });
     
-    return Array.from(new Set(relevantOrders.map(o => o.cidade))).filter(Boolean);
+    // Aplicar a normalização aos nomes das cidades
+    const normalizedCities = relevantOrders.map(order => {
+      return normalizeCityName(order.cidade);
+    });
+    
+    // Retornar cidades únicas e filtrar valores vazios
+    return Array.from(new Set(normalizedCities)).filter(Boolean);
   }, [baseOrders, filter.technician, filter.serviceType, filter.status, filter.neighborhood, filter.motivo, filter.meta]);
   
   const neighborhoods = useMemo(() => {
@@ -155,7 +162,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
-      const matchesCity = !filter.city || filter.city === "all" || order.cidade === filter.city;
+      const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
@@ -164,7 +171,13 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
       return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesMotivo && matchesMeta;
     });
     
-    return Array.from(new Set(relevantOrders.map(o => o.bairro))).filter(Boolean);
+    // Aplicar a normalização aos nomes dos bairros
+    const normalizedNeighborhoods = relevantOrders.map(order => {
+      return normalizeNeighborhoodName(order.bairro);
+    });
+    
+    // Retornar bairros únicos e filtrar valores vazios
+    return Array.from(new Set(normalizedNeighborhoods)).filter(Boolean);
   }, [baseOrders, filter.technician, filter.serviceType, filter.status, filter.city, filter.motivo, filter.meta]);
   
   const motivos = useMemo(() => {
@@ -172,8 +185,8 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
-      const matchesCity = !filter.city || filter.city === "all" || order.cidade === filter.city;
-      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || order.bairro === filter.neighborhood;
+      const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
+      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
@@ -185,34 +198,53 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
   }, [baseOrders, filter.technician, filter.serviceType, filter.status, filter.city, filter.neighborhood, filter.meta]);
   
   // Apply search and filters
-  const filteredTableOrders = baseOrders.filter(order => {
-    const searchTerm = search.toLowerCase();
-    const matchesSearch = 
-      order.codigo_os.toLowerCase().includes(searchTerm) ||
-      (order.nome_tecnico && order.nome_tecnico.toLowerCase().includes(searchTerm)) ||
-      (order.tipo_servico && order.tipo_servico.toLowerCase().includes(searchTerm)) ||
-      (order.subtipo_servico && order.subtipo_servico.toLowerCase().includes(searchTerm)) ||
-      (order.nome_cliente && order.nome_cliente.toLowerCase().includes(searchTerm)) ||
-      (order.motivo && order.motivo.toLowerCase().includes(searchTerm)) ||
-      (order.acao_tomada && order.acao_tomada.toLowerCase().includes(searchTerm)) ||
-      (order.info_endereco_completo && order.info_endereco_completo.toLowerCase().includes(searchTerm));
+  const filteredTableOrders = useMemo(() => {
+    // Usar useMemo para este filtro também
+    return baseOrders.filter(order => {
+      const searchTerm = search.toLowerCase();
+      const matchesSearch = 
+        order.codigo_os.toLowerCase().includes(searchTerm) ||
+        (order.nome_tecnico && order.nome_tecnico.toLowerCase().includes(searchTerm)) ||
+        (order.tipo_servico && order.tipo_servico.toLowerCase().includes(searchTerm)) ||
+        (order.subtipo_servico && order.subtipo_servico.toLowerCase().includes(searchTerm)) ||
+        (order.nome_cliente && order.nome_cliente.toLowerCase().includes(searchTerm)) ||
+        (order.motivo && order.motivo.toLowerCase().includes(searchTerm)) ||
+        (order.acao_tomada && order.acao_tomada.toLowerCase().includes(searchTerm)) ||
+        (order.info_endereco_completo && order.info_endereco_completo.toLowerCase().includes(searchTerm));
+      
+      const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
+      const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
+      const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
+      const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
+      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
+      const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
+      const matchesMeta = !filter.meta || filter.meta === "all" || 
+        (filter.meta === "atingiu" && order.atingiu_meta === true) ||
+        (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+      
+      return matchesSearch && matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta;
+    });
+  }, [baseOrders, filter, search]);
+  
+  // Garantir que não existam ordens duplicadas
+  const uniqueFilteredOrders = useMemo(() => {
+    // Usar um Map para garantir um único registro por código de OS
+    const ordersMap = new Map();
     
-    const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
-    const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
-    const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
-    const matchesCity = !filter.city || filter.city === "all" || order.cidade === filter.city;
-    const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || order.bairro === filter.neighborhood;
-    const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
-    const matchesMeta = !filter.meta || filter.meta === "all" || 
-      (filter.meta === "atingiu" && order.atingiu_meta === true) ||
-      (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+    filteredTableOrders.forEach(order => {
+      // Se ainda não existe uma ordem com este código, adicionar ao Map
+      if (!ordersMap.has(order.codigo_os)) {
+        ordersMap.set(order.codigo_os, order);
+      }
+    });
     
-    return matchesSearch && matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta;
-  });
+    // Converter o Map de volta para um array
+    return Array.from(ordersMap.values());
+  }, [filteredTableOrders]);
   
   // Pagination
-  const totalPages = Math.ceil(filteredTableOrders.length / itemsPerPage);
-  const paginatedOrders = filteredTableOrders.slice(
+  const totalPages = Math.ceil(uniqueFilteredOrders.length / itemsPerPage);
+  const paginatedOrders = uniqueFilteredOrders.slice(
     (page - 1) * itemsPerPage,
     page * itemsPerPage
   );
@@ -417,7 +449,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
                 <SelectContent>
                   <SelectItem value="all">Todas as cidades</SelectItem>
                   {cities.map(city => (
-                    <SelectItem key={city} value={city}>{city}</SelectItem>
+                    <SelectItem key={city} value={city}>{city.toUpperCase()}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -435,7 +467,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
                 <SelectContent>
                   <SelectItem value="all">Todos os bairros</SelectItem>
                   {neighborhoods.map(neighborhood => (
-                    <SelectItem key={neighborhood} value={neighborhood}>{neighborhood}</SelectItem>
+                    <SelectItem key={neighborhood} value={neighborhood}>{neighborhood.toUpperCase()}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -503,7 +535,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
               )}
               {filter.city && (
                 <div className="bg-muted text-xs rounded-full px-3 py-1 inline-flex items-center">
-                  Cidade: {filter.city}
+                  Cidade: {filter.city.toUpperCase()}
                   <X 
                     className="ml-1 h-3 w-3 cursor-pointer" 
                     onClick={() => handleFilterChange('city', "")}
@@ -512,7 +544,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
               )}
               {filter.neighborhood && (
                 <div className="bg-muted text-xs rounded-full px-3 py-1 inline-flex items-center">
-                  Bairro: {filter.neighborhood}
+                  Bairro: {filter.neighborhood.toUpperCase()}
                   <X 
                     className="ml-1 h-3 w-3 cursor-pointer" 
                     onClick={() => handleFilterChange('neighborhood', "")}
@@ -525,7 +557,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
           {/* Contador de registros */}
           <div className="flex justify-between items-center mt-2 mb-4">
             <div className="text-sm font-medium">
-              Total de registros: <span className="font-bold">{filteredTableOrders.length}</span>
+              Total de registros: <span className="font-bold">{uniqueFilteredOrders.length}</span>
             </div>
             {(filter.technician || filter.serviceType || filter.status || filter.city || filter.neighborhood || filter.motivo || filter.meta || search) && (
               <div className="text-xs text-muted-foreground">

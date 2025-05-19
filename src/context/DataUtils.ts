@@ -67,14 +67,60 @@ export const EXCLUDED_REASONS = [
 
 // Função para normalizar nomes de cidades
 export const normalizeCityName = (cityName: string = ""): string => {
-  const normalizedName = cityName.toLowerCase().trim();
-  return CITY_NAME_MAP[normalizedName] || cityName;
+  if (!cityName) return "Desconhecido";
+  
+  // Normaliza a string: remove espaços extras, converte para minúsculas e remove acentos
+  const cleanName = cityName
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ') // Remove espaços múltiplos e substitui por um único espaço
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, ""); // Remove acentos e diacríticos
+  
+  // Primeiro verificar no mapa de normalização
+  for (const [key, value] of Object.entries(CITY_NAME_MAP)) {
+    // Normalizar a chave também para uma comparação mais robusta
+    const normalizedKey = key
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+      
+    if (cleanName === normalizedKey) {
+      return value; // Retorna o nome normalizado do mapa
+    }
+  }
+  
+  // Se não encontrado no mapa, retorna o nome original com primeira letra maiúscula
+  return cityName.trim().charAt(0).toUpperCase() + cityName.trim().slice(1);
 };
 
 // Função para normalizar nomes de bairros
 export const normalizeNeighborhoodName = (neighborhoodName: string = ""): string => {
-  const normalizedName = neighborhoodName.toLowerCase().trim();
-  return NEIGHBORHOOD_NAME_MAP[normalizedName] || neighborhoodName;
+  if (!neighborhoodName) return "Desconhecido";
+  
+  // Normaliza a string: remove espaços extras, converte para minúsculas e remove acentos
+  const cleanName = neighborhoodName
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ') // Remove espaços múltiplos e substitui por um único espaço
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, ""); // Remove acentos e diacríticos
+  
+  // Primeiro verificar no mapa de normalização
+  for (const [key, value] of Object.entries(NEIGHBORHOOD_NAME_MAP)) {
+    // Normalizar a chave também para uma comparação mais robusta
+    const normalizedKey = key
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+      
+    if (cleanName === normalizedKey) {
+      return value; // Retorna o nome normalizado do mapa
+    }
+  }
+  
+  // Se não encontrado no mapa, retorna o nome original com primeira letra maiúscula
+  return neighborhoodName.trim().charAt(0).toUpperCase() + neighborhoodName.trim().slice(1);
 };
 
 // Função para obter o tempo de meta de atendimento por subtipo de serviço
