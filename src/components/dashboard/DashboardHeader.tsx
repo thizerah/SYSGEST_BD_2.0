@@ -42,7 +42,7 @@ export function DashboardHeader() {
               </Button>
             </div>
             <div className="text-xs opacity-90 mt-1">
-              <p>🏢 Empresa: STARTEC INSTALACOES</p>
+              <p>🏢 Empresa: {user?.empresa || 'SysGest Insight'}</p>
               <p>👔 Nível: {user?.role === 'admin' ? 'Administrador' : 'Usuário'}</p>
               <p>📅 Último acesso: {new Date().toLocaleDateString('pt-BR')} {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
             </div>
