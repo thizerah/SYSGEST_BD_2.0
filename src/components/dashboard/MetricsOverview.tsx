@@ -23,7 +23,8 @@ import {
   UserPlus,
   RefreshCcw,
   Search,
-  MessageCircle
+  MessageCircle,
+  CheckCircle
 } from "lucide-react";
 import { 
   ChartContainer, 
@@ -3081,6 +3082,132 @@ function getMostCommonServiceType(orders: ServiceOrder[]): string {
     .sort((a, b) => b[1] - a[1])[0][0];
 }
 
+// MessageConfiguration component
+function MessageConfiguration() {
+  const { user } = useAuth();
+  const [message, setMessage] = useState("⚠️ Novas atualizações em breve");
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempMessage, setTempMessage] = useState("");
+  const { toast } = useToast();
+
+  // Carregar mensagem salva do localStorage
+  useEffect(() => {
+    const savedMessage = localStorage.getItem('headerMessage');
+    if (savedMessage) {
+      setMessage(savedMessage);
+    }
+  }, []);
+
+  const handleEdit = () => {
+    setTempMessage(message);
+    setIsEditing(true);
+  };
+
+  const handleSave = () => {
+    if (tempMessage.trim()) {
+      setMessage(tempMessage.trim());
+      localStorage.setItem('headerMessage', tempMessage.trim());
+      
+      // Disparar evento customizado para atualizar o header
+      window.dispatchEvent(new CustomEvent('headerMessageUpdated', {
+        detail: { message: tempMessage.trim() }
+      }));
+      
+      toast({
+        title: "Mensagem atualizada",
+        description: "A mensagem de atualização foi salva com sucesso."
+      });
+    }
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setTempMessage("");
+    setIsEditing(false);
+  };
+
+  const handleReset = () => {
+    const defaultMessage = "⚠️ Novas atualizações em breve";
+    setMessage(defaultMessage);
+    localStorage.setItem('headerMessage', defaultMessage);
+    
+    // Disparar evento customizado para atualizar o header
+    window.dispatchEvent(new CustomEvent('headerMessageUpdated', {
+      detail: { message: defaultMessage }
+    }));
+    
+    toast({
+      title: "Mensagem restaurada",
+      description: "A mensagem foi restaurada para o padrão."
+    });
+  };
+
+  // Verificar se o usuário atual tem permissão de administrador
+  if (!user || user.role !== 'admin') {
+    return null; // Não mostrar para usuários não-admin
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center">
+          <MessageCircle className="mr-2 h-5 w-5" />
+          Configurar Mensagem de Atualização
+        </CardTitle>
+        <CardDescription>
+          Personalize a mensagem que aparece na barra de alerta no topo da página
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Preview da mensagem atual */}
+        <div className="bg-yellow-400 text-sysgest-blue px-4 py-2 rounded-lg">
+          <span className="text-sm font-medium">{message}</span>
+        </div>
+
+        {!isEditing ? (
+          <div className="flex gap-2">
+            <Button onClick={handleEdit} className="bg-sysgest-blue hover:bg-sysgest-teal">
+              <Pencil className="mr-2 h-4 w-4" />
+              Editar Mensagem
+            </Button>
+            <Button variant="outline" onClick={handleReset}>
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              Restaurar Padrão
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="message">Editar Mensagem</Label>
+              <Input
+                id="message"
+                value={tempMessage}
+                onChange={(e) => setTempMessage(e.target.value)}
+                placeholder="Digite a nova mensagem..."
+                maxLength={100}
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Caracteres: {tempMessage.length}/100 (recomendado: até 100 caracteres)
+              </p>
+            </div>
+            
+            <div className="flex gap-2">
+              <Button onClick={handleSave} className="bg-green-600 hover:bg-green-700">
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Salvar Alterações
+              </Button>
+              <Button variant="outline" onClick={handleCancel}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // UserManagement component
 function UserManagement() {
   const { user } = useAuth();
@@ -3223,6 +3350,9 @@ function UserManagement() {
   // Renderizar o componente com tabela de usuários e formulário
   return (
     <div className="space-y-6">
+      {/* Configuração de Mensagem de Atualização */}
+      <MessageConfiguration />
+      
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">

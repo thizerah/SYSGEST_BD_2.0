@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PhoneCall, ShieldAlert, AlertCircle } from "lucide-react";
+import { PhoneCall, ShieldAlert, AlertCircle, Mail, Lock, LogIn } from "lucide-react";
 import { useAuth } from "@/context/useAuth";
 import { useToast } from "@/components/ui/use-toast";
 import { type AuthErrorType } from "@/utils/AuthService";
@@ -116,42 +116,66 @@ export function LoginForm() {
   };
 
   return (
-    <CardContent>
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <CardContent className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-5">
         {renderErrorAlert()}
         
         <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            placeholder="Insira seu email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={loading}
-          />
+          <Label htmlFor="email" className="text-sysgest-blue font-medium">Email</Label>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+            <Input
+              id="email"
+              type="email"
+              placeholder="exemplo@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+              className="pl-10 h-12 border-gray-200 focus:border-sysgest-blue focus:ring-sysgest-blue"
+            />
+          </div>
         </div>
         
         <div className="space-y-2">
-          <Label htmlFor="password">Senha</Label>
-          <Input
-            id="password"
-            type="password"
-            placeholder="Insira sua senha"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={loading}
-          />
+          <Label htmlFor="password" className="text-sysgest-blue font-medium">Senha</Label>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+            <Input
+              id="password"
+              type="password"
+              placeholder="Digite sua senha"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+              className="pl-10 h-12 border-gray-200 focus:border-sysgest-blue focus:ring-sysgest-blue"
+            />
+          </div>
         </div>
         
         <Button 
           type="submit" 
-          className="w-full bg-sysgest-blue hover:bg-sysgest-teal"
+          className="w-full h-12 bg-gradient-to-r from-sysgest-blue to-sysgest-teal hover:from-sysgest-teal hover:to-sysgest-blue text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center space-x-2"
           disabled={loading}
         >
-          {loading ? "Autenticando..." : "Entrar"}
+          {loading ? (
+            <>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              <span>Autenticando...</span>
+            </>
+          ) : (
+            <>
+              <LogIn size={18} />
+              <span>Entrar no Sistema</span>
+            </>
+          )}
         </Button>
       </form>
+      
+      <div className="text-center pt-4 border-t border-gray-100">
+        <p className="text-xs text-gray-500">
+          Acesso seguro e protegido por criptografia
+        </p>
+      </div>
     </CardContent>
   );
 }
