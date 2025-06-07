@@ -40,7 +40,8 @@ import {
   ResponsiveContainer
 } from "recharts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
-import { ServiceOrder, User, VALID_STATUS, Venda, PrimeiroPagamento } from "@/types";
+import { ServiceOrder, User, Venda, PrimeiroPagamento } from "@/types";
+import { VALID_STATUS, MONTH_NAMES, ORIGINAL_SERVICE_TYPES } from "@/constants/serviceTypes";
 import { useAuth } from "@/context/auth";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,9 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { formatDateTime } from "@/utils/dateUtils";
+import { getReopeningAlertColor, getReopeningAlertEmoji } from "@/utils/colorUtils";
+import { MetricCard, ActionTakenBadge, NoDataState, LoadingState } from "@/components/common";
 import { Switch } from "@/components/ui/switch";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Box } from "@/components/ui/box";
@@ -66,9 +70,10 @@ import { RegisterForm } from "@/components/auth/RegisterForm";
 import { PermanenciaPorTipoServico } from "./PermanenciaPorTipoServico";
 import { ValorDeFaceVendas } from "@/components/dashboard/ValorDeFaceVendas";
 import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName } from "@/context/DataUtils";
+import { useMetricsDashboard } from "@/hooks/useMetricsDashboard";
 
 export function MetricsOverview() {
-  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs } = useData();
+  const dashboard = useMetricsDashboard();
   const { user } = useAuth();
   
   // Estado para controlar qual aba está ativa
@@ -91,26 +96,12 @@ export function MetricsOverview() {
     setOriginalServiceTypeFilter("");
   }, [activeTab]);
   
-  // Função para determinar a cor do alerta baseado na taxa de reabertura
-  const getReopeningAlertColor = (rate: number) => {
-    if (rate < 5) return "text-green-500";
-    if (rate < 10) return "text-yellow-500";
-    return "text-red-500";
-  };
-  
-  // Função para gerar o emoji de alerta
-  const getReopeningAlertEmoji = (rate: number) => {
-    if (rate < 5) return "🟢";
-    if (rate < 10) return "🟡";
-    return "🔴";
-  };
-  
   // Obter anos e meses únicos a partir das datas de finalização das ordens de serviço
   const { availableYears, availableMonths } = useMemo(() => {
     const years = new Set<string>();
     const months = new Set<string>();
     
-    serviceOrders.forEach(order => {
+    dashboard.serviceOrders.forEach(order => {
       if (order.data_finalizacao) {
         const date = new Date(order.data_finalizacao);
         const year = date.getFullYear().toString();
@@ -126,22 +117,18 @@ export function MetricsOverview() {
       availableYears: Array.from(years).sort((a, b) => b.localeCompare(a)), // Ordenar decrescente
       availableMonths: Array.from(months).sort()
     };
-  }, [serviceOrders]);
+  }, [dashboard.serviceOrders]);
   
   // Função para obter o nome do mês a partir do número
   const getMonthName = (monthNumber: string): string => {
-    const monthNames = [
-      "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-      "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-    ];
-    return monthNames[parseInt(monthNumber, 10) - 1];
+    return MONTH_NAMES[parseInt(monthNumber, 10) - 1];
   };
   
   // Filtrar ordens de serviço com base no mês e ano selecionados
   const filteredServiceOrders = useMemo(() => {
     if (!selectedMonth || !selectedYear) return [];
     
-    return serviceOrders.filter(order => {
+    return dashboard.serviceOrders.filter(order => {
       // Verificar data de finalização
       let includeByFinalization = false;
       if (order.data_finalizacao) {
@@ -244,7 +231,7 @@ export function MetricsOverview() {
       
       return shouldInclude;
     });
-  }, [serviceOrders, selectedMonth, selectedYear]);
+  }, [dashboard.serviceOrders, selectedMonth, selectedYear]);
   
   // Filtrar pares de reabertura com base no mês e ano selecionados
   // Considerando a data de criação da OS secundária (reabertura)
@@ -254,7 +241,7 @@ export function MetricsOverview() {
     }
     
     // Obter todos os pares de reabertura
-    const allPairs = getReopeningPairs();
+    const allPairs = dashboard.getReopeningPairs();
     
     // Filtrar pelos pares onde a OS de reabertura foi criada no mês/ano selecionado
     return allPairs.filter(pair => {
@@ -324,13 +311,13 @@ export function MetricsOverview() {
         return false;
       }
     });
-  }, [getReopeningPairs, selectedMonth, selectedYear, showData, originalServiceTypeFilter]);
+  }, [dashboard.getReopeningPairs, selectedMonth, selectedYear, showData, originalServiceTypeFilter]);
   
   // Filtrar ordens de serviço apenas pela data de finalização (para métricas de tempo)
   const filteredServiceOrdersByFinalization = useMemo(() => {
     if (!selectedMonth || !selectedYear) return [];
     
-    return serviceOrders.filter(order => {
+    return dashboard.serviceOrders.filter(order => {
       if (!order.data_finalizacao) return false;
       
       try {
@@ -374,7 +361,7 @@ export function MetricsOverview() {
         return false;
       }
     });
-  }, [serviceOrders, selectedMonth, selectedYear]);
+  }, [dashboard.serviceOrders, selectedMonth, selectedYear]);
   
   // Obter métricas apenas com as ordens filtradas
   const timeMetrics = useMemo(() => {
@@ -388,12 +375,30 @@ export function MetricsOverview() {
       };
     }
     
-    return calculateTimeMetrics(filteredServiceOrdersByFinalization);
-  }, [calculateTimeMetrics, filteredServiceOrdersByFinalization, showData]);
+    return dashboard.calculateTimeMetrics(filteredServiceOrdersByFinalization);
+  }, [dashboard.calculateTimeMetrics, filteredServiceOrdersByFinalization, showData]);
   
   // Obter métricas de reabertura apenas com base nos pares filtrados
   const getReopeningMetrics = useMemo(() => {
-    if (!selectedMonth || !selectedYear) {
+    if (!showData || !selectedMonth || !selectedYear) {
+      return {
+        reopenedOrders: 0,
+        reopeningRate: 0,
+        averageTimeBetween: 0,
+        reopeningsByTechnician: {},
+        reopeningsByTechnicianTV: {},
+        reopeningsByTechnicianFibra: {},
+        reopeningsByType: {},
+        reopeningsByCity: {},
+        reopeningsByNeighborhood: {},
+        reopeningsByOriginalType: {},
+        reopeningsByReason: {}
+      };
+    }
+    
+    // Se não houver pares de reabertura, retornar métricas vazias
+    if (getFilteredReopeningPairs.length === 0) {
+      // Mesmo sem reaberturas, garantir que os 4 tipos principais estão presentes
       return {
         reopenedOrders: 0,
         reopeningRate: 0,
@@ -414,54 +419,52 @@ export function MetricsOverview() {
       };
     }
     
-    // Se não houver pares de reabertura, ainda assim calcular os totais de ordens originais
-    const hasReopenings = getFilteredReopeningPairs.length > 0;
-    
     // Calcular as métricas manualmente com base nos pares de reabertura
     const reopenedOrders = getFilteredReopeningPairs.length;
     
     // Calcular tempo médio entre ordens
     const totalTimeBetween = getFilteredReopeningPairs.reduce((acc, pair) => acc + pair.timeBetween, 0);
-    const averageTimeBetween = reopenedOrders > 0 ? parseFloat((totalTimeBetween / reopenedOrders).toFixed(2)) : 0;
+    const averageTimeBetween = parseFloat((totalTimeBetween / reopenedOrders).toFixed(2));
     
-    // Reaberturas por técnico (só processa se houver reaberturas)
+    // Reaberturas por técnico
     const reopeningsByTechnician: Record<string, number> = {};
     const reopeningsByTechnicianTV: Record<string, number> = {};
     const reopeningsByTechnicianFibra: Record<string, number> = {};
     
+    getFilteredReopeningPairs.forEach(pair => {
+      const techName = pair.originalOrder.nome_tecnico || "Desconhecido";
+      reopeningsByTechnician[techName] = (reopeningsByTechnician[techName] || 0) + 1;
+      
+      // Verificar categoria do serviço para separar por segmento
+      const originalCategory = pair.originalServiceCategory || "";
+      
+      if (originalCategory.includes("TV")) {
+        reopeningsByTechnicianTV[techName] = (reopeningsByTechnicianTV[techName] || 0) + 1;
+      } else if (originalCategory.includes("FIBRA")) {
+        reopeningsByTechnicianFibra[techName] = (reopeningsByTechnicianFibra[techName] || 0) + 1;
+      }
+    });
+    
     // Reaberturas por tipo de serviço
     const reopeningsByType: Record<string, number> = {};
-    const reopeningsByCity: Record<string, number> = {};
-    const reopeningsByNeighborhood: Record<string, number> = {};
+    getFilteredReopeningPairs.forEach(pair => {
+      const serviceType = pair.reopeningOrder.subtipo_servico || "Desconhecido";
+      reopeningsByType[serviceType] = (reopeningsByType[serviceType] || 0) + 1;
+    });
     
-    // Só processar reaberturas se existirem
-    if (hasReopenings) {
-      getFilteredReopeningPairs.forEach(pair => {
-        const techName = pair.originalOrder.nome_tecnico || "Desconhecido";
-        reopeningsByTechnician[techName] = (reopeningsByTechnician[techName] || 0) + 1;
-        
-        // Verificar categoria do serviço para separar por segmento
-        const originalCategory = pair.originalServiceCategory || "";
-        
-        if (originalCategory.includes("TV")) {
-          reopeningsByTechnicianTV[techName] = (reopeningsByTechnicianTV[techName] || 0) + 1;
-        } else if (originalCategory.includes("FIBRA")) {
-          reopeningsByTechnicianFibra[techName] = (reopeningsByTechnicianFibra[techName] || 0) + 1;
-        }
-        
-        // Reaberturas por tipo de serviço
-        const serviceType = pair.reopeningOrder.subtipo_servico || "Desconhecido";
-        reopeningsByType[serviceType] = (reopeningsByType[serviceType] || 0) + 1;
-        
-        // Reaberturas por cidade
-        const city = normalizeCityName(pair.reopeningOrder.cidade) || "Desconhecido";
-        reopeningsByCity[city] = (reopeningsByCity[city] || 0) + 1;
-        
-        // Reaberturas por bairro
-        const neighborhood = normalizeNeighborhoodName(pair.reopeningOrder.bairro) || "Desconhecido";
-        reopeningsByNeighborhood[neighborhood] = (reopeningsByNeighborhood[neighborhood] || 0) + 1;
-      });
-    }
+    // Reaberturas por cidade
+    const reopeningsByCity: Record<string, number> = {};
+    getFilteredReopeningPairs.forEach(pair => {
+      const city = normalizeCityName(pair.reopeningOrder.cidade) || "Desconhecido";
+      reopeningsByCity[city] = (reopeningsByCity[city] || 0) + 1;
+    });
+    
+    // Reaberturas por bairro
+    const reopeningsByNeighborhood: Record<string, number> = {};
+    getFilteredReopeningPairs.forEach(pair => {
+      const neighborhood = normalizeNeighborhoodName(pair.reopeningOrder.bairro) || "Desconhecido";
+      reopeningsByNeighborhood[neighborhood] = (reopeningsByNeighborhood[neighborhood] || 0) + 1;
+    });
     
     // Contar ordens originais por tipo para calcular taxas de reabertura
     const originalOrdersByType: Record<string, number> = {};
@@ -469,49 +472,17 @@ export function MetricsOverview() {
     // Lista de todos os tipos de serviço possíveis (incluindo os que não tem reaberturas)
     const allServiceTypes = new Set<string>();
     
-    // Definir os tipos principais que devem sempre aparecer
-    const requiredTypes = ["Corretiva", "Corretiva BL", "Ponto Principal", "Ponto Principal BL"];
-    
-    // Primeiro, inicializar todos os tipos obrigatórios com zero
-    requiredTypes.forEach(type => {
-      originalOrdersByType[type] = 0;
-      allServiceTypes.add(type);
-    });
-    
-    // Contar TODAS as ordens filtradas (criadas OU finalizadas no mês) dos tipos principais
+    // Considerar apenas as ordens que poderiam ter gerado reaberturas
     filteredServiceOrders.forEach(order => {
-      if (!order.subtipo_servico) return;
+      const isOriginalType = ORIGINAL_SERVICE_TYPES.some(
+        type => order.subtipo_servico?.includes(type)
+      );
       
-      // Primeiro, tentar matching exato com os tipos obrigatórios
-      let matched = false;
-      requiredTypes.forEach(requiredType => {
-        if (order.subtipo_servico === requiredType) {
-          originalOrdersByType[requiredType] = (originalOrdersByType[requiredType] || 0) + 1;
-          matched = true;
-        }
-      });
       
-      // Se não houve match exato, tentar matching por conteúdo
-      if (!matched) {
-        requiredTypes.forEach(requiredType => {
-          if (order.subtipo_servico?.includes(requiredType)) {
-            originalOrdersByType[requiredType] = (originalOrdersByType[requiredType] || 0) + 1;
-            matched = true;
-          }
-        });
-      }
-      
-      // Para outros tipos que possam gerar reaberturas
-      if (!matched) {
-        const isOtherOriginalType = ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
-          type => order.subtipo_servico?.includes(type)
-        );
-        
-        if (isOtherOriginalType) {
-          const type = order.subtipo_servico || "Desconhecido";
-          originalOrdersByType[type] = (originalOrdersByType[type] || 0) + 1;
-          allServiceTypes.add(type);
-        }
+      if (isOriginalType) {
+        const type = order.subtipo_servico || "Desconhecido";
+        originalOrdersByType[type] = (originalOrdersByType[type] || 0) + 1;
+        allServiceTypes.add(type);
       }
     });
     
@@ -522,8 +493,11 @@ export function MetricsOverview() {
       reopeningRate: number 
     }> = {};
     
-    // Inicializar TODOS os tipos (obrigatórios e outros encontrados)
-    allServiceTypes.forEach(type => {
+    // Sempre garantir que os 4 tipos principais estão incluídos
+    const requiredTypes = Array.from(ORIGINAL_SERVICE_TYPES);
+    
+    // Inicializar os tipos obrigatórios primeiro
+    requiredTypes.forEach(type => {
       reopeningsByOriginalType[type] = {
         reopenings: 0,
         totalOriginals: originalOrdersByType[type] || 0,
@@ -531,9 +505,9 @@ export function MetricsOverview() {
       };
     });
     
-    // Garantir que os tipos obrigatórios sempre estejam presentes, mesmo com contagem zero
-    requiredTypes.forEach(type => {
-      if (!reopeningsByOriginalType[type]) {
+    // Inicializar todos os outros tipos de serviço encontrados com contagem zero
+    allServiceTypes.forEach(type => {
+      if (!ORIGINAL_SERVICE_TYPES.includes(type as typeof ORIGINAL_SERVICE_TYPES[number])) {
         reopeningsByOriginalType[type] = {
           reopenings: 0,
           totalOriginals: originalOrdersByType[type] || 0,
@@ -542,22 +516,19 @@ export function MetricsOverview() {
       }
     });
     
-    // Contabilizar reaberturas por tipo original (só se houver reaberturas)
-    if (hasReopenings) {
-      getFilteredReopeningPairs.forEach(pair => {
-        const originalType = pair.originalOrder.subtipo_servico || "Desconhecido";
-        
-        if (!reopeningsByOriginalType[originalType]) {
-          reopeningsByOriginalType[originalType] = {
-            reopenings: 0,
-            totalOriginals: originalOrdersByType[originalType] || 1,
-            reopeningRate: 0
-          };
-        }
-        
-        reopeningsByOriginalType[originalType].reopenings++;
-      });
-    }
+    getFilteredReopeningPairs.forEach(pair => {
+      const originalType = pair.originalOrder.subtipo_servico || "Desconhecido";
+      
+      if (!reopeningsByOriginalType[originalType]) {
+        reopeningsByOriginalType[originalType] = {
+          reopenings: 0,
+          totalOriginals: originalOrdersByType[originalType] || 1,
+          reopeningRate: 0
+        };
+      }
+      
+      reopeningsByOriginalType[originalType].reopenings++;
+    });
     
     // Calcular taxas de reabertura por tipo
     Object.keys(reopeningsByOriginalType).forEach(type => {
@@ -567,33 +538,31 @@ export function MetricsOverview() {
         : 0;
     });
     
-    // Calcular motivos de reabertura (só se houver reaberturas)
+    // Calcular motivos de reabertura
     const reopeningsByReason: Record<string, {
       byOriginalType: Record<string, number>;
       total: number;
     }> = {};
     
-    if (hasReopenings) {
-      getFilteredReopeningPairs.forEach(pair => {
-        const reason = pair.reopeningOrder.motivo || "Motivo não especificado";
-        const originalType = pair.originalOrder.subtipo_servico || "Desconhecido";
-        
-        if (!reopeningsByReason[reason]) {
-          reopeningsByReason[reason] = {
-            byOriginalType: {},
-            total: 0
-          };
-        }
-        
-        reopeningsByReason[reason].total++;
-        
-        if (!reopeningsByReason[reason].byOriginalType[originalType]) {
-          reopeningsByReason[reason].byOriginalType[originalType] = 0;
-        }
-        
-        reopeningsByReason[reason].byOriginalType[originalType]++;
-      });
-    }
+    getFilteredReopeningPairs.forEach(pair => {
+      const reason = pair.reopeningOrder.motivo || "Motivo não especificado";
+      const originalType = pair.originalOrder.subtipo_servico || "Desconhecido";
+      
+      if (!reopeningsByReason[reason]) {
+        reopeningsByReason[reason] = {
+          byOriginalType: {},
+          total: 0
+        };
+      }
+      
+      reopeningsByReason[reason].total++;
+      
+      if (!reopeningsByReason[reason].byOriginalType[originalType]) {
+        reopeningsByReason[reason].byOriginalType[originalType] = 0;
+      }
+      
+      reopeningsByReason[reason].byOriginalType[originalType]++;
+    });
     
     // Calcular taxa geral de reabertura - considerando os tipos filtrados, se houver
     let totalMainServices = 0;
@@ -612,7 +581,7 @@ export function MetricsOverview() {
     } else {
       // Se não há filtro, contar todos os tipos principais
       totalMainServices = filteredServiceOrders.filter(order => 
-        ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
+        ORIGINAL_SERVICE_TYPES.some(
           type => order.subtipo_servico?.includes(type)
         )
       ).length;
@@ -635,15 +604,15 @@ export function MetricsOverview() {
       reopeningsByOriginalType,
       reopeningsByReason
     };
-  }, [getFilteredReopeningPairs, filteredServiceOrders, selectedMonth, selectedYear, originalServiceTypeFilter]);
+  }, [getFilteredReopeningPairs, filteredServiceOrders, originalServiceTypeFilter, showData, selectedMonth, selectedYear]);
   
   // Extrair tipos de serviço únicos das ordens originais para o filtro
   const uniqueOriginalServiceTypes = useMemo(() => {
-    if (!showData || !getReopeningPairs().length) {
+    if (!showData || !dashboard.getReopeningPairs().length) {
       return [];
     }
     
-    const allPairs = getReopeningPairs();
+    const allPairs = dashboard.getReopeningPairs();
     
     // Extrair todos os tipos de serviço únicos das ordens originais
     const uniqueTypes = new Set<string>();
@@ -656,7 +625,7 @@ export function MetricsOverview() {
     
     // Converter o Set para array e ordenar alfabeticamente
     return Array.from(uniqueTypes).sort();
-  }, [getReopeningPairs, showData]);
+  }, [dashboard, dashboard.getReopeningPairs, showData]);
   
   // Resetar o estado de exibição quando o usuário troca de aba
   useEffect(() => {
@@ -1008,67 +977,45 @@ export function MetricsOverview() {
             
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Reopened Orders Count */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">
-                Ordens Reabertas
-              </CardTitle>
-              <CardDescription>
-                Total de ordens identificadas como reabertas
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-                  <div className="text-2xl font-bold">{getReopeningMetrics.reopenedOrders}</div>
-            </CardContent>
-          </Card>
+          <MetricCard
+            title="Ordens Reabertas"
+            description="Total de ordens identificadas como reabertas"
+            value={getReopeningMetrics.reopenedOrders}
+            icon={Repeat}
+          />
           
           {/* Total Original Services */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">
-                Total de Ordens Abertas
-              </CardTitle>
-              <CardDescription>
-                {originalServiceTypeFilter 
-                  ? `Total de ${originalServiceTypeFilter}`
-                  : "Soma de Corretiva, Corretiva BL, Ponto Principal e Ponto Principal BL"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {filteredServiceOrders.filter(order => {
-                  if (originalServiceTypeFilter) {
-                    // Se há um filtro, mostrar apenas as ordens do tipo exato filtrado
-                    return order.subtipo_servico === originalServiceTypeFilter;
-                  } else {
-                    // Se não há filtro, mostrar todos os tipos principais
-                    return ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
-                      type => order.subtipo_servico?.includes(type)
-                    );
-                  }
-                }).length}
-              </div>
-            </CardContent>
-          </Card>
+          <MetricCard
+            title="Total de Ordens Abertas"
+            description={originalServiceTypeFilter 
+              ? `Total de ${originalServiceTypeFilter}`
+              : "Soma de Corretiva, Corretiva BL, Ponto Principal e Ponto Principal BL"}
+            value={filteredServiceOrders.filter(order => {
+              if (originalServiceTypeFilter) {
+                // Se há um filtro, mostrar apenas as ordens do tipo exato filtrado
+                return order.subtipo_servico === originalServiceTypeFilter;
+              } else {
+                // Se não há filtro, mostrar todos os tipos principais
+                return ORIGINAL_SERVICE_TYPES.some(
+                  type => order.subtipo_servico?.includes(type)
+                );
+              }
+            }).length}
+            icon={AlertTriangle}
+          />
           
           {/* Reopening Rate */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">
-                Chance de reabertura (Taxa de Reabertura)
-              </CardTitle>
-              <CardDescription>
-                Percentual de reaberturas sobre o total
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{getReopeningMetrics.reopeningRate.toFixed(2).replace('.', ',')}%</div>
-              <Progress 
-                value={getReopeningMetrics.reopeningRate} 
-                className="h-2 mt-2"
-              />
-            </CardContent>
-          </Card>
+          <MetricCard
+            title="Chance de reabertura (Taxa de Reabertura)"
+            description="Percentual de reaberturas sobre o total"
+            value={`${getReopeningMetrics.reopeningRate.toFixed(2).replace('.', ',')}%`}
+            progress={{
+              value: getReopeningMetrics.reopeningRate,
+              showBar: true
+            }}
+            variant={getReopeningMetrics.reopeningRate > 10 ? 'danger' : getReopeningMetrics.reopeningRate > 5 ? 'warning' : 'success'}
+            icon={BarChart2}
+          />
           
           {/* Average Time Between */}
           <Card>
@@ -2078,7 +2025,7 @@ export function MetricsOverview() {
         
         {!showData ? (
           <NoDataMessage />
-        ) : technicians.length > 0 ? (
+        ) : dashboard.technicians.length > 0 ? (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Technicians Reopening Table */}
@@ -2122,7 +2069,7 @@ export function MetricsOverview() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {technicians
+                        {dashboard.technicians
                           .filter(name => name) // Filtrar nomes vazios
                           .map(name => {
                             const techOrders = filteredServiceOrders.filter(o => o.nome_tecnico === name);
@@ -2291,7 +2238,7 @@ export function MetricsOverview() {
                               </TableRow>
                           )})}
                         
-                        {technicians.filter(name => name && filteredServiceOrders.some(o => o.nome_tecnico === name)).length === 0 && (
+                        {dashboard.technicians.filter(name => name && filteredServiceOrders.some(o => o.nome_tecnico === name)).length === 0 && (
                           <TableRow>
                             <TableCell colSpan={16} className="text-center py-4 text-muted-foreground">
                               Nenhum técnico encontrado no período selecionado
@@ -2466,7 +2413,7 @@ export function MetricsOverview() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {technicians
+                        {dashboard.technicians
                           .filter(name => name) // Filtrar nomes vazios
                           .map(name => {
                             // Filtrar apenas ordens finalizadas por este técnico
@@ -2622,7 +2569,7 @@ export function MetricsOverview() {
                             );
                           })}
                         
-                        {technicians.filter(name => name && filteredServiceOrdersByFinalization.some(o => o.nome_tecnico === name)).length === 0 && (
+                        {dashboard.technicians.filter(name => name && filteredServiceOrdersByFinalization.some(o => o.nome_tecnico === name)).length === 0 && (
                           <TableRow>
                             <TableCell colSpan={15} className="text-center py-2 text-muted-foreground">
                               Nenhum técnico encontrado no período selecionado
@@ -2896,7 +2843,7 @@ export function MetricsOverview() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {technicians
+                        {dashboard.technicians
                           .filter(name => name) // Filtrar nomes vazios
                           .sort((a, b) => {
                             const aOrders = filteredServiceOrders.filter(o => o.nome_tecnico === a && o.status !== "Cancelada").length;
@@ -2947,7 +2894,7 @@ export function MetricsOverview() {
                             );
                         }).filter(Boolean)}
                         
-                        {technicians.filter(name => name && filteredServiceOrders.some(o => o.nome_tecnico === name)).length === 0 && (
+                        {dashboard.technicians.filter(name => name && filteredServiceOrders.some(o => o.nome_tecnico === name)).length === 0 && (
                           <TableRow>
                             <TableCell colSpan={14} className="text-center py-4 text-muted-foreground">
                               Nenhum técnico encontrado no período selecionado
@@ -3789,7 +3736,7 @@ function PaymentsManagement() {
 
 // ImportData component
 function ImportData() {
-  const { importServiceOrders, importVendas, importPrimeirosPagamentos } = useData();
+  const dashboard = useMetricsDashboard();
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -3852,7 +3799,7 @@ function ImportData() {
             if (importType === 'os') {
               // Processamento existente para ordens de serviço
               const processedOrders = processData(data as Record<string, unknown>[]);
-              importServiceOrders(processedOrders, true);
+              dashboard.importServiceOrders(processedOrders, true);
               
               toast({
                 title: "Importação concluída",
@@ -3862,7 +3809,7 @@ function ImportData() {
             else if (importType === 'vendas') {
               // Processamento para vendas
               const processedVendas = processVendas(data as Record<string, unknown>[]);
-              importVendas(processedVendas, true);
+              dashboard.importVendas(processedVendas, true);
               
               toast({
                 title: "Importação concluída",
@@ -3872,7 +3819,7 @@ function ImportData() {
             else if (importType === 'pagamentos') {
               // Processamento para pagamentos
               const processedPagamentos = processPagamentos(data as Record<string, unknown>[], toast);
-              importPrimeirosPagamentos(processedPagamentos, true);
+              dashboard.importPrimeirosPagamentos(processedPagamentos, true);
               
               toast({
                 title: "Importação concluída",
@@ -4698,9 +4645,9 @@ function ImportData() {
 // Componente separado para o conteúdo da tab Permanência
 function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dispatch<React.SetStateAction<string[]>> }) {
   // UseData hook para obter dados do contexto
-  const data = useData();
-  const { vendas, primeirosPagamentos } = data;
-  const permanenciaMetrics = data.calculatePermanenciaMetrics();
+  const dashboard = useMetricsDashboard();
+  const { vendas, primeirosPagamentos } = dashboard;
+  const permanenciaMetrics = dashboard.calculatePermanenciaMetrics();
   
   // Estado para controlar a página atual na tabela de propostas
   const [paginaAtual, setPaginaAtual] = useState(1);
@@ -5562,9 +5509,9 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
 // Componente separado para o conteúdo da tab Vendedor
 function VendedorTabContent() {
   // Obter as métricas e dados de vendedor
-  const dataContext = useData();
-  const vendedorMetricsData = dataContext.calculateVendedorMetrics();
-  const { vendas, primeirosPagamentos } = dataContext;
+  const dashboard = useMetricsDashboard();
+  const vendedorMetricsData = dashboard.calculateVendedorMetrics();
+  const { vendas, primeirosPagamentos } = dashboard;
   
   // Função para identificar a sigla de um produto
   const getSigla = useCallback((venda: Venda): string => {
