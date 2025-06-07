@@ -67,10 +67,12 @@ import { RegisterForm } from "@/components/auth/RegisterForm";
 import { PermanenciaPorTipoServico } from "./PermanenciaPorTipoServico";
 import { ValorDeFaceVendas } from "@/components/dashboard/ValorDeFaceVendas";
 import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName } from "@/context/DataUtils";
+import { useSystemSettings } from "@/hooks/useSystemSettings";
 
 export function MetricsOverview() {
   const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs } = useData();
   const { user } = useAuth();
+  const { getSetting, updateSetting } = useSystemSettings();
   
   // Estado para controlar qual aba está ativa
   const [activeTab, setActiveTab] = useState("time");
@@ -3021,7 +3023,7 @@ export function MetricsOverview() {
       
       {/* Users Management Tab */}
       <TabsContent value="users" className="space-y-4">
-        <UserManagement />
+                    <UserManagement getSetting={getSetting} updateSetting={updateSetting} />
       </TabsContent>
       
       {/* Payments Management Tab */}
@@ -3083,42 +3085,32 @@ function getMostCommonServiceType(orders: ServiceOrder[]): string {
 }
 
 // MessageConfiguration component
-function MessageConfiguration() {
+function MessageConfiguration({ 
+  getSetting, 
+  updateSetting 
+}: { 
+  getSetting: (key: string, defaultValue?: string) => string;
+  updateSetting: (key: string, value: string) => Promise<boolean>;
+}) {
   const { user } = useAuth();
-  const [message, setMessage] = useState("⚠️ Novas atualizações em breve");
   const [isEditing, setIsEditing] = useState(false);
   const [tempMessage, setTempMessage] = useState("");
   const { toast } = useToast();
 
-  // Carregar mensagem salva do localStorage
-  useEffect(() => {
-    const savedMessage = localStorage.getItem('headerMessage');
-    if (savedMessage) {
-      setMessage(savedMessage);
-    }
-  }, []);
+  const currentMessage = getSetting('header_message', '⚠️ Novas atualizações em breve');
 
   const handleEdit = () => {
-    setTempMessage(message);
+    setTempMessage(currentMessage);
     setIsEditing(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (tempMessage.trim()) {
-      setMessage(tempMessage.trim());
-      localStorage.setItem('headerMessage', tempMessage.trim());
-      
-      // Disparar evento customizado para atualizar o header
-      window.dispatchEvent(new CustomEvent('headerMessageUpdated', {
-        detail: { message: tempMessage.trim() }
-      }));
-      
-      toast({
-        title: "Mensagem atualizada",
-        description: "A mensagem de atualização foi salva com sucesso."
-      });
+      const success = await updateSetting('header_message', tempMessage.trim());
+      if (success) {
+        setIsEditing(false);
+      }
     }
-    setIsEditing(false);
   };
 
   const handleCancel = () => {
@@ -3126,20 +3118,9 @@ function MessageConfiguration() {
     setIsEditing(false);
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     const defaultMessage = "⚠️ Novas atualizações em breve";
-    setMessage(defaultMessage);
-    localStorage.setItem('headerMessage', defaultMessage);
-    
-    // Disparar evento customizado para atualizar o header
-    window.dispatchEvent(new CustomEvent('headerMessageUpdated', {
-      detail: { message: defaultMessage }
-    }));
-    
-    toast({
-      title: "Mensagem restaurada",
-      description: "A mensagem foi restaurada para o padrão."
-    });
+    await updateSetting('header_message', defaultMessage);
   };
 
   // Verificar se o usuário atual tem permissão de administrador
@@ -3160,8 +3141,8 @@ function MessageConfiguration() {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Preview da mensagem atual */}
-        <div className="bg-yellow-400 text-sysgest-blue px-4 py-2 rounded-lg">
-          <span className="text-sm font-medium">{message}</span>
+                    <div className="bg-yellow-400 text-sysgest-blue px-4 py-2 rounded-lg">
+              <span className="text-sm font-medium">{currentMessage}</span>
         </div>
 
         {!isEditing ? (
@@ -3209,7 +3190,13 @@ function MessageConfiguration() {
 }
 
 // UserManagement component
-function UserManagement() {
+function UserManagement({ 
+  getSetting, 
+  updateSetting 
+}: { 
+  getSetting: (key: string, defaultValue?: string) => string;
+  updateSetting: (key: string, value: string) => Promise<boolean>;
+}) {
   const { user } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -3351,7 +3338,7 @@ function UserManagement() {
   return (
     <div className="space-y-6">
       {/* Configuração de Mensagem de Atualização */}
-      <MessageConfiguration />
+      <MessageConfiguration getSetting={getSetting} updateSetting={updateSetting} />
       
       <Card>
         <CardHeader>

@@ -1,32 +1,12 @@
 import { useAuth } from "@/context/useAuth";
 import { Button } from "@/components/ui/button";
 import { LogOut, User, Settings } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useSystemSettings } from "@/hooks/useSystemSettings";
 
 export function DashboardHeader() {
   const { user, logout } = useAuth();
-  const [headerMessage, setHeaderMessage] = useState("⚠️ Novas atualizações em breve");
-
-  // Carregar mensagem do localStorage e escutar mudanças
-  useEffect(() => {
-    // Carregar mensagem salva
-    const savedMessage = localStorage.getItem('headerMessage');
-    if (savedMessage) {
-      setHeaderMessage(savedMessage);
-    }
-
-    // Escutar mudanças na mensagem
-    const handleMessageUpdate = (event: CustomEvent<{ message: string }>) => {
-      setHeaderMessage(event.detail.message);
-    };
-
-    window.addEventListener('headerMessageUpdated', handleMessageUpdate);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('headerMessageUpdated', handleMessageUpdate);
-    };
-  }, []);
+  const { getSetting } = useSystemSettings();
+  const headerMessage = getSetting('header_message', '⚠️ Novas atualizações em breve');
 
   return (
     <header className="bg-sysgest-blue text-white px-6 py-3 shadow-lg">
