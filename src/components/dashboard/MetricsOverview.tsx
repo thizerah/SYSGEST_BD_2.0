@@ -66,6 +66,7 @@ import { clearDefaultUsers } from "@/utils/clearDefaultUsers";
 import { RegisterForm } from "@/components/auth/RegisterForm";
 import { PermanenciaPorTipoServico } from "./PermanenciaPorTipoServico";
 import { ValorDeFaceVendas } from "@/components/dashboard/ValorDeFaceVendas";
+import { VendasInstaladasPorCidade } from "@/components/dashboard/VendasInstaladasPorCidade";
 import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName } from "@/context/DataUtils";
 import { useSystemSettings } from "@/hooks/useSystemSettings";
 
@@ -393,6 +394,128 @@ export function MetricsOverview() {
     
     return calculateTimeMetrics(filteredServiceOrdersByFinalization);
   }, [calculateTimeMetrics, filteredServiceOrdersByFinalization, showData]);
+
+  // Calcular dados para comparação de serviços finalizados
+  const finishedServicesComparison = useMemo(() => {
+    if (!selectedMonth || !selectedYear || !showData) {
+      return [];
+    }
+
+    const targetSubtypes = [
+      "Corretiva",
+      "Corretiva BL", 
+      "Ponto Principal",
+      "Ponto Principal BL",
+      "Substituição",
+      "Sistema Opcional",
+      "Prestação de Serviço",
+      "Preventiva"
+    ];
+
+    // Calcular o dia atual do mês selecionado
+    const currentDate = new Date();
+    const selectedMonthNum = parseInt(selectedMonth, 10);
+    const selectedYearNum = parseInt(selectedYear, 10);
+    
+    // Se o mês/ano selecionado é o atual, usar o dia atual
+    // Caso contrário, usar o último dia do mês
+    let dayToCompare = 31; // último dia possível por padrão
+    if (selectedYearNum === currentDate.getFullYear() && selectedMonthNum === currentDate.getMonth() + 1) {
+      dayToCompare = currentDate.getDate();
+    }
+
+    // Calcular mês anterior
+    let previousMonth = selectedMonthNum - 1;
+    let previousYear = selectedYearNum;
+    if (previousMonth === 0) {
+      previousMonth = 12;
+      previousYear--;
+    }
+
+         const result = targetSubtypes.map(subtipo => {
+       // Função helper para contar serviços em um mês específico
+       const countServicesInMonth = (targetYear: number, targetMonth: number) => {
+         return serviceOrders.filter(order => {
+           if (!order.data_finalizacao || order.status !== "Finalizada" && order.status !== "Finalizado") {
+             return false;
+           }
+
+           // Verificar se o subtipo corresponde
+           if (order.subtipo_servico !== subtipo) {
+             return false;
+           }
+
+           try {
+             let day, month, year;
+             
+             if (order.data_finalizacao.includes('/')) {
+               const dateParts = order.data_finalizacao.split(' ')[0].split('/');
+               day = parseInt(dateParts[0], 10);
+               month = parseInt(dateParts[1], 10);
+               year = parseInt(dateParts[2], 10);
+             } else if (order.data_finalizacao.includes('-')) {
+               const dateParts = order.data_finalizacao.split('T')[0].split('-');
+               year = parseInt(dateParts[0], 10);
+               month = parseInt(dateParts[1], 10);
+               day = parseInt(dateParts[2], 10);
+             } else {
+               const date = new Date(order.data_finalizacao);
+               day = date.getDate();
+               month = date.getMonth() + 1;
+               year = date.getFullYear();
+             }
+
+             return year === targetYear && 
+                    month === targetMonth && 
+                    day <= dayToCompare;
+           } catch (error) {
+             return false;
+           }
+         }).length;
+       };
+
+       // Contar serviços finalizados do mês atual
+       const currentMonthCount = countServicesInMonth(selectedYearNum, selectedMonthNum);
+
+       // Contar serviços finalizados do mês anterior
+       const previousMonthCount = countServicesInMonth(previousYear, previousMonth);
+
+       // Calcular média dos últimos 3 meses (incluindo o mês atual)
+       const monthsToCalculate = [];
+       
+       // Mês atual
+       monthsToCalculate.push({ year: selectedYearNum, month: selectedMonthNum });
+       
+       // Mês anterior
+       monthsToCalculate.push({ year: previousYear, month: previousMonth });
+       
+       // Dois meses atrás
+       let twoMonthsAgoMonth = previousMonth - 1;
+       let twoMonthsAgoYear = previousYear;
+       if (twoMonthsAgoMonth === 0) {
+         twoMonthsAgoMonth = 12;
+         twoMonthsAgoYear--;
+       }
+       monthsToCalculate.push({ year: twoMonthsAgoYear, month: twoMonthsAgoMonth });
+
+       // Calcular a média dos 3 meses
+       const totalThreeMonths = monthsToCalculate.reduce((sum, monthData) => {
+         return sum + countServicesInMonth(monthData.year, monthData.month);
+       }, 0);
+       
+       const averageThreeMonths = totalThreeMonths / 3;
+
+       return {
+         subtipo,
+         currentMonth: currentMonthCount,
+         previousMonth: previousMonthCount,
+         averageThreeMonths: parseFloat(averageThreeMonths.toFixed(1))
+       };
+     });
+
+    // Filtrar apenas os subtipos que têm dados (pelo menos um dos meses > 0)
+    return result.filter(item => item.currentMonth > 0 || item.previousMonth > 0);
+  }, [serviceOrders, selectedMonth, selectedYear, showData]);
   
   // Obter métricas de reabertura apenas com base nos pares filtrados
   const getReopeningMetrics = useMemo(() => {
@@ -893,66 +1016,164 @@ export function MetricsOverview() {
           <NoDataMessage />
         ) : (
           <>
-        {/* Service Type Time Performance */}
-        <Card>
-          <CardHeader>
+        {/* Dois quadros lado a lado */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Service Type Time Performance */}
+          <Card>
+            <CardHeader>
+                <CardTitle>
+                  <div className="flex items-center">
+                    <Clock className="mr-2 h-5 w-5" />
+                    Desempenho por Tempo de Atendimento
+                  </div>
+                </CardTitle>
+              <CardDescription>
+                Análise do tempo médio de atendimento por tipo de serviço
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {Object.entries(timeMetrics.servicesByType).map(([type, metrics]) => {
+                  const goalPercent = metrics.percentWithinGoal;
+                  
+                  // Determine progress bar color based on goal achievement
+                  const progressClass = goalPercent > 80 
+                    ? "bg-green-600/20" 
+                    : goalPercent > 50 
+                      ? "bg-yellow-500/20" 
+                      : "bg-red-600/20";
+                  
+                  const indicatorClass = goalPercent > 80 
+                    ? "!bg-green-600" 
+                    : goalPercent > 50 
+                      ? "!bg-yellow-500" 
+                      : "!bg-red-600";
+                  
+                  return (
+                    <div key={type} className="space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">{type}</span>
+                        <span className="text-sm">
+                          {metrics.averageTime.toFixed(2)} horas (meta: {getServiceGoal(type)} horas)
+                        </span>
+                      </div>
+                      <div className={progressClass + " rounded-full h-1.5 overflow-hidden"}>
+                        <div 
+                          className={indicatorClass + " h-full rounded-full"} 
+                          style={{ width: `${goalPercent}%` }}
+                        />
+                      </div>
+                      <div className="text-xl font-bold">
+                        {metrics.withinGoal} de {metrics.totalOrders} dentro da meta ({goalPercent.toFixed(2)}%)
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {Object.keys(timeMetrics.servicesByType).length === 0 && (
+                  <div className="text-center text-muted-foreground py-4">
+                        Nenhum dado disponível para análise no período selecionado
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Total de Serviços Finalizados */}
+          <Card>
+            <CardHeader>
               <CardTitle>
                 <div className="flex items-center">
-                  <Clock className="mr-2 h-5 w-5" />
-                  Desempenho por Tempo de Atendimento
+                  <CheckCircle className="mr-2 h-5 w-5" />
+                  Total de Serviços Finalizados
                 </div>
               </CardTitle>
-            <CardDescription>
-              Análise do tempo médio de atendimento por tipo de serviço
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {Object.entries(timeMetrics.servicesByType).map(([type, metrics]) => {
-                const goalPercent = metrics.percentWithinGoal;
-                
-                // Determine progress bar color based on goal achievement
-                const progressClass = goalPercent > 80 
-                  ? "bg-green-600/20" 
-                  : goalPercent > 50 
-                    ? "bg-yellow-500/20" 
-                    : "bg-red-600/20";
-                
-                const indicatorClass = goalPercent > 80 
-                  ? "!bg-green-600" 
-                  : goalPercent > 50 
-                    ? "!bg-yellow-500" 
-                    : "!bg-red-600";
-                
-                return (
-                  <div key={type} className="space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">{type}</span>
-                      <span className="text-sm">
-                        {metrics.averageTime.toFixed(2)} horas (meta: {getServiceGoal(type)} horas)
-                      </span>
-                    </div>
-                    <div className={progressClass + " rounded-full h-1.5 overflow-hidden"}>
-                      <div 
-                        className={indicatorClass + " h-full rounded-full"} 
-                        style={{ width: `${goalPercent}%` }}
-                      />
-                    </div>
-                    <div className="text-xl font-bold">
-                      {metrics.withinGoal} de {metrics.totalOrders} dentro da meta ({goalPercent.toFixed(2)}%)
-                    </div>
-                  </div>
-                );
-              })}
-              
-              {Object.keys(timeMetrics.servicesByType).length === 0 && (
-                <div className="text-center text-muted-foreground py-4">
-                      Nenhum dado disponível para análise no período selecionado
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+              <CardDescription>
+                Comparação mensal de serviços finalizados por subtipo
+              </CardDescription>
+            </CardHeader>
+                         <CardContent className="py-4">
+               <div className="space-y-1">
+                 {finishedServicesComparison.map((item) => {
+                   const percentChange = item.previousMonth > 0 
+                     ? ((item.currentMonth - item.previousMonth) / item.previousMonth) * 100 
+                     : item.currentMonth > 0 ? 100 : 0;
+                   
+                   const difference = item.currentMonth - item.previousMonth;
+                   const isIncrease = difference > 0;
+                   const isDecrease = difference < 0;
+
+                   // Calcular diferença com a média dos 3 meses
+                   const averageThreeMonths = Math.round(item.averageThreeMonths); // Número inteiro
+                   const averageDifference = item.currentMonth - averageThreeMonths;
+                   const averagePercentChange = averageThreeMonths > 0 
+                     ? ((item.currentMonth - averageThreeMonths) / averageThreeMonths) * 100 
+                     : item.currentMonth > 0 ? 100 : 0;
+                   
+                   const isAverageIncrease = averageDifference > 0;
+                   const isAverageDecrease = averageDifference < 0;
+                   
+                   return (
+                     <div key={item.subtipo} className="border-b border-gray-50 pb-1 last:border-b-0">
+                       <div className="mb-0.5">
+                         <span className="font-medium text-xs">{item.subtipo}</span>
+                       </div>
+                       
+                       <div className="grid grid-cols-12 gap-1 text-xs items-center">
+                         {/* Seção Mês Atual vs Anterior */}
+                         <div className="col-span-1">
+                           <div className="text-gray-400 text-xs">Atual</div>
+                           <div className="font-semibold text-xs">{item.currentMonth}</div>
+                         </div>
+                         <div className="col-span-1">
+                           <div className="text-gray-400 text-xs">Anterior</div>
+                           <div className="font-semibold text-xs">{item.previousMonth}</div>
+                         </div>
+                         <div className="col-span-3">
+                           <div className="text-gray-400 text-xs">Diferença</div>
+                           <div className={`font-semibold text-xs ${
+                             isIncrease ? 'text-green-600' : 
+                             isDecrease ? 'text-red-600' : 
+                             'text-gray-600'
+                           }`}>
+                             {difference >= 0 ? '+' : ''}{difference} ({percentChange >= 0 ? '+' : ''}{percentChange.toFixed(2).replace('.', ',')}%)
+                           </div>
+                         </div>
+
+                         {/* Separador Visual */}
+                         <div className="col-span-1 flex justify-center">
+                           <div className="border-l border-gray-300 h-8"></div>
+                         </div>
+
+                         {/* Seção Média 3 Meses */}
+                         <div className="col-span-2">
+                           <div className="text-gray-400 text-xs">Média 3 meses</div>
+                           <div className="font-semibold text-xs">{averageThreeMonths}</div>
+                         </div>
+                         <div className="col-span-4">
+                           <div className="text-gray-400 text-xs">Diferença</div>
+                           <div className={`font-semibold text-xs ${
+                             isAverageIncrease ? 'text-green-600' : 
+                             isAverageDecrease ? 'text-red-600' : 
+                             'text-gray-600'
+                           }`}>
+                             {averageDifference >= 0 ? '+' : ''}{averageDifference} ({averagePercentChange >= 0 ? '+' : ''}{averagePercentChange.toFixed(2).replace('.', ',')}%)
+                           </div>
+                         </div>
+                       </div>
+                     </div>
+                   );
+                 })}
+                 
+                 {finishedServicesComparison.length === 0 && (
+                   <div className="text-center text-muted-foreground py-2 text-xs">
+                     Nenhum dado disponível para comparação no período selecionado
+                   </div>
+                 )}
+               </div>
+             </CardContent>
+          </Card>
+        </div>
           </>
         )}
       </TabsContent>
@@ -4389,6 +4610,8 @@ function ImportData() {
       const cpfColumn = findColumnContaining("cpf");
       const nomeFantasiaColumn = findColumnContaining("nome fantasia");
       const telefoneCelularColumn = findColumnContaining("telefone celular");
+      const cidadeColumn = findColumnContaining("cidade");
+      const bairroColumn = findColumnContaining("bairro");
       
       if (!numeroProposta || !idVendedor || !nomeProprietario || !agrupamentoProduto || 
           !produtoPrincipal || !valor || !statusProposta || !dataHabilitacao) {
@@ -4402,6 +4625,8 @@ function ImportData() {
         cpf: cpfColumn ? String(row[cpfColumn] || "") : "",
         nome_fantasia: nomeFantasiaColumn ? String(row[nomeFantasiaColumn] || "") : "",
         telefone_celular: telefoneCelularColumn ? String(row[telefoneCelularColumn] || "") : "",
+        cidade: cidadeColumn ? String(row[cidadeColumn] || "") : "",
+        bairro: bairroColumn ? String(row[bairroColumn] || "") : "",
         agrupamento_produto: String(row[agrupamentoProduto]),
         produto_principal: String(row[produtoPrincipal]),
         valor: parseValue(String(row[valor])),
@@ -4790,6 +5015,8 @@ function ImportData() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
                   <div>• CPF</div>
                   <div>• Nome Fantasia</div>
+                  <div>• Cidade</div>
+                  <div>• Bairro</div>
                 </div>
               </div>
             )}
@@ -4833,6 +5060,8 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   const [filtroStatus, setFiltroStatus] = useState<string[]>([]);
   const [filtroDataHabilitacao, setFiltroDataHabilitacao] = useState<string[]>([]);
   const [filtroDiasCorridos, setFiltroDiasCorridos] = useState<string[]>([]);
+  const [filtroCidade, setFiltroCidade] = useState<string[]>([]);
+  const [filtroBairro, setFiltroBairro] = useState<string[]>([]);
   
   // Função para gerar link do WhatsApp com a mensagem padrão
   const gerarLinkWhatsApp = useCallback((telefone: string, nomeFantasia: string, produto: string) => {
@@ -5058,6 +5287,122 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     
     return map;
   }, [todosPagamentos]);
+
+  // Filtrar vendas baseado nos outros filtros (exceto cidade e bairro) para cascata
+  const vendasParaCascata = useMemo(() => {
+    // Primeiro, filtrar apenas propostas POS e BL-DGO
+    const todasPropostas = vendas.filter(venda => {
+      const agrupamento = venda.agrupamento_produto || '';
+      const produto = venda.produto_principal || '';
+      
+      return (
+        agrupamento.includes('POS') || 
+        agrupamento.includes('BL-DGO') ||
+        produto.includes('POS') || 
+        produto.includes('BL-DGO')
+      );
+    });
+
+    // Aplicar filtros (exceto cidade e bairro)
+    return todasPropostas.filter(venda => {
+      const sigla = getSigla(venda);
+      const pagamento = pagamentosPorProposta.get(venda.numero_proposta);
+      
+      // Verificar cada filtro (exceto cidade e bairro)
+      if (filtroSigla.length > 0 && !filtroSigla.includes(sigla)) return false;
+      if (filtroVendedor && filtroVendedor !== '_all' && venda.nome_proprietario !== filtroVendedor) return false;
+      
+      // Lógica especial para o filtro de passo
+      if (filtroPasso.length > 0) {
+        if (!pagamento) return false;
+        
+        if (filtroPasso.includes('0') && (!pagamento.passo || pagamento.passo === '0' || pagamento.passo === '')) {
+          // Permitir este item
+        } 
+        else if (!filtroPasso.includes(pagamento.passo)) {
+          return false;
+        }
+      }
+      
+      if (filtroStatus.length > 0 && (!pagamento || !filtroStatus.includes(pagamento.status_pacote))) return false;
+      
+      // Verificar filtro de data de habilitação
+      if (filtroDataHabilitacao.length > 0 && venda.data_habilitacao) {
+        const dataHabilitacao = new Date(venda.data_habilitacao);
+        const dataFormatada = dataHabilitacao.toISOString().split('T')[0];
+        
+        if (!filtroDataHabilitacao.includes(dataFormatada)) return false;
+      }
+      
+      // Verificar filtro de dias corridos
+      if (filtroDiasCorridos.length > 0 && venda.data_habilitacao) {
+        const diasCorridos = calcularDiasCorridos(venda.data_habilitacao);
+        const dentroDeAlgumaFaixa = filtroDiasCorridos.some(faixa => 
+          verificarDiasDentroFaixa(diasCorridos, faixa)
+        );
+        
+        if (!dentroDeAlgumaFaixa) return false;
+      }
+
+      // Aplicar filtro de busca
+      if (termoBusca.trim() !== "") {
+        const busca = termoBusca.toLowerCase();
+        const numeroProposta = venda.numero_proposta?.toLowerCase() || "";
+        const cpf = venda.cpf?.toLowerCase() || "";
+        const nomeFantasia = venda.nome_fantasia?.toLowerCase() || "";
+        const produtoPrincipal = venda.produto_principal?.toLowerCase() || "";
+        const nomeProprietario = venda.nome_proprietario?.toLowerCase() || "";
+        const telefoneCelular = venda.telefone_celular?.toLowerCase() || "";
+        
+        const contemTermoBusca = 
+          numeroProposta.includes(busca) || 
+          cpf.includes(busca) || 
+          nomeFantasia.includes(busca) || 
+          produtoPrincipal.includes(busca) || 
+          nomeProprietario.includes(busca) ||
+          telefoneCelular.includes(busca) ||
+          sigla.toLowerCase().includes(busca);
+        
+        if (!contemTermoBusca) return false;
+      }
+      
+      return true;
+    });
+  }, [
+    vendas, 
+    pagamentosPorProposta, 
+    filtroSigla, 
+    filtroVendedor, 
+    filtroPasso, 
+    filtroStatus, 
+    filtroDataHabilitacao, 
+    filtroDiasCorridos, 
+    getSigla, 
+    calcularDiasCorridos, 
+    verificarDiasDentroFaixa,
+    termoBusca
+  ]);
+
+  // Calcular cidades e bairros únicos baseados nos dados filtrados para cascata
+  const cidadesUnicas = useMemo(() => {
+    const valores = new Set<string>();
+    vendasParaCascata.forEach(venda => {
+      if (venda.cidade && venda.cidade.trim() !== '') {
+        valores.add(venda.cidade.trim().toUpperCase());
+      }
+    });
+    return Array.from(valores).sort();
+  }, [vendasParaCascata]);
+
+  const bairrosUnicos = useMemo(() => {
+    const valores = new Set<string>();
+    vendasParaCascata.forEach(venda => {
+      if (venda.bairro && venda.bairro.trim() !== '') {
+        valores.add(venda.bairro.trim().toUpperCase());
+      }
+    });
+    return Array.from(valores).sort();
+  }, [vendasParaCascata]);
   
   // Filtrar propostas com base nos critérios selecionados
   const propostasFiltradas = useMemo(() => {
@@ -5118,6 +5463,18 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
         
         if (!dentroDeAlgumaFaixa) return false;
       }
+
+      // Verificar filtro de cidade
+      if (filtroCidade.length > 0 && venda.cidade) {
+        const cidadeNormalizada = venda.cidade.trim().toUpperCase();
+        if (!filtroCidade.includes(cidadeNormalizada)) return false;
+      }
+
+      // Verificar filtro de bairro
+      if (filtroBairro.length > 0 && venda.bairro) {
+        const bairroNormalizado = venda.bairro.trim().toUpperCase();
+        if (!filtroBairro.includes(bairroNormalizado)) return false;
+      }
       
       // Aplicar filtro de busca
       if (termoBusca.trim() !== "") {
@@ -5170,6 +5527,8 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     filtroStatus, 
     filtroDataHabilitacao, 
     filtroDiasCorridos, 
+    filtroCidade, 
+    filtroBairro, 
     getSigla, 
     calcularDiasCorridos, 
     verificarDiasDentroFaixa,
@@ -5308,6 +5667,37 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     label: formatarDataParaExibicao(data),
     value: data
   })), [datasHabilitacaoUnicas, formatarDataParaExibicao]);
+
+  const cidadeOptions = useMemo(() => cidadesUnicas.map(cidade => ({
+    label: cidade,
+    value: cidade
+  })), [cidadesUnicas]);
+
+  const bairroOptions = useMemo(() => bairrosUnicos.map(bairro => ({
+    label: bairro,
+    value: bairro
+  })), [bairrosUnicos]);
+
+  // Limpar filtros de cidade e bairro quando as opções não estão mais disponíveis
+  useEffect(() => {
+    // Filtrar cidades selecionadas que ainda estão disponíveis
+    const cidadesDisponiveis = cidadesUnicas;
+    const cidadesFiltradas = filtroCidade.filter(cidade => cidadesDisponiveis.includes(cidade));
+    
+    if (cidadesFiltradas.length !== filtroCidade.length) {
+      setFiltroCidade(cidadesFiltradas);
+    }
+  }, [cidadesUnicas, filtroCidade]);
+
+  useEffect(() => {
+    // Filtrar bairros selecionados que ainda estão disponíveis
+    const bairrosDisponiveis = bairrosUnicos;
+    const bairrosFiltrados = filtroBairro.filter(bairro => bairrosDisponiveis.includes(bairro));
+    
+    if (bairrosFiltrados.length !== filtroBairro.length) {
+      setFiltroBairro(bairrosFiltrados);
+    }
+  }, [bairrosUnicos, filtroBairro]);
   
   return (
     <>
@@ -5386,9 +5776,10 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
         </Card>
       </div>
       
-      {/* Novo quadro de Faixas de Desempenho e Bonificações - Vendas */}
-      <div className="mb-6">
+      {/* Quadros de Faixas de Desempenho e Vendas por Cidade */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
         <ValorDeFaceVendas />
+        <VendasInstaladasPorCidade vendasFiltradas={propostasFiltradas} />
       </div>
       
       <Card>
@@ -5426,7 +5817,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   selected={filtroSigla}
                   onChange={(values) => setFiltroSigla(values)}
                   placeholder="Selecione siglas"
-                  className="w-full"
+                  className="w-full text-xs"
                 />
               </div>
               
@@ -5436,7 +5827,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   id="filtro-vendedor"
                   value={filtroVendedor}
                   onChange={(e) => setFiltroVendedor(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-xs file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {vendedorOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -5453,7 +5844,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   selected={filtroPasso}
                   onChange={(values) => setFiltroPasso(values)}
                   placeholder="Selecione passos"
-                  className="w-full"
+                  className="w-full text-xs"
                 />
           </div>
           
@@ -5464,7 +5855,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   selected={filtroStatus}
                   onChange={(values) => setFiltroStatus(values)}
                   placeholder="Selecione status"
-                  className="w-full"
+                  className="w-full text-xs"
                 />
               </div>
               
@@ -5475,7 +5866,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   selected={filtroDataHabilitacao}
                   onChange={(values) => setFiltroDataHabilitacao(values)}
                   placeholder="Selecione datas"
-                  className="w-full"
+                  className="w-full text-xs"
                 />
               </div>
               
@@ -5486,7 +5877,29 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   selected={filtroDiasCorridos}
                   onChange={(values) => setFiltroDiasCorridos(values)}
                   placeholder="Selecione faixas"
-                  className="w-full"
+                  className="w-full text-xs"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="filtro-cidade" className="text-xs">Cidade (múltipla)</Label>
+                <MultiSelect 
+                  options={cidadeOptions} 
+                  selected={filtroCidade}
+                  onChange={(values) => setFiltroCidade(values)}
+                  placeholder="Selecione cidades"
+                  className="w-full text-xs"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="filtro-bairro" className="text-xs">Bairro (múltiplo)</Label>
+                <MultiSelect 
+                  options={bairroOptions} 
+                  selected={filtroBairro}
+                  onChange={(values) => setFiltroBairro(values)}
+                  placeholder="Selecione bairros"
+                  className="w-full text-xs"
                 />
               </div>
               
@@ -5503,6 +5916,8 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                     setFiltroStatus([]);
                     setFiltroDataHabilitacao([]);
                     setFiltroDiasCorridos([]);
+                    setFiltroCidade([]);
+                    setFiltroBairro([]);
                     setPaginaAtual(1);
                   }}
                 >
@@ -5519,7 +5934,8 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
             </div>
             {(filtroSigla.length > 0 || (filtroVendedor && filtroVendedor !== '_all') || 
               filtroPasso.length > 0 || filtroStatus.length > 0 || 
-              filtroDataHabilitacao.length > 0 || filtroDiasCorridos.length > 0) && (
+              filtroDataHabilitacao.length > 0 || filtroDiasCorridos.length > 0 ||
+              filtroCidade.length > 0 || filtroBairro.length > 0) && (
               <div className="text-xs text-muted-foreground">
                 * Filtros aplicados
             </div>
@@ -5548,7 +5964,28 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
           </div>
           
           {/* Tabela de propostas */}
-                    <div className="overflow-x-auto">            <Table className="text-xs">              <TableHeader>                <TableRow>                  <TableHead className="text-xs p-2 font-medium">Proposta</TableHead>                  <TableHead className="text-xs p-2 font-medium">CPF</TableHead>                  <TableHead className="text-xs p-2 font-medium">Nome Fantasia</TableHead>                  <TableHead className="text-xs p-2 font-medium">Telefone</TableHead>                  <TableHead className="text-xs p-2 font-medium">Sigla</TableHead>                  <TableHead className="text-xs p-2 font-medium">Produto</TableHead>                  <TableHead className="text-xs p-2 font-medium">Vendedor</TableHead>                  <TableHead className="text-xs p-2 font-medium">Data Habilitação</TableHead>                  <TableHead className="text-xs p-2 font-medium">Dias Corridos</TableHead>                  <TableHead className="text-xs p-2 font-medium">Status</TableHead>                  <TableHead className="text-xs p-2 font-medium">Passo</TableHead>                  <TableHead className="text-xs p-2 font-medium">Vencimento da Fatura</TableHead>                  <TableHead className="text-xs p-2 font-medium">Data da Importação</TableHead>                  <TableHead className="text-xs p-2 font-medium">Ação</TableHead>                </TableRow>              </TableHeader>
+          <div className="overflow-x-auto">
+            <Table className="text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs p-2 font-medium">Proposta</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">CPF</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Nome Fantasia</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Telefone</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Cidade</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Bairro</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Sigla</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Produto</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Vendedor</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Data Habilitação</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Dias Corridos</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Status</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Passo</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Vencimento da Fatura</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Data da Importação</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Ação</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
                 {propostasFiltradas.length > 0 ? (
                   // Aplicar paginação para exibir apenas os itens da página atual
@@ -5565,6 +6002,8 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                         <TableCell className="text-xs p-2">{proposta.cpf || "-"}</TableCell>
                         <TableCell className="text-xs p-2">{proposta.nome_fantasia || "-"}</TableCell>
                         <TableCell className="text-xs p-2">{proposta.telefone_celular || "-"}</TableCell>
+                        <TableCell className="text-xs p-2">{proposta.cidade || "-"}</TableCell>
+                        <TableCell className="text-xs p-2">{proposta.bairro || "-"}</TableCell>
                         <TableCell className="text-xs p-2">{sigla}</TableCell>
                         <TableCell className="text-xs p-2">{proposta.produto_principal}</TableCell>
                         <TableCell className="text-xs p-2">{proposta.nome_proprietario}</TableCell>
@@ -5606,7 +6045,11 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                     );
                   })
                 ) : (
-                                                      <TableRow>                    <TableCell colSpan={14} className="text-center py-4 text-muted-foreground">                      Nenhuma proposta encontrada com os filtros aplicados.                    </TableCell>                  </TableRow>
+                  <TableRow>
+                    <TableCell colSpan={16} className="text-center py-4 text-muted-foreground">
+                      Nenhuma proposta encontrada com os filtros aplicados.
+                    </TableCell>
+                  </TableRow>
                 )}
               </TableBody>
             </Table>

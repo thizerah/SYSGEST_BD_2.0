@@ -119,6 +119,8 @@ export interface Venda {
   data_habilitacao: string;
   dias_corridos?: number; // Calculado: data_habilitacao - data_atual
   telefone_celular?: string; // Telefone celular do cliente
+  cidade?: string;           // Cidade do cliente
+  bairro?: string;           // Bairro do cliente
 }
 
 // Interface para dados de primeiro pagamento
