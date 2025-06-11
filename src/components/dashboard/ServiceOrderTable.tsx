@@ -10,7 +10,8 @@ import {
   Search, 
   Calendar,
   Filter,
-  ChevronDown
+  ChevronDown,
+  MessageCircle
 } from "lucide-react";
 import {
   Select,
@@ -27,6 +28,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { ServiceOrder } from "@/types";
 import { normalizeCityName, normalizeNeighborhoodName } from '@/context/DataUtils';
@@ -41,22 +44,45 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<{
     technician: string;
-    serviceType: string;
     status: string;
     city: string;
     neighborhood: string;
-    motivo: string;
     meta: string;
   }>({
     technician: "",
-    serviceType: "",
     status: "",
     city: "",
     neighborhood: "",
-    motivo: "",
     meta: ""
   });
+  
+  // Estados específicos para filtros de múltipla seleção
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [selectedServiceTypes, setSelectedServiceTypes] = useState<string[]>([]);
+  const [selectedMotivos, setSelectedMotivos] = useState<string[]>([]);
   const itemsPerPage = 10;
+  
+  // Função para formatar data de finalização para exibição
+  const formatDateForFilter = (dateString: string) => {
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('pt-BR');
+    } catch {
+      return dateString;
+    }
+  };
+  
+  // Função para obter data de finalização no formato dd/mm/yyyy
+  const getFinalizationDateKey = (dateString: string) => {
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('pt-BR');
+    } catch {
+      return "";
+    }
+  };
   
   // Use filteredOrders if provided, otherwise use all serviceOrders
   const baseOrders = filteredOrders || serviceOrders;
@@ -66,39 +92,43 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     return baseOrders.filter(order => {
       // Verifica cada filtro individualmente
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
-      const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
+      const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
-      const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
+      const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+      const matchesFinalizationDate = selectedDates.length === 0 || 
+        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
       
-      return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta;
+      return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
-  }, [baseOrders, filter]);
+  }, [baseOrders, filter, selectedDates, selectedServiceTypes, selectedMotivos]);
   
   // Obtém os valores únicos para cada filtro, considerando apenas as ordens que passaram pelos outros filtros
   // Isso garante que cada filtro só mostre opções compatíveis com os outros filtros selecionados
   const technicians = useMemo(() => {
     // Cria uma lista de ordens filtradas pelos outros filtros (exceto o filtro de técnico)
     const relevantOrders = baseOrders.filter(order => {
-      const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
+      const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
-      const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
+      const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+      const matchesFinalizationDate = selectedDates.length === 0 || 
+        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
       
-      return matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta;
+      return matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
     
     // Extrai os valores únicos para o filtro
     return Array.from(new Set(relevantOrders.map(o => o.nome_tecnico))).filter(Boolean);
-  }, [baseOrders, filter.serviceType, filter.status, filter.city, filter.neighborhood, filter.motivo, filter.meta]);
+  }, [baseOrders, selectedServiceTypes, filter.status, filter.city, filter.neighborhood, selectedMotivos, filter.meta, selectedDates]);
   
   const serviceTypes = useMemo(() => {
     const relevantOrders = baseOrders.filter(order => {
@@ -106,46 +136,52 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
-      const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
+      const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+      const matchesFinalizationDate = selectedDates.length === 0 || 
+        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
       
-      return matchesTechnician && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta;
+      return matchesTechnician && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
     
     return Array.from(new Set(relevantOrders.map(o => o.subtipo_servico))).filter(Boolean);
-  }, [baseOrders, filter.technician, filter.status, filter.city, filter.neighborhood, filter.motivo, filter.meta]);
+  }, [baseOrders, filter.technician, filter.status, filter.city, filter.neighborhood, selectedMotivos, filter.meta, selectedDates]);
   
   const statuses = useMemo(() => {
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
-      const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
+      const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
-      const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
+      const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+      const matchesFinalizationDate = selectedDates.length === 0 || 
+        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
       
-      return matchesTechnician && matchesServiceType && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta;
+      return matchesTechnician && matchesServiceType && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
     
     return Array.from(new Set(relevantOrders.map(o => o.status))).filter(Boolean);
-  }, [baseOrders, filter.technician, filter.serviceType, filter.city, filter.neighborhood, filter.motivo, filter.meta]);
+  }, [baseOrders, filter.technician, selectedServiceTypes, filter.city, filter.neighborhood, selectedMotivos, filter.meta, selectedDates]);
   
   const cities = useMemo(() => {
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
-      const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
+      const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || order.bairro === filter.neighborhood;
-      const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
+      const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+      const matchesFinalizationDate = selectedDates.length === 0 || 
+        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
       
-      return matchesTechnician && matchesServiceType && matchesStatus && matchesNeighborhood && matchesMotivo && matchesMeta;
+      return matchesTechnician && matchesServiceType && matchesStatus && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
     
     // Aplicar a normalização aos nomes das cidades
@@ -155,20 +191,22 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     
     // Retornar cidades únicas e filtrar valores vazios
     return Array.from(new Set(normalizedCities)).filter(Boolean);
-  }, [baseOrders, filter.technician, filter.serviceType, filter.status, filter.neighborhood, filter.motivo, filter.meta]);
+  }, [baseOrders, filter.technician, selectedServiceTypes, filter.status, filter.neighborhood, selectedMotivos, filter.meta, selectedDates]);
   
   const neighborhoods = useMemo(() => {
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
-      const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
+      const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
-      const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
+      const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+      const matchesFinalizationDate = selectedDates.length === 0 || 
+        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
       
-      return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesMotivo && matchesMeta;
+      return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
     
     // Aplicar a normalização aos nomes dos bairros
@@ -178,24 +216,54 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     
     // Retornar bairros únicos e filtrar valores vazios
     return Array.from(new Set(normalizedNeighborhoods)).filter(Boolean);
-  }, [baseOrders, filter.technician, filter.serviceType, filter.status, filter.city, filter.motivo, filter.meta]);
+  }, [baseOrders, filter.technician, selectedServiceTypes, filter.status, filter.city, selectedMotivos, filter.meta, selectedDates]);
   
   const motivos = useMemo(() => {
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
-      const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
+      const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+      const matchesFinalizationDate = selectedDates.length === 0 || 
+        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
       
-      return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMeta;
+      return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMeta && matchesFinalizationDate;
     });
     
     return Array.from(new Set(relevantOrders.map(o => o.motivo))).filter(Boolean);
-  }, [baseOrders, filter.technician, filter.serviceType, filter.status, filter.city, filter.neighborhood, filter.meta]);
+  }, [baseOrders, filter.technician, selectedServiceTypes, filter.status, filter.city, filter.neighborhood, filter.meta, selectedDates]);
+
+  // Datas de finalização disponíveis (baseado nos outros filtros)
+  const availableFinalizationDates = useMemo(() => {
+    const relevantOrders = baseOrders.filter(order => {
+      const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
+      const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
+      const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
+      const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
+      const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
+      const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
+      const matchesMeta = !filter.meta || filter.meta === "all" || 
+        (filter.meta === "atingiu" && order.atingiu_meta === true) ||
+        (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+      
+      return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta;
+    });
+    
+    const dates = relevantOrders
+      .map(order => getFinalizationDateKey(order.data_finalizacao))
+      .filter(Boolean);
+    
+    // Retornar datas únicas ordenadas (mais antigas primeiro)
+    return Array.from(new Set(dates)).sort((a, b) => {
+      const dateA = new Date(a.split('/').reverse().join('-'));
+      const dateB = new Date(b.split('/').reverse().join('-'));
+      return dateA.getTime() - dateB.getTime();
+    });
+  }, [baseOrders, filter.technician, selectedServiceTypes, filter.status, filter.city, filter.neighborhood, selectedMotivos, filter.meta]);
   
   // Apply search and filters
   const filteredTableOrders = useMemo(() => {
@@ -213,18 +281,20 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
         (order.info_endereco_completo && order.info_endereco_completo.toLowerCase().includes(searchTerm));
       
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
-      const matchesServiceType = !filter.serviceType || filter.serviceType === "all" || order.subtipo_servico === filter.serviceType;
+      const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
       const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
-      const matchesMotivo = !filter.motivo || filter.motivo === "all" || order.motivo === filter.motivo;
+      const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
+      const matchesFinalizationDate = selectedDates.length === 0 || 
+        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
       
-      return matchesSearch && matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta;
+      return matchesSearch && matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
-  }, [baseOrders, filter, search]);
+  }, [baseOrders, filter, search, selectedDates, selectedServiceTypes, selectedMotivos]);
   
   // Garantir que não existam ordens duplicadas
   const uniqueFilteredOrders = useMemo(() => {
@@ -295,13 +365,14 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
   const resetFilters = () => {
     setFilter({
       technician: "",
-      serviceType: "",
       status: "",
       city: "",
       neighborhood: "",
-      motivo: "",
       meta: ""
     });
+    setSelectedDates([]);
+    setSelectedServiceTypes([]);
+    setSelectedMotivos([]);
     setSearch("");
     setPage(1);
   };
@@ -313,6 +384,109 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     
     // Reset para a primeira página quando mudar qualquer filtro
     setPage(1);
+  };
+
+  // Funções para manipular seleção de datas
+  const handleDateToggle = (date: string) => {
+    setSelectedDates(prev => {
+      if (prev.includes(date)) {
+        return prev.filter(d => d !== date);
+      } else {
+        return [...prev, date];
+      }
+    });
+    setPage(1);
+  };
+
+  const handleSelectAllDates = () => {
+    if (selectedDates.length === availableFinalizationDates.length) {
+      setSelectedDates([]);
+    } else {
+      setSelectedDates([...availableFinalizationDates]);
+    }
+    setPage(1);
+  };
+
+  const removeDateFilter = (date: string) => {
+    setSelectedDates(prev => prev.filter(d => d !== date));
+    setPage(1);
+  };
+
+  // Funções para manipular seleção de tipos de serviço
+  const handleServiceTypeToggle = (serviceType: string) => {
+    setSelectedServiceTypes(prev => {
+      if (prev.includes(serviceType)) {
+        return prev.filter(st => st !== serviceType);
+      } else {
+        return [...prev, serviceType];
+      }
+    });
+    setPage(1);
+  };
+
+  const handleSelectAllServiceTypes = () => {
+    if (selectedServiceTypes.length === serviceTypes.length) {
+      setSelectedServiceTypes([]);
+    } else {
+      setSelectedServiceTypes([...serviceTypes]);
+    }
+    setPage(1);
+  };
+
+  const removeServiceTypeFilter = (serviceType: string) => {
+    setSelectedServiceTypes(prev => prev.filter(st => st !== serviceType));
+    setPage(1);
+  };
+
+  // Funções para manipular seleção de motivos
+  const handleMotivoToggle = (motivo: string) => {
+    setSelectedMotivos(prev => {
+      if (prev.includes(motivo)) {
+        return prev.filter(m => m !== motivo);
+      } else {
+        return [...prev, motivo];
+      }
+    });
+    setPage(1);
+  };
+
+  const handleSelectAllMotivos = () => {
+    if (selectedMotivos.length === motivos.length) {
+      setSelectedMotivos([]);
+    } else {
+      setSelectedMotivos([...motivos]);
+    }
+    setPage(1);
+  };
+
+  const removeMotivoFilter = (motivo: string) => {
+    setSelectedMotivos(prev => prev.filter(m => m !== motivo));
+    setPage(1);
+  };
+
+  // Função para gerar link do WhatsApp com a mensagem personalizada
+  const gerarLinkWhatsApp = (telefone: string | null | undefined, nomeCliente: string, tipoServico: string, codigoOS: string) => {
+    // Verificar se o telefone é válido
+    if (!telefone || typeof telefone !== 'string') {
+      return '';
+    }
+    
+    // Limpar telefone para conter apenas números
+    const telefoneLimpo = telefone.replace(/\D/g, '');
+    
+    // Verificar se o telefone tem pelo menos 10 dígitos (DDD + número)
+    if (telefoneLimpo.length < 10) {
+      return '';
+    }
+    
+    // Montar a mensagem personalizada
+    const mensagem = `Olá ${nomeCliente}!\nPassando para confirmar se está tudo certo com o atendimento da SKY que fizemos aí, referente a ${tipoServico} – OS ${codigoOS}.\n\nQualquer coisa é só chamar por aqui! Estamos sempre pela área!\n\nObrigado e um ótimo dia!\n#SKY #Qualidade #Excelência`;
+    
+    // Codificar a mensagem para URL
+    const mensagemCodificada = encodeURIComponent(mensagem);
+    
+    // Montar o link com o código do país (55)
+    return `https://api.whatsapp.com/send?phone=55${telefoneLimpo}&text=${mensagemCodificada}`;
   };
   
   return (
@@ -368,38 +542,118 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
             
             <div>
               <Label htmlFor="service-type-filter" className="text-xs mb-1 block">Tipo de Serviço</Label>
-              <Select 
-                value={filter.serviceType} 
-                onValueChange={(value) => handleFilterChange('serviceType', value)}
-              >
-                <SelectTrigger id="service-type-filter" className="w-[180px]">
-                  <SelectValue placeholder="Todos os tipos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os tipos</SelectItem>
-                  {serviceTypes.map(type => (
-                    <SelectItem key={type} value={type}>{type}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    className="w-[180px] h-10 justify-between"
+                    id="service-type-filter"
+                  >
+                    {selectedServiceTypes.length === 0 
+                      ? "Todos os tipos" 
+                      : selectedServiceTypes.length === 1 
+                        ? selectedServiceTypes[0]
+                        : `${selectedServiceTypes.length} tipos selecionados`
+                    }
+                    <ChevronDown className="h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-3" align="start">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Selecionar Tipos</Label>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleSelectAllServiceTypes}
+                        className="h-7 text-xs"
+                      >
+                        {selectedServiceTypes.length === serviceTypes.length ? 'Desmarcar' : 'Selecionar'} Todos
+                      </Button>
+                    </div>
+                    <div className="max-h-[200px] overflow-y-auto space-y-2">
+                      {serviceTypes.map(serviceType => (
+                        <div key={serviceType} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`serviceType-${serviceType}`}
+                            checked={selectedServiceTypes.includes(serviceType)}
+                            onCheckedChange={() => handleServiceTypeToggle(serviceType)}
+                          />
+                          <Label 
+                            htmlFor={`serviceType-${serviceType}`} 
+                            className="text-sm cursor-pointer flex-1"
+                          >
+                            {serviceType}
+                          </Label>
+                        </div>
+                      ))}
+                      {serviceTypes.length === 0 && (
+                        <div className="text-sm text-muted-foreground text-center py-2">
+                          Nenhum tipo disponível
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
             
             <div>
               <Label htmlFor="reason-filter" className="text-xs mb-1 block">Motivo</Label>
-              <Select 
-                value={filter.motivo} 
-                onValueChange={(value) => handleFilterChange('motivo', value)}
-              >
-                <SelectTrigger id="reason-filter" className="w-[150px]">
-                  <SelectValue placeholder="Todos os motivos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os motivos</SelectItem>
-                  {motivos.map(motivo => (
-                    <SelectItem key={motivo} value={motivo}>{motivo}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    className="w-[150px] h-10 justify-between"
+                    id="reason-filter"
+                  >
+                    {selectedMotivos.length === 0 
+                      ? "Todos os motivos" 
+                      : selectedMotivos.length === 1 
+                        ? selectedMotivos[0]
+                        : `${selectedMotivos.length} motivos selecionados`
+                    }
+                    <ChevronDown className="h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-3" align="start">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Selecionar Motivos</Label>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleSelectAllMotivos}
+                        className="h-7 text-xs"
+                      >
+                        {selectedMotivos.length === motivos.length ? 'Desmarcar' : 'Selecionar'} Todos
+                      </Button>
+                    </div>
+                    <div className="max-h-[200px] overflow-y-auto space-y-2">
+                      {motivos.map(motivo => (
+                        <div key={motivo} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`motivo-${motivo}`}
+                            checked={selectedMotivos.includes(motivo)}
+                            onCheckedChange={() => handleMotivoToggle(motivo)}
+                          />
+                          <Label 
+                            htmlFor={`motivo-${motivo}`} 
+                            className="text-sm cursor-pointer flex-1"
+                          >
+                            {motivo}
+                          </Label>
+                        </div>
+                      ))}
+                      {motivos.length === 0 && (
+                        <div className="text-sm text-muted-foreground text-center py-2">
+                          Nenhum motivo disponível
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
             
             <div>
@@ -473,6 +727,64 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
               </Select>
             </div>
             
+            <div>
+              <Label htmlFor="date-filter" className="text-xs mb-1 block">Data de Finalização</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    className="w-[180px] h-10 justify-between"
+                    id="date-filter"
+                  >
+                    {selectedDates.length === 0 
+                      ? "Todas as datas" 
+                      : selectedDates.length === 1 
+                        ? selectedDates[0]
+                        : `${selectedDates.length} datas selecionadas`
+                    }
+                    <ChevronDown className="h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-3" align="start">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Selecionar Datas</Label>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleSelectAllDates}
+                        className="h-7 text-xs"
+                      >
+                        {selectedDates.length === availableFinalizationDates.length ? 'Desmarcar' : 'Selecionar'} Todas
+                      </Button>
+                    </div>
+                    <div className="max-h-[200px] overflow-y-auto space-y-2">
+                      {availableFinalizationDates.map(date => (
+                        <div key={date} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`date-${date}`}
+                            checked={selectedDates.includes(date)}
+                            onCheckedChange={() => handleDateToggle(date)}
+                          />
+                          <Label 
+                            htmlFor={`date-${date}`} 
+                            className="text-sm cursor-pointer flex-1"
+                          >
+                            {date}
+                          </Label>
+                        </div>
+                      ))}
+                      {availableFinalizationDates.length === 0 && (
+                        <div className="text-sm text-muted-foreground text-center py-2">
+                          Nenhuma data disponível
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+            
             <div className="flex items-end">
               <Button 
                 variant="outline" 
@@ -486,7 +798,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
           </div>
 
           {/* Tags de filtros ativos */}
-          {(filter.technician || filter.serviceType || filter.status || filter.city || filter.neighborhood || filter.motivo || filter.meta) && (
+          {(filter.technician || selectedServiceTypes.length > 0 || filter.status || filter.city || filter.neighborhood || selectedMotivos.length > 0 || filter.meta || selectedDates.length > 0) && (
             <div className="flex flex-wrap gap-2 mt-2 mb-2">
               {filter.technician && (
                 <div className="bg-muted text-xs rounded-full px-3 py-1 inline-flex items-center">
@@ -497,24 +809,24 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
                   />
                 </div>
               )}
-              {filter.serviceType && (
-                <div className="bg-muted text-xs rounded-full px-3 py-1 inline-flex items-center">
-                  Tipo: {filter.serviceType}
+              {selectedServiceTypes.map(serviceType => (
+                <div key={serviceType} className="bg-muted text-xs rounded-full px-3 py-1 inline-flex items-center">
+                  Tipo: {serviceType}
                   <X 
                     className="ml-1 h-3 w-3 cursor-pointer" 
-                    onClick={() => handleFilterChange('serviceType', "")}
+                    onClick={() => removeServiceTypeFilter(serviceType)}
                   />
                 </div>
-              )}
-              {filter.motivo && (
-                <div className="bg-muted text-xs rounded-full px-3 py-1 inline-flex items-center">
-                  Motivo: {filter.motivo}
+              ))}
+              {selectedMotivos.map(motivo => (
+                <div key={motivo} className="bg-muted text-xs rounded-full px-3 py-1 inline-flex items-center">
+                  Motivo: {motivo}
                   <X 
                     className="ml-1 h-3 w-3 cursor-pointer" 
-                    onClick={() => handleFilterChange('motivo', "")}
+                    onClick={() => removeMotivoFilter(motivo)}
                   />
                 </div>
-              )}
+              ))}
               {filter.status && (
                 <div className="bg-muted text-xs rounded-full px-3 py-1 inline-flex items-center">
                   Status: {filter.status}
@@ -551,6 +863,15 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
                   />
                 </div>
               )}
+              {selectedDates.map(date => (
+                <div key={date} className="bg-muted text-xs rounded-full px-3 py-1 inline-flex items-center">
+                  Data: {date}
+                  <X 
+                    className="ml-1 h-3 w-3 cursor-pointer" 
+                    onClick={() => removeDateFilter(date)}
+                  />
+                </div>
+              ))}
             </div>
           )}
           
@@ -559,7 +880,7 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
             <div className="text-sm font-medium">
               Total de registros: <span className="font-bold">{uniqueFilteredOrders.length}</span>
             </div>
-            {(filter.technician || filter.serviceType || filter.status || filter.city || filter.neighborhood || filter.motivo || filter.meta || search) && (
+            {(filter.technician || selectedServiceTypes.length > 0 || filter.status || filter.city || filter.neighborhood || selectedMotivos.length > 0 || filter.meta || search || selectedDates.length > 0) && (
               <div className="text-xs text-muted-foreground">
                 * Filtros aplicados
               </div>
@@ -573,42 +894,78 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Código OS</TableHead>
-                    <TableHead>Técnico</TableHead>
-                    <TableHead>Tipo de Serviço</TableHead>
-                    <TableHead>Motivo</TableHead>
-                    <TableHead>Ação Tomada</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Data de Criação</TableHead>
-                    <TableHead>Data de Finalização</TableHead>
-                    <TableHead>Tempo</TableHead>
-                    <TableHead>Meta</TableHead>
+                    <TableHead className="text-xs p-2">Código OS</TableHead>
+                    <TableHead className="text-xs p-2">Técnico</TableHead>
+                    <TableHead className="text-xs p-2">Tipo de Serviço</TableHead>
+                    <TableHead className="text-xs p-2">Motivo</TableHead>
+                    <TableHead className="text-xs p-2">Ação Tomada</TableHead>
+                    <TableHead className="text-xs p-2">Cliente</TableHead>
+                    <TableHead className="text-xs p-2">Telefone</TableHead>
+                    <TableHead className="text-xs p-2">Data de Criação</TableHead>
+                    <TableHead className="text-xs p-2">Data de Finalização</TableHead>
+                    <TableHead className="text-xs p-2">Tempo</TableHead>
+                    <TableHead className="text-xs p-2">Meta</TableHead>
+                    <TableHead className="text-xs p-2">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {paginatedOrders.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-4">
+                      <TableCell colSpan={12} className="text-center py-4">
                         Nenhuma ordem de serviço encontrada
                       </TableCell>
                     </TableRow>
                   ) : (
                     paginatedOrders.map(order => (
                       <TableRow key={order.codigo_os}>
-                        <TableCell className="font-medium">{order.codigo_os}</TableCell>
-                        <TableCell>{order.nome_tecnico || "N/A"}</TableCell>
-                        <TableCell>{order.subtipo_servico || "N/A"}</TableCell>
-                        <TableCell>{order.motivo || "N/A"}</TableCell>
-                        <TableCell>{displayAcaoTomada(order)}</TableCell>
-                        <TableCell>{order.nome_cliente || "N/A"}</TableCell>
-                        <TableCell>{formatDate(order.data_criacao)}</TableCell>
-                        <TableCell>{formatDate(order.data_finalizacao)}</TableCell>
-                        <TableCell>{displayServiceTime(order)}</TableCell>
-                        <TableCell>
+                        <TableCell className="text-xs p-2 font-medium">{order.codigo_os}</TableCell>
+                        <TableCell className="text-xs p-2">{order.nome_tecnico || "N/A"}</TableCell>
+                        <TableCell className="text-xs p-2">{order.subtipo_servico || "N/A"}</TableCell>
+                        <TableCell className="text-xs p-2">{order.motivo || "N/A"}</TableCell>
+                        <TableCell className="text-xs p-2">{displayAcaoTomada(order)}</TableCell>
+                        <TableCell className="text-xs p-2">{order.nome_cliente || "N/A"}</TableCell>
+                        <TableCell className="text-xs p-2">{order.telefone_celular || "N/A"}</TableCell>
+                        <TableCell className="text-xs p-2">{formatDate(order.data_criacao)}</TableCell>
+                        <TableCell className="text-xs p-2">{formatDate(order.data_finalizacao)}</TableCell>
+                        <TableCell className="text-xs p-2">{displayServiceTime(order)}</TableCell>
+                        <TableCell className="text-xs p-2">
                           {order.atingiu_meta ? (
-                            <Check className="h-5 w-5 text-green-600" />
+                            <Check className="h-4 w-4 text-green-600" />
                           ) : (
-                            <X className="h-5 w-5 text-red-600" />
+                            <X className="h-4 w-4 text-red-600" />
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs p-2">
+                          {order.telefone_celular ? (
+                            <a
+                              href={gerarLinkWhatsApp(
+                                order.telefone_celular, 
+                                order.nome_cliente || "Cliente", 
+                                order.subtipo_servico || "Serviço", 
+                                order.codigo_os
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-6 w-6 bg-green-500 hover:bg-green-600 border-green-500 hover:border-green-600"
+                                title="Enviar mensagem WhatsApp"
+                              >
+                                <MessageCircle className="h-3 w-3 text-white" />
+                              </Button>
+                            </a>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-6 w-6 opacity-50 cursor-not-allowed"
+                              disabled
+                              title="Telefone não disponível"
+                            >
+                              <MessageCircle className="h-3 w-3" />
+                            </Button>
                           )}
                         </TableCell>
                       </TableRow>

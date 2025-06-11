@@ -285,7 +285,8 @@ export function FileUploader() {
         info_cto: row["Info: info_cto"] as string | null || null,
         info_porta: row["Info: info_porta"] as string | null || null,
         info_endereco_completo: row["Info: info_endereco_completo"] as string | null || null,
-        info_empresa_parceira: row["Info: info_empresa_parceira"] as string | null || null
+        info_empresa_parceira: row["Info: info_empresa_parceira"] as string | null || null,
+        telefone_celular: row["Tel. Cel"] as string | null || null
       };
       
       return order;

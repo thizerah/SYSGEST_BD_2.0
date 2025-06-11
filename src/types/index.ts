@@ -22,6 +22,7 @@ export interface ServiceOrder {
   info_endereco_completo?: string | null;
   info_empresa_parceira?: string | null;
   acao_tomada?: string | null;
+  telefone_celular?: string | null; // Telefone celular do cliente
   
   // Calculated fields
   tempo_atendimento?: number | null;
