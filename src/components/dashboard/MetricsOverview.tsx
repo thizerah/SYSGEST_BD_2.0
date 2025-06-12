@@ -69,6 +69,7 @@ import { ValorDeFaceVendas } from "@/components/dashboard/ValorDeFaceVendas";
 import { VendasInstaladasPorCidade } from "@/components/dashboard/VendasInstaladasPorCidade";
 import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName } from "@/context/DataUtils";
 import { useSystemSettings } from "@/hooks/useSystemSettings";
+import { getReopeningColorByServiceType, getTimeAttendanceColorByServiceType, getTimeAttendanceBackgroundColorByServiceType, getTimeAttendanceIndicatorColorByServiceType } from "@/utils/colorUtils";
 
 export function MetricsOverview() {
   const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs } = useData();
@@ -518,6 +519,79 @@ export function MetricsOverview() {
   }, [serviceOrders, selectedMonth, selectedYear, showData]);
   
   // Obter métricas de reabertura apenas com base nos pares filtrados
+  // Função para calcular quantos serviços são necessários para atingir a meta de tempo de atendimento
+  const calculateServicesNeededForTimeTarget = (serviceType: string, currentWithinGoal: number, currentTotal: number) => {
+    const currentRate = (currentWithinGoal / currentTotal) * 100;
+    
+    // Definir as metas por tipo de serviço (baseado nas regras de cor de tempo)
+    let targetRate = 0;
+    
+    if (serviceType.includes("Assistência Técnica") && serviceType.includes("TV")) {
+      targetRate = 75.0; // Verde >= 75%
+    } else if (serviceType.includes("Assistência Técnica") && serviceType.includes("FIBRA")) {
+      targetRate = 85.0; // Verde >= 85%
+    } else if (serviceType.includes("Ponto Principal")) {
+      targetRate = 75.0; // Verde >= 75%
+    } else {
+      targetRate = 75.0; // Padrão
+    }
+    
+    // Se já está acima da meta, calcular quantos serviços "positivos" temos
+    if (currentRate >= targetRate) {
+      // Calcular quantos serviços podemos "perder" e ainda ficar na meta
+      const minServicesNeeded = Math.ceil((currentTotal * targetRate) / 100);
+      const servicesAboveTarget = currentWithinGoal - minServicesNeeded;
+      return -servicesAboveTarget; // Negativo indica que estamos acima da meta
+    }
+    
+    // Calcular quantos serviços adicionais são necessários para atingir a meta
+    const servicesNeeded = Math.ceil((currentTotal * targetRate) / 100) - currentWithinGoal;
+    
+    return servicesNeeded > 0 ? servicesNeeded : 0;
+  };
+
+  // Função para calcular reaberturas permitidas ou serviços necessários
+  const calculateServicesNeededForTarget = (serviceType: string, currentReopenings: number, currentTotal: number) => {
+    const currentRate = (currentReopenings / currentTotal) * 100;
+    
+    // Definir os limites por tipo de serviço (baseado nas regras de cor)
+    let targetRate = 0;
+    
+    if (serviceType.includes("Ponto Principal") && serviceType.includes("TV")) {
+      targetRate = 2.0; // Verde < 2%
+    } else if (serviceType.includes("Ponto Principal") && (serviceType.includes("BL") || serviceType.includes("FIBRA"))) {
+      targetRate = 5.0; // Verde < 5%
+    } else if (serviceType === "Corretiva") {
+      targetRate = 3.5; // Verde < 3.5%
+    } else if (serviceType.includes("Corretiva") && (serviceType.includes("BL") || serviceType.includes("FIBRA"))) {
+      targetRate = 8.0; // Verde < 8%
+    }
+    
+    // Se estamos dentro da meta (incluindo 0.00%), calcular quantas reaberturas podemos ter
+    if (currentRate < targetRate) {
+      // Calcular quantas reaberturas podemos ter antes de ultrapassar a meta
+      // Formula: (currentReopenings + X) / currentTotal * 100 < targetRate
+      // Resolvendo: X < (currentTotal * targetRate / 100) - currentReopenings
+      const maxReopeningsAllowed = Math.floor((currentTotal * targetRate) / 100);
+      const reopeningsAvailable = maxReopeningsAllowed - currentReopenings;
+      
+      // Sempre retornar negativo para indicar "reaberturas disponíveis"
+      return -reopeningsAvailable;
+    }
+    
+    // Se estamos exatamente no limite (empate), mostrar ✓ Meta
+    if (Math.abs(currentRate - targetRate) < 0.01) {
+      return 0;
+    }
+    
+    // Se estamos fora da meta, calcular quantos serviços precisamos para baixar o percentual
+    const desiredRate = targetRate - 0.1; // Margem de segurança
+    const targetTotal = currentReopenings / (desiredRate / 100);
+    const servicesNeeded = Math.ceil(targetTotal - currentTotal);
+    
+    return servicesNeeded > 0 ? servicesNeeded : 1;
+  };
+
   const getReopeningMetrics = useMemo(() => {
     if (!selectedMonth || !selectedYear) {
       return {
@@ -1032,49 +1106,57 @@ export function MetricsOverview() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {Object.entries(timeMetrics.servicesByType).map(([type, metrics]) => {
-                  const goalPercent = metrics.percentWithinGoal;
-                  
-                  // Determine progress bar color based on goal achievement
-                  const progressClass = goalPercent > 80 
-                    ? "bg-green-600/20" 
-                    : goalPercent > 50 
-                      ? "bg-yellow-500/20" 
-                      : "bg-red-600/20";
-                  
-                  const indicatorClass = goalPercent > 80 
-                    ? "!bg-green-600" 
-                    : goalPercent > 50 
-                      ? "!bg-yellow-500" 
-                      : "!bg-red-600";
-                  
-                  return (
-                    <div key={type} className="space-y-1">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">{type}</span>
-                        <span className="text-sm">
-                          {metrics.averageTime.toFixed(2)} horas (meta: {getServiceGoal(type)} horas)
-                        </span>
-                      </div>
-                      <div className={progressClass + " rounded-full h-1.5 overflow-hidden"}>
-                        <div 
-                          className={indicatorClass + " h-full rounded-full"} 
-                          style={{ width: `${goalPercent}%` }}
-                        />
-                      </div>
-                      <div className="text-xl font-bold">
-                        {metrics.withinGoal} de {metrics.totalOrders} dentro da meta ({goalPercent.toFixed(2)}%)
-                      </div>
-                    </div>
-                  );
-                })}
-                
-                {Object.keys(timeMetrics.servicesByType).length === 0 && (
-                  <div className="text-center text-muted-foreground py-4">
-                        Nenhum dado disponível para análise no período selecionado
-                  </div>
-                )}
+              <div className="overflow-x-auto w-full">
+                <Table className="w-full table-fixed">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-sm font-medium w-[30%] px-2">Tipo de Serviço</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">Dentro Meta</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">Total</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">% Meta</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[25%] px-2">Serv. p/ Meta</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {Object.entries(timeMetrics.servicesByType).map(([type, metrics]) => {
+                      const goalPercent = metrics.percentWithinGoal;
+                      const servicesNeeded = calculateServicesNeededForTimeTarget(type, metrics.withinGoal, metrics.totalOrders);
+                      
+                      return (
+                        <TableRow key={type}>
+                          <TableCell className="font-medium text-sm px-2">{type}</TableCell>
+                          <TableCell className="text-center text-sm px-2">{metrics.withinGoal}</TableCell>
+                          <TableCell className="text-center text-sm px-2">{metrics.totalOrders}</TableCell>
+                          <TableCell className="text-center text-sm px-2">
+                            <span className={`font-bold ${getTimeAttendanceColorByServiceType(type, goalPercent)}`}>
+                              {goalPercent.toFixed(2)}%
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center text-sm px-2">
+                            {servicesNeeded < 0 ? (
+                              <span className="text-green-600 font-medium">+{Math.abs(servicesNeeded)} acima</span>
+                            ) : servicesNeeded === 0 ? (
+                              <span className="text-green-600 font-medium">✓ Meta</span>
+                            ) : (
+                              <span className="text-blue-600 font-medium">+{servicesNeeded}</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    
+                    {Object.keys(timeMetrics.servicesByType).length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-4 text-muted-foreground text-sm px-2">
+                          Nenhum dado disponível para análise no período selecionado
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+                <div className="mt-3 text-sm text-muted-foreground italic space-y-1">
+                  <p><strong>Serv. p/ Meta:</strong> Quantidade de serviços necessários para atingir a meta de tempo. <span className="text-green-600 font-medium">✓ Meta</span> = na meta, <span className="text-green-600 font-medium">+X acima</span> = serviços extras acima da meta.</p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1230,35 +1312,37 @@ export function MetricsOverview() {
           </CardContent>
         </Card>
             
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Grid 2x3 - Posição Superior */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          {/* Primeira linha - 2 cards */}
           {/* Reopened Orders Count */}
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-0">
               <CardTitle className="text-sm font-medium">
                 Ordens Reabertas
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs">
                 Total de ordens identificadas como reabertas
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-0 pb-2">
                   <div className="text-2xl font-bold">{getReopeningMetrics.reopenedOrders}</div>
             </CardContent>
           </Card>
           
           {/* Total Original Services */}
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-0">
               <CardTitle className="text-sm font-medium">
                 Total de Ordens Abertas
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs">
                 {originalServiceTypeFilter 
                   ? `Total de ${originalServiceTypeFilter}`
                   : "Soma de Corretiva, Corretiva BL, Ponto Principal e Ponto Principal BL"}
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-0 pb-2">
               <div className="text-2xl font-bold">
                 {filteredServiceOrders.filter(order => {
                   if (originalServiceTypeFilter) {
@@ -1275,17 +1359,112 @@ export function MetricsOverview() {
             </CardContent>
           </Card>
           
+          {/* Reaberturas por Tipo da OS Original - Ocupa 3 colunas e 2 linhas */}
+          <Card className="md:col-span-3 md:row-span-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-medium">
+                <div className="flex items-center">
+                  <BarChart2 className="mr-2 h-5 w-5" />
+                  Reaberturas por Tipo da OS Original
+                </div>
+              </CardTitle>
+              <CardDescription className="text-sm">
+                Análise de reaberturas por tipo de serviço
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="overflow-y-auto" style={{ maxHeight: "450px" }}>
+              <div className="overflow-x-auto w-full">
+                <Table className="w-full table-fixed">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-sm font-medium w-[35%] px-2">Tipo da OS Original</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">Serviços</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">Reab.</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">% Reabertura</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[20%] px-2">Serv. p/ Meta</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {Object.entries(getReopeningMetrics.reopeningsByOriginalType)
+                      .filter(([type, data]) => {
+                        // Se houver um filtro, mostrar apenas o tipo filtrado
+                        if (originalServiceTypeFilter) {
+                          return type === originalServiceTypeFilter;
+                        }
+                        // Caso contrário, mostrar todos os tipos
+                        return true;
+                      })
+                      .sort((a, b) => {
+                        // Array com a ordem desejada dos tipos principais
+                        const orderPriority = ["Corretiva", "Corretiva BL", "Ponto Principal", "Ponto Principal BL"];
+                        
+                        // Se ambos são tipos principais, usar a ordem definida
+                        if (orderPriority.includes(a[0]) && orderPriority.includes(b[0])) {
+                          return orderPriority.indexOf(a[0]) - orderPriority.indexOf(b[0]);
+                        }
+                        
+                        // Se só um é tipo principal, ele vem primeiro
+                        if (orderPriority.includes(a[0])) return -1;
+                        if (orderPriority.includes(b[0])) return 1;
+                        
+                        // Caso contrário, ordenar alfabeticamente
+                        return a[0].localeCompare(b[0]);
+                      })
+                      .map(([type, data]) => {
+                        const servicesNeeded = calculateServicesNeededForTarget(type, data.reopenings, data.totalOriginals);
+                        return (
+                          <TableRow key={type}>
+                            <TableCell className="font-medium text-sm px-2">{type}</TableCell>
+                            <TableCell className="text-center text-sm px-2">{data.totalOriginals}</TableCell>
+                            <TableCell className="text-center text-sm px-2">{data.reopenings}</TableCell>
+                            <TableCell className="text-center text-sm px-2">
+                              <span className={`font-bold ${getReopeningColorByServiceType(type, (data.reopenings / data.totalOriginals * 100))}`}>
+                                {(data.reopenings / data.totalOriginals * 100).toFixed(2)}%
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center text-sm px-2">
+                              {servicesNeeded < 0 ? (
+                                <span className="text-green-600 font-medium">{Math.abs(servicesNeeded)} reab. disponíveis</span>
+                              ) : servicesNeeded === 0 ? (
+                                <span className="text-green-600 font-medium">✓ Meta</span>
+                              ) : (
+                                <span className="text-blue-600 font-medium">+{servicesNeeded} serv.</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    }
+                    
+                    {Object.keys(getReopeningMetrics.reopeningsByOriginalType).length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-4 text-muted-foreground text-sm px-2">
+                          Nenhuma reabertura encontrada no período selecionado
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+                <div className="mt-3 text-sm text-muted-foreground italic space-y-1">
+                  <p><strong>Nota:</strong> Na coluna "Serviços" são contabilizadas todas as ordens que foram <strong>criadas OU finalizadas</strong> no mês selecionado.</p>
+                  <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">X reab. disponíveis</span> = quantas reaberturas pode ter antes de sair da faixa verde, <span className="text-green-600 font-medium">✓ Meta</span> = no limite exato, <span className="text-blue-600 font-medium">+X serv.</span> = serviços necessários para baixar o percentual.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          {/* Segunda linha - 2 cards */}
           {/* Reopening Rate */}
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-0">
               <CardTitle className="text-sm font-medium">
                 Chance de reabertura (Taxa de Reabertura)
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs">
                 Percentual de reaberturas sobre o total
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-0 pb-2">
               <div className="text-2xl font-bold">{getReopeningMetrics.reopeningRate.toFixed(2).replace('.', ',')}%</div>
               <Progress 
                 value={getReopeningMetrics.reopeningRate} 
@@ -1296,15 +1475,15 @@ export function MetricsOverview() {
           
           {/* Average Time Between */}
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-0">
               <CardTitle className="text-sm font-medium">
                 Tempo Médio Entre OS
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs">
                 Média entre finalização original e reabertura
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-0 pb-2">
                 <div className="text-2xl font-bold">
                       {getReopeningMetrics.averageTimeBetween} horas 
                   <span className="text-base font-normal text-muted-foreground ml-2">
@@ -1441,8 +1620,12 @@ export function MetricsOverview() {
               </CardContent>
             </Card>
             
-            {/* Motivo da Reabertura por OS Primária */}
-            <Card className="w-full">
+
+        
+          {/* Organize all reopening cards in a 2x2 grid that fills the screen */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Motivo da Reabertura por OS Primária */}
+            <Card className="h-full w-full">
               <CardHeader className="py-3">
                 <CardTitle>
                   <div className="flex items-center">
@@ -1453,7 +1636,7 @@ export function MetricsOverview() {
                 <CardDescription>
                   Motivos agrupados pela OS de origem (primária)
                 </CardDescription>
-              </CardHeader>
+          </CardHeader>
               <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
                 <div className="overflow-x-auto w-full">
                   <Table className="w-full">
@@ -1498,83 +1681,6 @@ export function MetricsOverview() {
                   )}
                 </TableBody>
               </Table>
-            </div>
-          </CardContent>
-        </Card>
-        
-          {/* Organize all reopening cards in a 2x2 grid that fills the screen */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full w-full">
-        {/* Reopening by Original Type Table */}
-            <Card className="h-full w-full">
-              <CardHeader className="py-3">
-                <CardTitle>
-                  <div className="flex items-center">
-                    <BarChart2 className="mr-2 h-5 w-5" />
-                    Reaberturas por Tipo da OS Original
-                  </div>
-                </CardTitle>
-          </CardHeader>
-              <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
-                <div className="overflow-x-auto w-full">
-                  <Table className="w-full">
-                <TableHeader>
-                  <TableRow>
-                        <TableHead className="w-3/5">Tipo da OS Original</TableHead>
-                        <TableHead className="text-right">Serviços</TableHead>
-                    <TableHead className="text-right">Reaberturas</TableHead>
-                    <TableHead className="text-right">% Reabertura</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                        {Object.entries(getReopeningMetrics.reopeningsByOriginalType)
-                        .filter(([type, data]) => {
-                          // Se houver um filtro, mostrar apenas o tipo filtrado
-                          if (originalServiceTypeFilter) {
-                            return type === originalServiceTypeFilter;
-                          }
-                          // Caso contrário, mostrar todos os tipos
-                          return true;
-                        })
-                        .sort((a, b) => {
-                          // Array com a ordem desejada dos tipos principais
-                          const orderPriority = ["Corretiva", "Corretiva BL", "Ponto Principal", "Ponto Principal BL"];
-                          
-                          // Se ambos são tipos principais, usar a ordem definida
-                          if (orderPriority.includes(a[0]) && orderPriority.includes(b[0])) {
-                            return orderPriority.indexOf(a[0]) - orderPriority.indexOf(b[0]);
-                          }
-                          
-                          // Se só um é tipo principal, ele vem primeiro
-                          if (orderPriority.includes(a[0])) return -1;
-                          if (orderPriority.includes(b[0])) return 1;
-                          
-                          // Caso contrário, ordenar alfabeticamente
-                          return a[0].localeCompare(b[0]);
-                        })
-                        .map(([type, data]) => (
-                    <TableRow key={type}>
-                      <TableCell className="font-medium">{type}</TableCell>
-                      <TableCell className="text-right">{data.totalOriginals}</TableCell>
-                      <TableCell className="text-right">{data.reopenings}</TableCell>
-                      <TableCell className="text-right">
-                        {(data.reopenings / data.totalOriginals * 100).toFixed(2)}%
-                      </TableCell>
-                    </TableRow>
-                        ))
-                      }
-                  
-                        {Object.keys(getReopeningMetrics.reopeningsByOriginalType).length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center py-4 text-muted-foreground">
-                              Nenhuma reabertura encontrada no período selecionado
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-              <div className="mt-2 text-xs text-muted-foreground italic">
-                <p><strong>Nota:</strong> Na coluna "Serviços" são contabilizadas todas as ordens que foram <strong>criadas OU finalizadas</strong> no mês selecionado.</p>
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -1764,21 +1870,14 @@ export function MetricsOverview() {
                           if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
                           
                           const goalPercent = metrics.percentWithinGoal;
-                          // Critério específico para Assistência Técnica TV
-                          const progressClass = goalPercent >= 85 
-                            ? "bg-green-600/20" 
-                            : goalPercent >= 40
-                              ? "bg-yellow-500/20" 
-                              : "bg-red-600/20";
-                          const indicatorClass = goalPercent >= 85 
-                            ? "!bg-green-600" 
-                            : goalPercent >= 40
-                              ? "!bg-yellow-500" 
-                              : "!bg-red-600";
+                          // Usar funções de coloração baseadas no tipo de serviço
+                          const progressClass = getTimeAttendanceBackgroundColorByServiceType("Assistência Técnica TV", goalPercent);
+                          const indicatorClass = getTimeAttendanceIndicatorColorByServiceType("Assistência Técnica TV", goalPercent);
+                          const textColorClass = getTimeAttendanceColorByServiceType("Assistência Técnica TV", goalPercent);
                           
                           return (
                             <>
-                              <div className="text-center text-2xl font-bold">{goalPercent.toFixed(2)}%</div>
+                              <div className={`text-center text-2xl font-bold ${textColorClass}`}>{goalPercent.toFixed(2)}%</div>
                               <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
                                 <div 
                                   className={indicatorClass + " h-full rounded-full"} 
@@ -1796,21 +1895,22 @@ export function MetricsOverview() {
                           
                           if (!data) return <div className="text-center text-2xl font-bold">-</div>;
                           
-                          // Critérios para Reaberturas de Assistência Técnica TV
-                          const reopeningClass = data.reopeningRate < 8
+                          // Critérios para Reaberturas de Assistência Técnica TV usando colorUtils
+                          const colorClass = getReopeningColorByServiceType("Corretiva", data.reopeningRate);
+                          const reopeningClass = data.reopeningRate < 3.5
                             ? "bg-green-100" 
-                            : data.reopeningRate < 16
+                            : data.reopeningRate < 10.5
                               ? "bg-yellow-100" 
                               : "bg-red-100";
-                          const reopeningIndicatorClass = data.reopeningRate < 8
+                          const reopeningIndicatorClass = data.reopeningRate < 3.5
                             ? "bg-green-400" 
-                            : data.reopeningRate < 16
+                            : data.reopeningRate < 10.5
                               ? "bg-yellow-400" 
                               : "bg-red-400";
                           
                           return (
                             <>
-                              <div className="text-center text-2xl font-bold">{data.reopeningRate.toFixed(2)}%</div>
+                              <div className={`text-center text-2xl font-bold ${colorClass}`}>{data.reopeningRate.toFixed(2)}%</div>
                               <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
                                 <div 
                                   className={reopeningIndicatorClass + " h-full rounded-full"} 
@@ -1838,17 +1938,14 @@ export function MetricsOverview() {
                           if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
                           
                           const goalPercent = metrics.percentWithinGoal;
-                          // Critério específico para Ponto Principal TV
-                          const progressClass = goalPercent >= 75
-                            ? "bg-green-600/20" 
-                            : "bg-red-600/20";
-                          const indicatorClass = goalPercent >= 75
-                            ? "!bg-green-600" 
-                            : "!bg-red-600";
+                          // Usar funções de coloração baseadas no tipo de serviço
+                          const progressClass = getTimeAttendanceBackgroundColorByServiceType("Ponto Principal TV", goalPercent);
+                          const indicatorClass = getTimeAttendanceIndicatorColorByServiceType("Ponto Principal TV", goalPercent);
+                          const textColorClass = getTimeAttendanceColorByServiceType("Ponto Principal TV", goalPercent);
                           
                           return (
                             <>
-                              <div className="text-center text-2xl font-bold">{goalPercent.toFixed(2)}%</div>
+                              <div className={`text-center text-2xl font-bold ${textColorClass}`}>{goalPercent.toFixed(2)}%</div>
                               <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
                                 <div 
                                   className={indicatorClass + " h-full rounded-full"} 
@@ -1866,17 +1963,22 @@ export function MetricsOverview() {
                           
                           if (!data) return <div className="text-center text-2xl font-bold">-</div>;
                           
-                          // Critérios para Reaberturas de Ponto Principal TV
+                          // Critérios para Reaberturas de Ponto Principal TV usando colorUtils
+                          const colorClass = getReopeningColorByServiceType("Ponto Principal", data.reopeningRate);
                           const reopeningClass = data.reopeningRate < 2
                             ? "bg-green-100" 
-                            : "bg-red-100";
+                            : data.reopeningRate < 5
+                              ? "bg-yellow-100"
+                              : "bg-red-100";
                           const reopeningIndicatorClass = data.reopeningRate < 2
                             ? "bg-green-400" 
-                            : "bg-red-400";
+                            : data.reopeningRate < 5
+                              ? "bg-yellow-400"
+                              : "bg-red-400";
                           
                           return (
                             <>
-                              <div className="text-center text-2xl font-bold">{data.reopeningRate.toFixed(2)}%</div>
+                              <div className={`text-center text-2xl font-bold ${colorClass}`}>{data.reopeningRate.toFixed(2)}%</div>
                               <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
                                 <div 
                                   className={reopeningIndicatorClass + " h-full rounded-full"} 
@@ -1904,21 +2006,14 @@ export function MetricsOverview() {
                           if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
                           
                           const goalPercent = metrics.percentWithinGoal;
-                          // Critério específico para Assistência Técnica FIBRA
-                          const progressClass = goalPercent >= 75
-                            ? "bg-green-600/20" 
-                            : goalPercent >= 30
-                              ? "bg-yellow-500/20" 
-                              : "bg-red-600/20";
-                          const indicatorClass = goalPercent >= 75
-                            ? "!bg-green-600" 
-                            : goalPercent >= 30
-                              ? "!bg-yellow-500" 
-                              : "!bg-red-600";
+                          // Usar funções de coloração baseadas no tipo de serviço
+                          const progressClass = getTimeAttendanceBackgroundColorByServiceType("Assistência Técnica FIBRA", goalPercent);
+                          const indicatorClass = getTimeAttendanceIndicatorColorByServiceType("Assistência Técnica FIBRA", goalPercent);
+                          const textColorClass = getTimeAttendanceColorByServiceType("Assistência Técnica FIBRA", goalPercent);
                           
                           return (
                             <>
-                              <div className="text-center text-2xl font-bold">{goalPercent.toFixed(2)}%</div>
+                              <div className={`text-center text-2xl font-bold ${textColorClass}`}>{goalPercent.toFixed(2)}%</div>
                               <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
                                 <div 
                                   className={indicatorClass + " h-full rounded-full"} 
@@ -1936,21 +2031,22 @@ export function MetricsOverview() {
                           
                           if (!data) return <div className="text-center text-2xl font-bold">-</div>;
                           
-                          // Critérios para Reaberturas de Assistência Técnica FIBRA
-                          const reopeningClass = data.reopeningRate < 3.5
+                          // Critérios para Reaberturas de Assistência Técnica FIBRA usando colorUtils
+                          const colorClass = getReopeningColorByServiceType("Corretiva BL", data.reopeningRate);
+                          const reopeningClass = data.reopeningRate < 8
                             ? "bg-green-100" 
-                            : data.reopeningRate < 10.5
+                            : data.reopeningRate < 16
                               ? "bg-yellow-100" 
                               : "bg-red-100";
-                          const reopeningIndicatorClass = data.reopeningRate < 3.5
+                          const reopeningIndicatorClass = data.reopeningRate < 8
                             ? "bg-green-400" 
-                            : data.reopeningRate < 10.5
+                            : data.reopeningRate < 16
                               ? "bg-yellow-400" 
                               : "bg-red-400";
                           
                           return (
                             <>
-                              <div className="text-center text-2xl font-bold">{data.reopeningRate.toFixed(2)}%</div>
+                              <div className={`text-center text-2xl font-bold ${colorClass}`}>{data.reopeningRate.toFixed(2)}%</div>
                               <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
                                 <div 
                                   className={reopeningIndicatorClass + " h-full rounded-full"} 
@@ -1978,17 +2074,14 @@ export function MetricsOverview() {
                           if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
                           
                           const goalPercent = metrics.percentWithinGoal;
-                          // Critério específico para Ponto Principal FIBRA
-                          const progressClass = goalPercent >= 75
-                            ? "bg-green-600/20" 
-                            : "bg-red-600/20";
-                          const indicatorClass = goalPercent >= 75
-                            ? "!bg-green-600" 
-                            : "!bg-red-600";
+                          // Usar funções de coloração baseadas no tipo de serviço
+                          const progressClass = getTimeAttendanceBackgroundColorByServiceType("Ponto Principal FIBRA", goalPercent);
+                          const indicatorClass = getTimeAttendanceIndicatorColorByServiceType("Ponto Principal FIBRA", goalPercent);
+                          const textColorClass = getTimeAttendanceColorByServiceType("Ponto Principal FIBRA", goalPercent);
                           
                           return (
                             <>
-                              <div className="text-center text-2xl font-bold">{goalPercent.toFixed(2)}%</div>
+                              <div className={`text-center text-2xl font-bold ${textColorClass}`}>{goalPercent.toFixed(2)}%</div>
                               <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
                                 <div 
                                   className={indicatorClass + " h-full rounded-full"} 
@@ -2006,17 +2099,22 @@ export function MetricsOverview() {
                           
                           if (!data) return <div className="text-center text-2xl font-bold">-</div>;
                           
-                          // Critérios para Reaberturas de Ponto Principal FIBRA
-                          const reopeningClass = data.reopeningRate <= 5
+                          // Critérios para Reaberturas de Ponto Principal FIBRA usando colorUtils
+                          const colorClass = getReopeningColorByServiceType("Ponto Principal BL", data.reopeningRate);
+                          const reopeningClass = data.reopeningRate < 5
                             ? "bg-green-100" 
-                            : "bg-red-100";
-                          const reopeningIndicatorClass = data.reopeningRate <= 5
+                            : data.reopeningRate < 10
+                              ? "bg-yellow-100"
+                              : "bg-red-100";
+                          const reopeningIndicatorClass = data.reopeningRate < 5
                             ? "bg-green-400" 
-                            : "bg-red-400";
+                            : data.reopeningRate < 10
+                              ? "bg-yellow-400"
+                              : "bg-red-400";
                           
                           return (
                             <>
-                              <div className="text-center text-2xl font-bold">{data.reopeningRate.toFixed(2)}%</div>
+                              <div className={`text-center text-2xl font-bold ${colorClass}`}>{data.reopeningRate.toFixed(2)}%</div>
                               <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
                                 <div 
                                   className={reopeningIndicatorClass + " h-full rounded-full"} 
