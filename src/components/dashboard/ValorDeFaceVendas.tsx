@@ -3,9 +3,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import useData from "@/context/useData";
 import { useMemo, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Venda } from "@/types";
 
-export function ValorDeFaceVendas() {
-  const { vendas, primeirosPagamentos } = useData();
+interface ValorDeFaceVendasProps {
+  vendasFiltradas?: Venda[];
+}
+
+export function ValorDeFaceVendas({ vendasFiltradas }: ValorDeFaceVendasProps) {
+  const data = useData();
+  const { vendas: todasVendas, primeirosPagamentos } = data;
+  
+  // Usar vendas filtradas se fornecidas, senão usar todas as vendas
+  const vendas = vendasFiltradas || todasVendas;
   
   // Estados para os dropdowns
   const [bateuMetaPOS, setBateuMetaPOS] = useState<"sim" | "nao">("nao");

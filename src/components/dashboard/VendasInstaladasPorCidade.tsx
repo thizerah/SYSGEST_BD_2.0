@@ -6,9 +6,10 @@ import type { Venda } from '@/types';
 
 interface VendasInstaladasPorCidadeProps {
   vendasFiltradas: Venda[];
+  titulo?: string;
 }
 
-export function VendasInstaladasPorCidade({ vendasFiltradas }: VendasInstaladasPorCidadeProps) {
+export function VendasInstaladasPorCidade({ vendasFiltradas, titulo = "Vendas Instaladas por Cidade" }: VendasInstaladasPorCidadeProps) {
   const { primeirosPagamentos } = useData();
 
   // Função para identificar a sigla de um produto
@@ -95,21 +96,21 @@ export function VendasInstaladasPorCidade({ vendasFiltradas }: VendasInstaladasP
 
   return (
     <Card className="w-full">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">
           <div className="flex items-center">
-            <MapIcon className="mr-2 h-4 w-4" />
-            Vendas Instaladas por Cidade
+            <MapIcon className="mr-2 h-5 w-5" />
+            {titulo}
           </div>
         </CardTitle>
-        <CardDescription className="text-xs">
+        <CardDescription className="text-sm">
           Top 10 cidades por volume de vendas instaladas
         </CardDescription>
       </CardHeader>
-      <CardContent className="pb-2">
-        <div className="space-y-1">
+      <CardContent className="pb-4">
+        <div className="space-y-2">
           {/* Cabeçalho da tabela */}
-          <div className="grid grid-cols-9 gap-0.5 text-xs font-medium border-b pb-1">
+          <div className="grid grid-cols-9 gap-1 text-sm font-semibold border-b-2 border-slate-200 pb-2 bg-slate-50 px-2 py-1 rounded-t-md">
             <div className="col-span-2">Cidade</div>
             <div className="text-center">Total</div>
             <div className="text-center">POS</div>
@@ -121,26 +122,31 @@ export function VendasInstaladasPorCidade({ vendasFiltradas }: VendasInstaladasP
           </div>
           
           {/* Dados das cidades */}
-          {dadosPorCidade.map((cidade) => {
+          {dadosPorCidade.map((cidade, index) => {
             const percentual = totalGeral > 0 ? (cidade.total / totalGeral) * 100 : 0;
             return (
-              <div key={cidade.nome} className="grid grid-cols-9 gap-0.5 text-xs py-0.5 hover:bg-slate-50">
-                <div className="col-span-2 truncate" title={cidade.nome}>
+              <div 
+                key={cidade.nome} 
+                className={`grid grid-cols-9 gap-1 text-sm py-2 px-2 rounded-md transition-colors hover:bg-slate-100 ${
+                  index % 2 === 0 ? 'bg-white' : 'bg-slate-25'
+                } border-b border-slate-100`}
+              >
+                <div className="col-span-2 truncate font-medium" title={cidade.nome}>
                   {cidade.nome}
                 </div>
-                <div className="text-center font-medium">{cidade.total}</div>
-                <div className="text-center">{cidade.pos}</div>
-                <div className="text-center">{cidade.fibra}</div>
-                <div className="text-center text-green-600">{cidade.status.N}</div>
-                <div className="text-center text-yellow-600">{cidade.status.S}</div>
-                <div className="text-center text-red-600">{cidade.status.C}</div>
-                <div className="text-center text-blue-600 font-medium">{percentual.toFixed(1)}%</div>
+                <div className="text-center font-semibold text-slate-800">{cidade.total}</div>
+                <div className="text-center text-slate-700">{cidade.pos}</div>
+                <div className="text-center text-slate-700">{cidade.fibra}</div>
+                <div className="text-center text-green-700 font-medium">{cidade.status.N}</div>
+                <div className="text-center text-amber-600 font-medium">{cidade.status.S}</div>
+                <div className="text-center text-red-600 font-medium">{cidade.status.C}</div>
+                <div className="text-center text-blue-700 font-semibold">{percentual.toFixed(2)}%</div>
               </div>
             );
           })}
           
           {dadosPorCidade.length === 0 && (
-            <div className="text-center text-xs text-muted-foreground py-4">
+            <div className="text-center text-sm text-muted-foreground py-8 bg-slate-50 rounded-md">
               Nenhum dado disponível
             </div>
           )}

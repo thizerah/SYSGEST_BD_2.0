@@ -6,14 +6,18 @@ import { Venda } from "@/types";
 interface PermanenciaPorTipoServicoProps {
   sigla: "POS" | "BL-DGO";
   datasHabilitacaoFiltradas?: string[];
+  vendasFiltradas?: Venda[];
 }
 
-export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas }: PermanenciaPorTipoServicoProps) {
-  const { vendas, primeirosPagamentos } = useData();
+export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas, vendasFiltradas }: PermanenciaPorTipoServicoProps) {
+  const { vendas: vendasOriginais, primeirosPagamentos } = useData();
+  
+  // Usar vendas filtradas se fornecidas, caso contrário usar vendas originais
+  const vendasParaUsar = vendasFiltradas || vendasOriginais;
 
   const dados = useMemo(() => {
     // Filtrar vendas pela sigla (e pelas datas de habilitação, se fornecidas)
-    const vendasFiltradas = vendas.filter(venda => {
+    const vendasFiltradasPorSigla = vendasParaUsar.filter(venda => {
       const agrupamento = venda.agrupamento_produto || '';
       const produto = venda.produto_principal || '';
       const pertenceSigla = agrupamento.includes(sigla) || produto.includes(sigla);
@@ -31,7 +35,7 @@ export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas }: 
     
     // Mapear vendas por número de proposta
     const vendasMap = new Map<string, Venda>();
-    vendasFiltradas.forEach(venda => {
+    vendasFiltradasPorSigla.forEach(venda => {
       vendasMap.set(venda.numero_proposta, venda);
     });
     
@@ -41,7 +45,7 @@ export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas }: 
     );
     
     // Processar vendas BL-DGO sem pagamento correspondente
-    const inclusoes = vendas.filter(venda => {
+    const inclusoes = vendasParaUsar.filter(venda => {
       // Verificar se é BL-DGO da sigla correta
       const ehSiglaCorreta = (venda.agrupamento_produto?.includes(sigla) || venda.produto_principal?.includes(sigla));
       
@@ -97,7 +101,7 @@ export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas }: 
       percentual_inadimplentes: total > 0 ? (inadimplentes / total) * 100 : 0,
       percentual_cancelados: total > 0 ? (cancelados / total) * 100 : 0
     };
-  }, [sigla, vendas, primeirosPagamentos, datasHabilitacaoFiltradas]);
+  }, [sigla, vendasParaUsar, primeirosPagamentos, datasHabilitacaoFiltradas]);
 
   return (
     <div className="p-2">
@@ -133,9 +137,9 @@ export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas }: 
         Total de clientes: {dados.total}
       </div>
       
-      {datasHabilitacaoFiltradas && datasHabilitacaoFiltradas.length > 0 && (
+      {(datasHabilitacaoFiltradas && datasHabilitacaoFiltradas.length > 0) || vendasFiltradas && (
         <div className="text-xs text-blue-600 mt-2">
-          * Filtrado por data(s) de habilitação selecionada(s)
+          * Dados filtrados pelos critérios selecionados
         </div>
       )}
     </div>

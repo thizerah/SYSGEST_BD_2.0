@@ -72,7 +72,8 @@ import { useSystemSettings } from "@/hooks/useSystemSettings";
 import { getReopeningColorByServiceType, getTimeAttendanceColorByServiceType, getTimeAttendanceBackgroundColorByServiceType, getTimeAttendanceIndicatorColorByServiceType } from "@/utils/colorUtils";
 
 export function MetricsOverview() {
-  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs } = useData();
+  const data = useData();
+  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs, vendas } = data;
   const { user } = useAuth();
   const { getSetting, updateSetting } = useSystemSettings();
   
@@ -89,6 +90,51 @@ export function MetricsOverview() {
   const [originalServiceTypeFilter, setOriginalServiceTypeFilter] = useState<string>("");
   // Estado para o filtro de data de habilitação (usado nos componentes de permanência)
   const [filtroDataHabilitacao, setFiltroDataHabilitacao] = useState<string[]>([]);
+
+  // Função para calcular o mês de permanência (data de habilitação + 4 meses)
+  const calcularMesPermanencia = useCallback((dataHabilitacao: string): string => {
+    const dataAtual = new Date(dataHabilitacao);
+    dataAtual.setMonth(dataAtual.getMonth() + 4); // Adiciona 4 meses
+    const meses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return meses[dataAtual.getMonth()];
+  }, []);
+
+  // Função para calcular o ano de permanência (data de habilitação + 4 meses)
+  const calcularAnoPermanencia = useCallback((dataHabilitacao: string): number => {
+    const dataAtual = new Date(dataHabilitacao);
+    dataAtual.setMonth(dataAtual.getMonth() + 4); // Adiciona 4 meses
+    return dataAtual.getFullYear();
+  }, []);
+
+  // Filtrar vendas para permanência na aba indicadores (lógica inversa da aba permanência)
+  // Aqui: filtro de mês/ano (junho 2025) → busca vendas que geram permanência naquele período (vendas de fevereiro 2025)
+  const vendasFiltradasPermanenciaIndicadores = useMemo(() => {
+    // Só aplicar filtro na aba indicadores
+    if (activeTab !== "indicadores" || !selectedMonth || !selectedYear) {
+      return vendas; // Sem filtros ou em outra aba, retorna todas as vendas
+    }
+
+    return vendas.filter(venda => {
+      if (!venda.data_habilitacao) return false;
+
+      // Calcular mês e ano de permanência para esta venda
+      const mesPermanencia = calcularMesPermanencia(venda.data_habilitacao);
+      const anoPermanencia = calcularAnoPermanencia(venda.data_habilitacao);
+
+      // Converter o número do mês selecionado para nome do mês
+      const mesesNomes = [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+      ];
+      const mesNomeSelecionado = mesesNomes[parseInt(selectedMonth, 10) - 1];
+
+      // Verificar se a permanência calculada corresponde ao período selecionado no filtro
+      return mesPermanencia === mesNomeSelecionado && anoPermanencia.toString() === selectedYear;
+    });
+  }, [vendas, selectedMonth, selectedYear, activeTab, calcularMesPermanencia, calcularAnoPermanencia]);
   
   // Resetar o filtro de tipo de serviço original quando mudar de guia
   useEffect(() => {
@@ -1528,6 +1574,7 @@ export function MetricsOverview() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Cliente</TableHead>
+                    <TableHead>Técnico Responsável</TableHead>
                     <TableHead>OS Original</TableHead>
                     <TableHead>Ação Tomada Original</TableHead>
                     <TableHead>Data Criação Original</TableHead>
@@ -1587,6 +1634,7 @@ export function MetricsOverview() {
                     return (
                       <TableRow key={index}>
                         <TableCell className="font-medium">{pair.originalOrder.nome_cliente}</TableCell>
+                        <TableCell className="font-medium">{pair.originalOrder.nome_tecnico}</TableCell>
                         <TableCell>{pair.originalOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.originalOrder.subtipo_servico}</span></TableCell>
                         <TableCell>{getAcaoTomadaBadge(pair.originalOrder.acao_tomada, pair.originalOrder.status)}</TableCell>
                         <TableCell>{formatDate(pair.originalOrder.data_criacao)}</TableCell>
@@ -1605,7 +1653,7 @@ export function MetricsOverview() {
                   })}
                       {getFilteredReopeningPairs.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-4 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-4 text-muted-foreground">
                             Nenhum par de reabertura encontrado no período selecionado
                           </TableCell>
                         </TableRow>
@@ -1752,7 +1800,7 @@ export function MetricsOverview() {
                 <MapPin className="mr-2 h-5 w-5" />
                 Reaberturas por Cidade
                   </div>
-              </CardTitle>
+                </CardTitle>
             </CardHeader>
               <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
                 <div className="space-y-4 w-full">
@@ -1796,7 +1844,7 @@ export function MetricsOverview() {
                 <MapPin className="mr-2 h-5 w-5" />
                 Reaberturas por Bairro
                   </div>
-              </CardTitle>
+                </CardTitle>
             </CardHeader>
               <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
                 <div className="space-y-4 w-full">
@@ -2377,7 +2425,7 @@ export function MetricsOverview() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <PermanenciaPorTipoServico sigla="POS" datasHabilitacaoFiltradas={filtroDataHabilitacao} />
+                  <PermanenciaPorTipoServico sigla="POS" datasHabilitacaoFiltradas={filtroDataHabilitacao} vendasFiltradas={vendasFiltradasPermanenciaIndicadores} />
                 </CardContent>
               </Card>
               
@@ -2395,14 +2443,14 @@ export function MetricsOverview() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <PermanenciaPorTipoServico sigla="BL-DGO" datasHabilitacaoFiltradas={filtroDataHabilitacao} />
+                  <PermanenciaPorTipoServico sigla="BL-DGO" datasHabilitacaoFiltradas={filtroDataHabilitacao} vendasFiltradas={vendasFiltradasPermanenciaIndicadores} />
                 </CardContent>
               </Card>
             </div>
             
             {/* Novo quadro de Faixas de Desempenho e Bonificações - Vendas */}
             <div className="mb-6">
-              <ValorDeFaceVendas />
+              <ValorDeFaceVendas vendasFiltradas={vendasFiltradasPermanenciaIndicadores} />
             </div>
           </>
         )}
@@ -3228,7 +3276,7 @@ export function MetricsOverview() {
                           <TableHead className="text-center py-1">Sist.<br/>Opc.</TableHead>
                           <TableHead className="text-center py-1">Canc.<br/>Vol.</TableHead>
                           <TableHead className="text-center py-1">Kit<br/>TVRO</TableHead>
-                          <TableHead className="text-center py-1">Subst.</TableHead>
+                          <TableHead className="text-center py-1">Substituição</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -5176,6 +5224,28 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   const [filtroCidade, setFiltroCidade] = useState<string[]>([]);
   const [filtroBairro, setFiltroBairro] = useState<string[]>([]);
   
+  // Novos filtros de Mês e Ano (baseados na lógica: vendas de fevereiro = permanência em junho +4 meses)
+  const [filtroMesPermanencia, setFiltroMesPermanencia] = useState<string[]>([]);
+  const [filtroAnoPermanencia, setFiltroAnoPermanencia] = useState<string[]>([]);
+  
+  // Função para calcular o mês de permanência (data de habilitação + 4 meses)
+  const calcularMesPermanencia = useCallback((dataHabilitacao: string): string => {
+    const data = new Date(dataHabilitacao);
+    data.setMonth(data.getMonth() + 4); // Adiciona 4 meses
+    const meses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return meses[data.getMonth()];
+  }, []);
+
+  // Função para calcular o ano de permanência (mesmo ano da data de habilitação + 4 meses)
+  const calcularAnoPermanencia = useCallback((dataHabilitacao: string): number => {
+    const data = new Date(dataHabilitacao);
+    data.setMonth(data.getMonth() + 4); // Adiciona 4 meses
+    return data.getFullYear();
+  }, []);
+
   // Função para gerar link do WhatsApp com a mensagem padrão
   const gerarLinkWhatsApp = useCallback((telefone: string, nomeFantasia: string, produto: string) => {
     // Limpar telefone para conter apenas números
@@ -5300,6 +5370,72 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     const inclusoes = obterInclusoes();
     return [...primeirosPagamentos, ...inclusoes];
   }, [primeirosPagamentos, obterInclusoes]);
+
+  // Filtrar vendas baseado nos filtros de mês e ano de permanência
+  const vendasFiltradas = useMemo(() => {
+    if (filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0) {
+      return vendas; // Sem filtros, retorna todas as vendas
+    }
+
+    return vendas.filter(venda => {
+      if (!venda.data_habilitacao) return false;
+
+      // Calcular mês e ano de permanência para esta venda
+      const mesPermanencia = calcularMesPermanencia(venda.data_habilitacao);
+      const anoPermanencia = calcularAnoPermanencia(venda.data_habilitacao);
+
+      // Verificar se está nos filtros selecionados
+      const mesMatch = filtroMesPermanencia.length === 0 || filtroMesPermanencia.includes(mesPermanencia);
+      const anoMatch = filtroAnoPermanencia.length === 0 || filtroAnoPermanencia.includes(anoPermanencia.toString());
+
+      return mesMatch && anoMatch;
+    });
+  }, [vendas, filtroMesPermanencia, filtroAnoPermanencia, calcularMesPermanencia, calcularAnoPermanencia]);
+
+  // Filtrar pagamentos baseado nas vendas filtradas
+  const pagamentosFiltrados = useMemo(() => {
+    const propostasValidas = new Set(vendasFiltradas.map(v => v.numero_proposta));
+    return todosPagamentos.filter(p => propostasValidas.has(p.proposta));
+  }, [todosPagamentos, vendasFiltradas]);
+
+  // Calcular métricas de permanência baseadas nos dados filtrados
+  const permanenciaMetricsFiltradas = useMemo(() => {
+    if (filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0) {
+      return permanenciaMetrics; // Sem filtros, usa métricas originais
+    }
+
+    let adimplentes = 0;
+    let inadimplentes = 0;
+    let cancelados = 0;
+
+    pagamentosFiltrados.forEach(pagamento => {
+      if (pagamento.status_pacote === 'C') {
+        cancelados++;
+      } else if (pagamento.status_pacote === 'S') {
+        inadimplentes++;
+      } else if (pagamento.status_pacote === 'N' && (!pagamento.data_passo_cobranca || pagamento.data_passo_cobranca === '')) {
+        adimplentes++;
+      } else if (pagamento.passo === '0' || pagamento.passo === '1') {
+        adimplentes++;
+      } else if (pagamento.status_pacote === 'NC') {
+        adimplentes++;
+      } else {
+        inadimplentes++;
+      }
+    });
+
+    const total = adimplentes + inadimplentes + cancelados;
+
+    return {
+      total_clientes: total,
+      adimplentes,
+      inadimplentes,
+      cancelados,
+      percentual_adimplentes: total > 0 ? (adimplentes / total) * 100 : 0,
+      percentual_inadimplentes: total > 0 ? (inadimplentes / total) * 100 : 0,
+      percentual_cancelados: total > 0 ? (cancelados / total) * 100 : 0,
+    };
+  }, [pagamentosFiltrados, permanenciaMetrics, filtroMesPermanencia, filtroAnoPermanencia]);
   
   // Obter valores únicos para os filtros
   const siglas = useMemo(() => {
@@ -5365,6 +5501,38 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
       return dataA.getTime() - dataB.getTime(); // Ordem crescente (mais antigo primeiro)
     });
   }, [vendas]);
+
+  // Obter meses únicos de permanência (baseado nas datas de habilitação + 4 meses)
+  const mesesPermanenciaUnicos = useMemo(() => {
+    const valores = new Set<string>();
+    vendas.forEach(venda => {
+      if (venda.data_habilitacao) {
+        const mesPermanencia = calcularMesPermanencia(venda.data_habilitacao);
+        valores.add(mesPermanencia);
+      }
+    });
+    // Ordenar por ordem natural dos meses
+    const ordenMeses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return Array.from(valores).sort((a, b) => {
+      return ordenMeses.indexOf(a) - ordenMeses.indexOf(b);
+    });
+  }, [vendas, calcularMesPermanencia]);
+
+  // Obter anos únicos de permanência (baseado nas datas de habilitação + 4 meses)
+  const anosPermanenciaUnicos = useMemo(() => {
+    const valores = new Set<number>();
+    vendas.forEach(venda => {
+      if (venda.data_habilitacao) {
+        const anoPermanencia = calcularAnoPermanencia(venda.data_habilitacao);
+        valores.add(anoPermanencia);
+      }
+    });
+    // Ordenar do mais antigo para o mais recente
+    return Array.from(valores).sort((a, b) => a - b);
+  }, [vendas, calcularAnoPermanencia]);
   
   // Gerar opções de faixas de dias corridos para o filtro
   const faixasDiasCorridos = useMemo(() => {
@@ -5588,6 +5756,18 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
         const bairroNormalizado = venda.bairro.trim().toUpperCase();
         if (!filtroBairro.includes(bairroNormalizado)) return false;
       }
+
+      // Verificar filtro de mês de permanência
+      if (filtroMesPermanencia.length > 0 && venda.data_habilitacao) {
+        const mesPermanencia = calcularMesPermanencia(venda.data_habilitacao);
+        if (!filtroMesPermanencia.includes(mesPermanencia)) return false;
+      }
+
+      // Verificar filtro de ano de permanência
+      if (filtroAnoPermanencia.length > 0 && venda.data_habilitacao) {
+        const anoPermanencia = calcularAnoPermanencia(venda.data_habilitacao);
+        if (!filtroAnoPermanencia.includes(anoPermanencia.toString())) return false;
+      }
       
       // Aplicar filtro de busca
       if (termoBusca.trim() !== "") {
@@ -5642,9 +5822,13 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     filtroDiasCorridos, 
     filtroCidade, 
     filtroBairro, 
+    filtroMesPermanencia,
+    filtroAnoPermanencia,
     getSigla, 
     calcularDiasCorridos, 
     verificarDiasDentroFaixa,
+    calcularMesPermanencia,
+    calcularAnoPermanencia,
     termoBusca
   ]);
   
@@ -5791,6 +5975,17 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     value: bairro
   })), [bairrosUnicos]);
 
+  // Opções para os filtros de Mês e Ano de Permanência
+  const mesOptions = useMemo(() => mesesPermanenciaUnicos.map(mes => ({
+    label: mes,
+    value: mes
+  })), [mesesPermanenciaUnicos]);
+
+  const anoOptions = useMemo(() => anosPermanenciaUnicos.map(ano => ({
+    label: ano.toString(),
+    value: ano.toString()
+  })), [anosPermanenciaUnicos]);
+
   // Limpar filtros de cidade e bairro quando as opções não estão mais disponíveis
   useEffect(() => {
     // Filtrar cidades selecionadas que ainda estão disponíveis
@@ -5814,95 +6009,183 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        {/* Primeira card com métrica geral */}
+      {/* Filtros de Mês e Ano de Permanência */}
+      <div className="mb-6">
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle>Permanência de Clientes</CardTitle>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Filtros de Permanência</CardTitle>
             <CardDescription>
-              Visão geral da permanência de clientes ativos
+              Filtre por período de permanência (vendas + 4 meses)
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">{permanenciaMetrics.percentual_adimplentes.toFixed(1)}%</div>
-                <div className="text-xs text-muted-foreground mt-1">Adimplentes</div>
-                <div className="text-sm font-medium mt-1">{permanenciaMetrics.adimplentes}</div>
-            </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-amber-600">{permanenciaMetrics.percentual_inadimplentes.toFixed(1)}%</div>
-                <div className="text-xs text-muted-foreground mt-1">Inadimplentes</div>
-                <div className="text-sm font-medium mt-1">{permanenciaMetrics.inadimplentes}</div>
+            <div className="flex flex-wrap gap-4 items-end">
+              <div>
+                <Label htmlFor="filtro-mes-permanencia" className="text-xs">Mês de Permanência</Label>
+                <MultiSelect 
+                  options={mesOptions} 
+                  selected={filtroMesPermanencia}
+                  onChange={(values) => setFiltroMesPermanencia(values)}
+                  placeholder="Selecione meses"
+                  className="w-full text-xs min-w-[200px]"
+                />
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-red-600">{permanenciaMetrics.percentual_cancelados.toFixed(1)}%</div>
-                <div className="text-xs text-muted-foreground mt-1">Cancelados</div>
-                <div className="text-sm font-medium mt-1">{permanenciaMetrics.cancelados}</div>
+              
+              <div>
+                <Label htmlFor="filtro-ano-permanencia" className="text-xs">Ano de Permanência</Label>
+                <MultiSelect 
+                  options={anoOptions} 
+                  selected={filtroAnoPermanencia}
+                  onChange={(values) => setFiltroAnoPermanencia(values)}
+                  placeholder="Selecione anos"
+                  className="w-full text-xs min-w-[150px]"
+                />
+              </div>
+
+              <div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setFiltroMesPermanencia([]);
+                    setFiltroAnoPermanencia([]);
+                  }}
+                  disabled={filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0}
+                  className="h-10 px-3"
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  Limpar Filtros
+                </Button>
               </div>
             </div>
             
-            <div className="mt-4">
-              <Progress value={permanenciaMetrics.percentual_adimplentes} className="h-2 mb-1" />
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Total de Clientes: {permanenciaMetrics.total_clientes}</span>
-                <span>Ativos: {permanenciaMetrics.adimplentes + permanenciaMetrics.inadimplentes}</span>
+            {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) && (
+              <div className="mt-3 p-2 bg-blue-50 rounded-md">
+                <p className="text-xs text-blue-700">
+                  <strong>Lógica dos filtros:</strong> Vendas de <em>Fevereiro</em> refletem permanência em <em>Junho</em> (data de habilitação + 4 meses)
+                  <br />
+                  <strong>Múltiplas seleções:</strong> Você pode selecionar vários meses e anos para comparar diferentes períodos
+                </p>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        {/* Quadro de Permanência POS */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>
-              <div className="flex items-center">
-                <MapPin className="mr-2 h-5 w-5" />
-                Permanência POS
-              </div>
-            </CardTitle>
-            <CardDescription>
-              Informações de permanência para serviços POS
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PermanenciaPorTipoServico sigla="POS" datasHabilitacaoFiltradas={filtroDataHabilitacao} />
-          </CardContent>
-        </Card>
-        
-        {/* Quadro de Permanência Fibra */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>
-              <div className="flex items-center">
-                <MapPin className="mr-2 h-5 w-5" />
-                Permanência Fibra
-              </div>
-            </CardTitle>
-            <CardDescription>
-              Informações de permanência para serviços FIBRA
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PermanenciaPorTipoServico sigla="BL-DGO" datasHabilitacaoFiltradas={filtroDataHabilitacao} />
+            )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Verificar se AMBOS os filtros de permanência estão selecionados */}
+      {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          {/* Primeira card com métrica geral */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle>Permanência de Clientes</CardTitle>
+              <CardDescription>
+                Visão geral da permanência de clientes ativos
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-600">{permanenciaMetricsFiltradas.percentual_adimplentes.toFixed(1)}%</div>
+                  <div className="text-xs text-muted-foreground mt-1">Adimplentes</div>
+                  <div className="text-sm font-medium mt-1">{permanenciaMetricsFiltradas.adimplentes}</div>
+              </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-amber-600">{permanenciaMetricsFiltradas.percentual_inadimplentes.toFixed(1)}%</div>
+                  <div className="text-xs text-muted-foreground mt-1">Inadimplentes</div>
+                  <div className="text-sm font-medium mt-1">{permanenciaMetricsFiltradas.inadimplentes}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">{permanenciaMetricsFiltradas.percentual_cancelados.toFixed(1)}%</div>
+                  <div className="text-xs text-muted-foreground mt-1">Cancelados</div>
+                  <div className="text-sm font-medium mt-1">{permanenciaMetricsFiltradas.cancelados}</div>
+                </div>
+              </div>
+              
+              <div className="mt-4">
+                <Progress value={permanenciaMetricsFiltradas.percentual_adimplentes} className="h-2 mb-1" />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Total de Clientes: {permanenciaMetricsFiltradas.total_clientes}</span>
+                  <span>Ativos: {permanenciaMetricsFiltradas.adimplentes + permanenciaMetricsFiltradas.inadimplentes}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          {/* Quadro de Permanência POS */}
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle>
+                <div className="flex items-center">
+                  <MapPin className="mr-2 h-5 w-5" />
+                  Permanência POS
+                </div>
+              </CardTitle>
+              <CardDescription>
+                Informações de permanência para serviços POS
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <PermanenciaPorTipoServico sigla="POS" datasHabilitacaoFiltradas={filtroDataHabilitacao} vendasFiltradas={vendasFiltradas} />
+            </CardContent>
+          </Card>
+          
+          {/* Quadro de Permanência Fibra */}
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle>
+                <div className="flex items-center">
+                  <MapPin className="mr-2 h-5 w-5" />
+                  Permanência Fibra
+                </div>
+              </CardTitle>
+              <CardDescription>
+                Informações de permanência para serviços FIBRA
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <PermanenciaPorTipoServico sigla="BL-DGO" datasHabilitacaoFiltradas={filtroDataHabilitacao} vendasFiltradas={vendasFiltradas} />
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="mb-6">
+          <Card>
+            <CardContent className="py-12">
+              <div className="text-center">
+                <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                  <MapPin className="h-8 w-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Selecione os Filtros de Permanência</h3>
+                <p className="text-sm text-gray-500 max-w-sm mx-auto">
+                  Para visualizar os dados de permanência, selecione <strong>pelo menos um mês E um ano</strong> nos filtros acima.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       
-      {/* Quadros de Faixas de Desempenho e Vendas por Cidade */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-        <ValorDeFaceVendas />
-        <VendasInstaladasPorCidade vendasFiltradas={propostasFiltradas} />
-      </div>
+      {/* Quadro de Vendas por Cidade - só exibir se ambos os filtros estiverem aplicados */}
+      {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) && (
+        <div className="mb-6">
+          <VendasInstaladasPorCidade 
+            vendasFiltradas={propostasFiltradas} 
+            titulo="Vendas Instaladas por Cidade - Mês da Permanência" 
+          />
+        </div>
+      )}
       
-      <Card>
-        <CardHeader>
-          <CardTitle>Detalhamento de Propostas</CardTitle>
-          <CardDescription>
-            Lista de propostas com detalhes de permanência e status de pagamento
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      {/* Tabela de detalhamento - só exibir se ambos os filtros estiverem aplicados */}
+      {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Detalhamento de Propostas</CardTitle>
+            <CardDescription>
+              Lista de propostas com detalhes de permanência e status de pagamento
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           {/* Filtros */}
           <div className="mb-4">
             <div className="flex flex-wrap gap-4">
@@ -6228,6 +6511,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
           </div>
         </CardContent>
       </Card>
+      )}
     </>
   );
 }
@@ -6238,6 +6522,28 @@ function VendedorTabContent() {
   const dataContext = useData();
   const vendedorMetricsData = dataContext.calculateVendedorMetrics();
   const { vendas, primeirosPagamentos } = dataContext;
+
+  // Estados para filtros de Mês e Ano de Permanência
+  const [filtroMesPermanencia, setFiltroMesPermanencia] = useState<string[]>([]);
+  const [filtroAnoPermanencia, setFiltroAnoPermanencia] = useState<string[]>([]);
+
+  // Função para calcular o mês de permanência (data de habilitação + 4 meses)
+  const calcularMesPermanencia = useCallback((dataHabilitacao: string): string => {
+    const data = new Date(dataHabilitacao);
+    data.setMonth(data.getMonth() + 4); // Adiciona 4 meses
+    const meses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return meses[data.getMonth()];
+  }, []);
+
+  // Função para calcular o ano de permanência (mesmo ano da data de habilitação + 4 meses)
+  const calcularAnoPermanencia = useCallback((dataHabilitacao: string): number => {
+    const data = new Date(dataHabilitacao);
+    data.setMonth(data.getMonth() + 4); // Adiciona 4 meses
+    return data.getFullYear();
+  }, []);
   
   // Função para identificar a sigla de um produto
   const getSigla = useCallback((venda: Venda): string => {
@@ -6249,6 +6555,62 @@ function VendedorTabContent() {
     
     return '';
   }, []);
+
+  // Filtrar vendas baseado nos filtros de mês e ano de permanência
+  const vendasFiltradas = useMemo(() => {
+    if (filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0) {
+      return vendas; // Sem filtros, retorna todas as vendas
+    }
+
+    return vendas.filter(venda => {
+      if (!venda.data_habilitacao) return false;
+
+      // Calcular mês e ano de permanência para esta venda
+      const mesPermanencia = calcularMesPermanencia(venda.data_habilitacao);
+      const anoPermanencia = calcularAnoPermanencia(venda.data_habilitacao);
+
+      // Verificar se está nos filtros selecionados
+      const mesMatch = filtroMesPermanencia.length === 0 || filtroMesPermanencia.includes(mesPermanencia);
+      const anoMatch = filtroAnoPermanencia.length === 0 || filtroAnoPermanencia.includes(anoPermanencia.toString());
+
+      return mesMatch && anoMatch;
+    });
+  }, [vendas, filtroMesPermanencia, filtroAnoPermanencia, calcularMesPermanencia, calcularAnoPermanencia]);
+
+  // Gerar opções para os filtros de mês e ano
+  const mesesPermanenciaUnicos = useMemo(() => {
+    const valores = new Set<string>();
+    vendas.forEach(venda => {
+      if (venda.data_habilitacao) {
+        const mesPermanencia = calcularMesPermanencia(venda.data_habilitacao);
+        valores.add(mesPermanencia);
+      }
+    });
+    const mesesOrdem = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    return mesesOrdem.filter(mes => valores.has(mes));
+  }, [vendas, calcularMesPermanencia]);
+
+  const anosPermanenciaUnicos = useMemo(() => {
+    const valores = new Set<number>();
+    vendas.forEach(venda => {
+      if (venda.data_habilitacao) {
+        const anoPermanencia = calcularAnoPermanencia(venda.data_habilitacao);
+        valores.add(anoPermanencia);
+      }
+    });
+    return Array.from(valores).sort((a, b) => a - b);
+  }, [vendas, calcularAnoPermanencia]);
+
+  // Opções para os filtros de Mês e Ano de Permanência
+  const mesOptions = useMemo(() => mesesPermanenciaUnicos.map(mes => ({
+    label: mes,
+    value: mes
+  })), [mesesPermanenciaUnicos]);
+
+  const anoOptions = useMemo(() => anosPermanenciaUnicos.map(ano => ({
+    label: ano.toString(),
+    value: ano.toString()
+  })), [anosPermanenciaUnicos]);
   
   // Função para calcular as métricas por vendedor e sigla
   const calcularMetricasPorVendedorESigla = useCallback(() => {
@@ -6277,12 +6639,12 @@ function VendedorTabContent() {
     }>();
     
     // Se não há vendas ou pagamentos, retorna array vazio
-    if (vendas.length === 0) {
+    if (vendasFiltradas.length === 0) {
       return [];
     }
     
     // Inicializar mapa de vendedores com estrutura vazia
-    vendas.forEach(venda => {
+    vendasFiltradas.forEach(venda => {
       const id = venda.id_vendedor;
       if (!vendedoresMap.has(id)) {
         vendedoresMap.set(id, {
@@ -6319,7 +6681,7 @@ function VendedorTabContent() {
     });
     
     // Processar todas as vendas para classificar por sigla e status
-    vendas.forEach(venda => {
+    vendasFiltradas.forEach(venda => {
       const sigla = getSigla(venda);
       if (sigla === '') return; // Ignorar vendas sem sigla
       
@@ -6361,7 +6723,7 @@ function VendedorTabContent() {
     
     // Converter para array
     return Array.from(vendedoresMap.values());
-  }, [vendas, primeirosPagamentos, getSigla]);
+  }, [vendasFiltradas, primeirosPagamentos, getSigla]);
   
   // Calcular métricas
   const vendedoresPorSigla = useMemo(() => calcularMetricasPorVendedorESigla(), [calcularMetricasPorVendedorESigla]);
@@ -6375,7 +6737,71 @@ function VendedorTabContent() {
   
   return (
     <>
-      {/* Cartão para POS */}
+      {/* Filtros de Mês e Ano de Permanência */}
+      <div className="mb-6">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Filtros de Permanência</CardTitle>
+            <CardDescription>
+              Filtre por período de permanência (vendas + 4 meses)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-4 items-end">
+              <div>
+                <Label htmlFor="filtro-mes-permanencia-vendedor" className="text-xs">Mês de Permanência</Label>
+                <MultiSelect 
+                  options={mesOptions} 
+                  selected={filtroMesPermanencia}
+                  onChange={(values) => setFiltroMesPermanencia(values)}
+                  placeholder="Selecione meses"
+                  className="w-full text-xs min-w-[200px]"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="filtro-ano-permanencia-vendedor" className="text-xs">Ano de Permanência</Label>
+                <MultiSelect 
+                  options={anoOptions} 
+                  selected={filtroAnoPermanencia}
+                  onChange={(values) => setFiltroAnoPermanencia(values)}
+                  placeholder="Selecione anos"
+                  className="w-full text-xs min-w-[150px]"
+                />
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm" 
+                onClick={() => {
+                  setFiltroMesPermanencia([]);
+                  setFiltroAnoPermanencia([]);
+                }}
+                disabled={filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0}
+                className="h-10"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Limpar Filtros
+              </Button>
+            </div>
+
+            {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) && (
+              <div className="mt-3 p-2 bg-blue-50 rounded-md">
+                <p className="text-xs text-blue-700">
+                  <strong>Lógica dos filtros:</strong> Vendas de <em>Fevereiro</em> refletem permanência em <em>Junho</em> (data de habilitação + 4 meses)
+                  <br />
+                  <strong>Múltiplas seleções:</strong> Você pode selecionar vários meses e anos para comparar diferentes períodos
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Verificar se AMBOS os filtros de permanência estão selecionados */}
+      {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) ? (
+        <>
+          {/* Cartão para POS */}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>
@@ -6491,6 +6917,25 @@ function VendedorTabContent() {
         </CardContent>
       </Card>
       
+        </>
+      ) : (
+        <div className="mb-6">
+          <Card>
+            <CardContent className="py-12">
+              <div className="text-center">
+                <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                  <MapPin className="h-8 w-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Selecione os Filtros de Permanência</h3>
+                <p className="text-sm text-gray-500 max-w-sm mx-auto">
+                  Para visualizar os dados de vendedor, selecione <strong>pelo menos um mês E um ano</strong> nos filtros acima.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {vendas.length === 0 && (
         <div className="mt-4 text-center text-sm text-muted-foreground">
           Importe arquivos de Vendas e Primeiro Pagamento para visualizar os dados por vendedor.
