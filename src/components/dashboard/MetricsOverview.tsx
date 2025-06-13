@@ -596,6 +596,36 @@ export function MetricsOverview() {
     return servicesNeeded > 0 ? servicesNeeded : 0;
   };
 
+  // Função para formatar a exibição da meta de tempo
+  const formatTimeMetaDisplay = (servicesNeeded: number) => {
+    if (servicesNeeded < 0) {
+      // Dentro da meta com serviços acima
+      const servicesAbove = Math.abs(servicesNeeded);
+      return (
+        <span className="text-green-600 font-medium">
+          ✓ Meta - +{servicesAbove} acima.
+        </span>
+      );
+    } else if (servicesNeeded === 0) {
+      // Exatamente no limite da meta
+      return (
+        <span className="text-green-600 font-medium">
+          ✓ Meta - limite
+        </span>
+      );
+    } else {
+      // Fora da meta - precisa de mais serviços
+      return (
+        <span>
+          <span className="text-red-600 font-medium">❌ Meta</span>
+          <span className="text-blue-600 font-medium"> - +{servicesNeeded} serviços</span>
+        </span>
+      );
+    }
+  };
+
+
+
   // Função para calcular reaberturas permitidas ou serviços necessários
   const calculateServicesNeededForTarget = (serviceType: string, currentReopenings: number, currentTotal: number) => {
     // Se não há serviços, não há como calcular
@@ -1191,13 +1221,7 @@ export function MetricsOverview() {
                             </span>
                           </TableCell>
                           <TableCell className="text-center text-sm px-2">
-                            {servicesNeeded < 0 ? (
-                              <span className="text-green-600 font-medium">+{Math.abs(servicesNeeded)} acima</span>
-                            ) : servicesNeeded === 0 ? (
-                              <span className="text-green-600 font-medium">✓ Meta</span>
-                            ) : (
-                              <span className="text-blue-600 font-medium">+{servicesNeeded}</span>
-                            )}
+                            {formatTimeMetaDisplay(servicesNeeded)}
                           </TableCell>
                         </TableRow>
                       );
@@ -1213,7 +1237,7 @@ export function MetricsOverview() {
                   </TableBody>
                 </Table>
                 <div className="mt-3 text-sm text-muted-foreground italic space-y-1">
-                  <p><strong>Serv. p/ Meta:</strong> Quantidade de serviços necessários para atingir a meta de tempo. <span className="text-green-600 font-medium">✓ Meta</span> = na meta, <span className="text-green-600 font-medium">+X acima</span> = serviços extras acima da meta.</p>
+                  <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">✓ Meta - +X acima.</span> = dentro da meta com X serviços acima, <span className="text-green-600 font-medium">✓ Meta - limite</span> = exatamente no limite da meta, <span className="text-red-600 font-medium">❌ Meta</span> - <span className="text-blue-600 font-medium">+X serviços</span> = fora da meta, precisa de X serviços adicionais para voltar à faixa verde.</p>
                 </div>
               </div>
             </CardContent>
