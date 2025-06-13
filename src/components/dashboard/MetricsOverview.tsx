@@ -552,40 +552,52 @@ export function MetricsOverview() {
 
   // Função para calcular reaberturas permitidas ou serviços necessários
   const calculateServicesNeededForTarget = (serviceType: string, currentReopenings: number, currentTotal: number) => {
+    // Se não há serviços, não há como calcular
+    if (currentTotal === 0) {
+      return 0;
+    }
+    
     const currentRate = (currentReopenings / currentTotal) * 100;
     
     // Definir os limites por tipo de serviço (baseado nas regras de cor)
     let targetRate = 0;
     
-    if (serviceType.includes("Ponto Principal") && serviceType.includes("TV")) {
-      targetRate = 2.0; // Verde < 2%
+    // Verificar tipos específicos primeiro (mais específicos para menos específicos)
+    if (serviceType.includes("Corretiva") && (serviceType.includes("BL") || serviceType.includes("FIBRA"))) {
+      targetRate = 8.0; // Verde < 8%
+    } else if (serviceType === "Corretiva" || serviceType.includes("Corretiva")) {
+      targetRate = 3.5; // Verde < 3.5%
     } else if (serviceType.includes("Ponto Principal") && (serviceType.includes("BL") || serviceType.includes("FIBRA"))) {
       targetRate = 5.0; // Verde < 5%
-    } else if (serviceType === "Corretiva") {
-      targetRate = 3.5; // Verde < 3.5%
-    } else if (serviceType.includes("Corretiva") && (serviceType.includes("BL") || serviceType.includes("FIBRA"))) {
-      targetRate = 8.0; // Verde < 8%
+    } else if (serviceType === "Ponto Principal" || (serviceType.includes("Ponto Principal") && serviceType.includes("TV"))) {
+      targetRate = 2.0; // Verde < 2%
+    } else {
+      // Para tipos não reconhecidos, usar uma meta padrão
+      targetRate = 5.0;
     }
     
-    // Se estamos dentro da meta (incluindo 0.00%), calcular quantas reaberturas podemos ter
-    if (currentRate < targetRate) {
-      // Calcular quantas reaberturas podemos ter antes de ultrapassar a meta
-      // Formula: (currentReopenings + X) / currentTotal * 100 < targetRate
-      // Resolvendo: X < (currentTotal * targetRate / 100) - currentReopenings
-      const maxReopeningsAllowed = Math.floor((currentTotal * targetRate) / 100);
+    // Calcular o número máximo de reaberturas permitidas sem ultrapassar a meta
+    // Fórmula: maxReaberturas = floor(totalServiços × metaPercentual ÷ 100)
+    const maxReopeningsAllowed = Math.floor((currentTotal * targetRate) / 100);
+    
+    // Se estamos dentro da meta, calcular quantas reaberturas ainda estão disponíveis
+    if (currentReopenings <= maxReopeningsAllowed) {
       const reopeningsAvailable = maxReopeningsAllowed - currentReopenings;
       
-      // Sempre retornar negativo para indicar "reaberturas disponíveis"
-      return -reopeningsAvailable;
-    }
-    
-    // Se estamos exatamente no limite (empate), mostrar ✓ Meta
-    if (Math.abs(currentRate - targetRate) < 0.01) {
+      // Se há reaberturas disponíveis, retornar negativo para indicar "reab. disponíveis"
+      if (reopeningsAvailable > 0) {
+        return -reopeningsAvailable;
+      }
+      
+      // Se estamos exatamente no limite, mostrar "✓ Meta"
       return 0;
     }
     
     // Se estamos fora da meta, calcular quantos serviços precisamos para baixar o percentual
-    const desiredRate = targetRate - 0.1; // Margem de segurança
+    // Queremos que o percentual fique ligeiramente abaixo da meta
+    const desiredRate = targetRate - 0.1; // Margem de segurança de 0.1%
+    
+    // Fórmula: novoTotal = reaberturas ÷ (desiredRate ÷ 100)
     const targetTotal = currentReopenings / (desiredRate / 100);
     const servicesNeeded = Math.ceil(targetTotal - currentTotal);
     
@@ -1424,11 +1436,13 @@ export function MetricsOverview() {
                             </TableCell>
                             <TableCell className="text-center text-sm px-2">
                               {servicesNeeded < 0 ? (
-                                <span className="text-green-600 font-medium">{Math.abs(servicesNeeded)} reab. disponíveis</span>
+                                <span className="text-green-600 font-medium">✓ Meta - {Math.abs(servicesNeeded)} reab. disp.</span>
                               ) : servicesNeeded === 0 ? (
-                                <span className="text-green-600 font-medium">✓ Meta</span>
+                                <span className="text-green-600 font-medium">✓ Meta - 0 reab. disp.</span>
                               ) : (
-                                <span className="text-blue-600 font-medium">+{servicesNeeded} serv.</span>
+                                <span className="font-medium">
+                                  <span className="text-red-600">❌ Meta</span> - <span className="text-blue-600">+{servicesNeeded} serviços</span>
+                                </span>
                               )}
                             </TableCell>
                           </TableRow>
@@ -1447,7 +1461,7 @@ export function MetricsOverview() {
                 </Table>
                 <div className="mt-3 text-sm text-muted-foreground italic space-y-1">
                   <p><strong>Nota:</strong> Na coluna "Serviços" são contabilizadas todas as ordens que foram <strong>criadas OU finalizadas</strong> no mês selecionado.</p>
-                  <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">X reab. disponíveis</span> = quantas reaberturas pode ter antes de sair da faixa verde, <span className="text-green-600 font-medium">✓ Meta</span> = no limite exato, <span className="text-blue-600 font-medium">+X serv.</span> = serviços necessários para baixar o percentual.</p>
+                  <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">✓ Meta - X reab. disp.</span> = dentro da meta com X reaberturas ainda disponíveis, <span className="text-red-600 font-medium">❌ Meta</span> - <span className="text-blue-600 font-medium">+X serviços</span> = fora da meta, precisa de X serviços adicionais para voltar à faixa verde.</p>
                 </div>
               </div>
             </CardContent>
