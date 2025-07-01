@@ -7423,29 +7423,32 @@ function ImportData() {
             <div className="grid gap-4">
               <div className="mb-4">
                 <Label className="mb-2 block">Tipo de Importação</Label>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   <Button
                     onClick={() => setImportType('pagamentos')}
                     variant={importType === 'pagamentos' ? 'default' : 'outline'}
-                    className="flex-1"
+                    className="text-xs px-2 py-1.5 h-auto"
+                    size="sm"
                   >
-                    <FileIcon className="mr-2 h-4 w-4" />
+                    <FileIcon className="mr-1 h-3 w-3" />
                     Primeiro Pagamento (Icare)
                   </Button>
                   <Button
                     onClick={() => setImportType('metas')}
                     variant={importType === 'metas' ? 'default' : 'outline'}
-                    className="flex-1"
+                    className="text-xs px-2 py-1.5 h-auto"
+                    size="sm"
                   >
-                    <Target className="mr-2 h-4 w-4" />
+                    <Target className="mr-1 h-3 w-3" />
                     Comercial (Vendas Permanencia, Vendas Atual e Metas)
                   </Button>
                   <Button
                     onClick={() => setImportType('servicos-base')}
                     variant={importType === 'servicos-base' ? 'default' : 'outline'}
-                    className="flex-1"
+                    className="text-xs px-2 py-1.5 h-auto"
+                    size="sm"
                   >
-                    <FileIcon className="mr-2 h-4 w-4" />
+                    <FileIcon className="mr-1 h-3 w-3" />
                     Operacional (Serviços e Base)
                   </Button>
                 </div>
