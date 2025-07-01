@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { 
   ServiceOrder, User, SERVICE_TIME_GOALS, VALID_STATUS, ReopeningPair,
-  Venda, PrimeiroPagamento, PermanenciaMetrics, VendedorMetrics
+  Venda, PrimeiroPagamento, PermanenciaMetrics, VendedorMetrics,
+  Meta, VendaMeta, MetaMetrics, MetaCategoria, BaseData
 } from '../types';
 import { 
   VALID_SUBTYPES, 
@@ -16,13 +17,41 @@ import {
 } from "./DataUtils";
 import { ajustarTempoAtendimento } from '../utils/holidays';
 
+// Sistema de logs otimizado
+const isDevelopment = process.env.NODE_ENV === 'development';
+const isVerboseDebug = isDevelopment && localStorage.getItem('sysgest_debug_verbose') === 'true';
+
+const debugLog = (message: string, data?: unknown) => {
+  if (isVerboseDebug) {
+    console.log(message, data);
+  }
+};
+
+const infoLog = (message: string, data?: unknown) => {
+  if (isDevelopment) {
+    console.log(message, data);
+  }
+};
+
+interface ImportResult {
+  totalProcessed: number;
+  newRecords: number;
+  duplicatesIgnored: number;
+}
+
 interface DataContextType {
   serviceOrders: ServiceOrder[];
   vendas: Venda[];
   primeirosPagamentos: PrimeiroPagamento[];
-  importServiceOrders: (orders: ServiceOrder[], append?: boolean) => void;
-  importVendas: (vendas: Venda[], append?: boolean) => void;
-  importPrimeirosPagamentos: (pagamentos: PrimeiroPagamento[], append?: boolean) => void;
+  metas: Meta[];
+  vendasMeta: VendaMeta[];
+  baseData: BaseData[];
+  importServiceOrders: (orders: ServiceOrder[], append?: boolean) => ImportResult;
+  importVendas: (vendas: Venda[], append?: boolean) => ImportResult;
+  importPrimeirosPagamentos: (pagamentos: PrimeiroPagamento[], append?: boolean) => ImportResult;
+  importMetas: (metas: Meta[], append?: boolean) => ImportResult;
+  importVendasMeta: (vendasMeta: VendaMeta[], append?: boolean) => ImportResult;
+  importBaseData: (baseData: BaseData[], append?: boolean) => ImportResult;
   clearData: () => void;
   loading: boolean;
   calculateTimeMetrics: (filteredOrders?: ServiceOrder[]) => {
@@ -60,35 +89,95 @@ interface DataContextType {
   getReopeningPairs: (filteredOrders?: ServiceOrder[]) => ReopeningPair[];
   calculatePermanenciaMetrics: () => PermanenciaMetrics;
   calculateVendedorMetrics: () => VendedorMetrics[];
+  calculateMetaMetrics: (mes?: number, ano?: number) => MetaMetrics | null;
+  mapearCategoriaVenda: (venda: Venda | VendaMeta) => string;
   technicians: string[];
   vendedores: string[];
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
+// Chaves para localStorage (fora do componente para evitar recriações)
+const STORAGE_KEYS = {
+  SERVICE_ORDERS: 'sysgest_service_orders',
+  VENDAS: 'sysgest_vendas',
+  PAGAMENTOS: 'sysgest_pagamentos',
+  METAS: 'sysgest_metas',
+  VENDAS_META: 'sysgest_vendas_meta',
+  BASE_DATA: 'sysgest_base_data'
+} as const;
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
   const [vendas, setVendas] = useState<Venda[]>([]);
   const [primeirosPagamentos, setPrimeirosPagamentos] = useState<PrimeiroPagamento[]>([]);
+  const [metas, setMetas] = useState<Meta[]>([]);
+  const [vendasMeta, setVendasMeta] = useState<VendaMeta[]>([]);
+  const [baseData, setBaseData] = useState<BaseData[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const importServiceOrders = (orders: ServiceOrder[], append: boolean = false) => {
+  // Funções auxiliares para localStorage
+  const saveToLocalStorage = (key: string, data: unknown[]) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+      infoLog(`[PERSISTÊNCIA] Dados salvos no localStorage: ${key} (${data.length} registros)`);
+    } catch (error) {
+      console.error(`[PERSISTÊNCIA] Erro ao salvar ${key}:`, error);
+    }
+  };
+
+  const loadFromLocalStorage = <T,>(key: string): T[] => {
+    try {
+      const data = localStorage.getItem(key);
+      if (data) {
+        const parsed = JSON.parse(data);
+        infoLog(`[PERSISTÊNCIA] Dados carregados do localStorage: ${key} (${parsed.length} registros)`);
+        return parsed;
+      }
+    } catch (error) {
+      console.error(`[PERSISTÊNCIA] Erro ao carregar ${key}:`, error);
+    }
+    return [];
+  };
+
+  // Carregar dados do localStorage ao inicializar
+  useEffect(() => {
+    infoLog('[PERSISTÊNCIA] Carregando dados do localStorage...');
+    
+    const loadedServiceOrders = loadFromLocalStorage<ServiceOrder>(STORAGE_KEYS.SERVICE_ORDERS);
+    const loadedVendas = loadFromLocalStorage<Venda>(STORAGE_KEYS.VENDAS);
+    const loadedPagamentos = loadFromLocalStorage<PrimeiroPagamento>(STORAGE_KEYS.PAGAMENTOS);
+    const loadedMetas = loadFromLocalStorage<Meta>(STORAGE_KEYS.METAS);
+    const loadedVendasMeta = loadFromLocalStorage<VendaMeta>(STORAGE_KEYS.VENDAS_META);
+    const loadedBaseData = loadFromLocalStorage<BaseData>(STORAGE_KEYS.BASE_DATA);
+
+    if (loadedServiceOrders.length > 0) setServiceOrders(loadedServiceOrders);
+    if (loadedVendas.length > 0) setVendas(loadedVendas);
+    if (loadedPagamentos.length > 0) setPrimeirosPagamentos(loadedPagamentos);
+    if (loadedMetas.length > 0) setMetas(loadedMetas);
+    if (loadedVendasMeta.length > 0) setVendasMeta(loadedVendasMeta);
+    if (loadedBaseData.length > 0) setBaseData(loadedBaseData);
+
+    infoLog('[PERSISTÊNCIA] Carregamento concluído');
+  }, []); // Array vazio pois STORAGE_KEYS são constantes e loadFromLocalStorage não muda
+
+  const importServiceOrders = (orders: ServiceOrder[], append: boolean = false): ImportResult => {
     setLoading(true);
     
     // Pré-processamento para casos cancelados: usar data de criação como finalização se necessário
     const preparedOrders = orders.map(order => {
-      // Verificar se é um caso cancelado sem data de finalização
-      if (order.status === "Cancelada" && 
-          (order.subtipo_servico === "Corretiva" || order.subtipo_servico === "Corretiva BL") && 
-          (!order.data_finalizacao || order.data_finalizacao.trim() === "") && 
-          order.data_criacao) {
-        console.log(`[DEBUG] OS ${order.codigo_os} (cancelada ${order.subtipo_servico}): Usando data de criação como finalização`);
-        // Usar a data de criação como data de finalização para ordens canceladas
-        return {
-          ...order,
-          data_finalizacao: order.data_criacao
-        };
-      }
+              // Verificar se é um caso cancelado sem data de finalização
+        if (order.status === "Cancelada" && 
+            (order.subtipo_servico === "Corretiva" || order.subtipo_servico === "Corretiva BL") && 
+            (!order.data_finalizacao || order.data_finalizacao.trim() === "") && 
+            order.data_criacao) {
+          debugLog(`[OS CANCELADA] ${order.codigo_os} (${order.subtipo_servico}): Usando data de criação como finalização`);
+          // Usar a data de criação como data de finalização para ordens canceladas
+          return {
+            ...order,
+            data_finalizacao: order.data_criacao
+          };
+        }
       return order;
     });
     
@@ -119,7 +208,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const processedOrders = filteredOrders.map(order => {
       // Se for uma ordem cancelada, não incluir nas métricas de tempo
       if (order.status === "Cancelada") {
-        console.log(`[DEBUG] OS ${order.codigo_os} (cancelada) incluída apenas para análise de reabertura`);
+        debugLog(`[OS CANCELADA] ${order.codigo_os} incluída apenas para análise de reabertura`);
         return {
           ...order,
           tempo_atendimento: null,
@@ -134,7 +223,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
       
       if (!order.data_criacao || !order.data_finalizacao || !isMetricsSubtype) {
-        console.log(`[DEBUG] OS ${order.codigo_os} excluída das métricas: ${!order.data_criacao ? 'Sem data criação' : !order.data_finalizacao ? 'Sem data finalização' : 'Subtipo não válido'}`);
+        debugLog(`[OS EXCLUÍDA] ${order.codigo_os}: ${!order.data_criacao ? 'Sem data criação' : !order.data_finalizacao ? 'Sem data finalização' : 'Subtipo não válido'}`);
         return {
           ...order,
           tempo_atendimento: null,
@@ -159,9 +248,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
                               standardType !== "Categoria não identificada";
       
       if (!includeInMetrics) {
-        console.log(`[DEBUG] OS ${order.codigo_os} excluída: Tipo "${order.subtipo_servico}", Motivo "${order.motivo}" padronizado como "${standardType}"`);
+        debugLog(`[OS TIPO] ${order.codigo_os} excluída: "${order.subtipo_servico}" -> "${standardType}"`);
       } else {
-        console.log(`[DEBUG] OS ${order.codigo_os} incluída: Tipo "${order.subtipo_servico}", Motivo "${order.motivo}" padronizado como "${standardType}"`);
+        debugLog(`[OS TIPO] ${order.codigo_os} incluída: "${order.subtipo_servico}" -> "${standardType}"`);
       }
       
       // Ajustar o tempo de atendimento considerando feriados e domingos
@@ -189,27 +278,49 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     });
     
+    let newRecords = 0;
+    let duplicatesIgnored = 0;
+    
     if (append) {
       // Se append for true, verificar duplicidades antes de adicionar
       const existingOrderIds = new Set(serviceOrders.map(order => order.codigo_os));
       const newOrdersFiltered = processedOrders.filter(order => !existingOrderIds.has(order.codigo_os));
       
       if (newOrdersFiltered.length > 0) {
-        setServiceOrders(prevOrders => [...prevOrders, ...newOrdersFiltered]);
-        console.log(`Adicionadas ${newOrdersFiltered.length} novas ordens de serviço (${processedOrders.length - newOrdersFiltered.length} duplicadas ignoradas)`);
+        const finalOrders = [...serviceOrders, ...newOrdersFiltered];
+        setServiceOrders(finalOrders);
+        newRecords = newOrdersFiltered.length;
+        duplicatesIgnored = processedOrders.length - newOrdersFiltered.length;
+        infoLog(`Adicionadas ${newOrdersFiltered.length} novas ordens de serviço (${duplicatesIgnored} duplicadas ignoradas)`);
+        
+        // Salvar no localStorage
+        saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, finalOrders);
       } else {
-        console.log(`Nenhuma nova ordem de serviço para adicionar (${processedOrders.length} duplicadas ignoradas)`);
+        newRecords = 0;
+        duplicatesIgnored = processedOrders.length;
+        infoLog(`Nenhuma nova ordem de serviço para adicionar (${processedOrders.length} duplicadas ignoradas)`);
       }
     } else {
       // Substituir completamente
       setServiceOrders(processedOrders);
-      console.log(`Importadas ${processedOrders.length} ordens de serviço válidas de um total de ${orders.length}`);
+      newRecords = processedOrders.length;
+      duplicatesIgnored = 0;
+      infoLog(`Importadas ${processedOrders.length} ordens de serviço válidas de um total de ${orders.length}`);
+      
+      // Salvar no localStorage
+      saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, processedOrders);
     }
     
     setLoading(false);
+
+    return {
+      totalProcessed: orders.length,
+      newRecords,
+      duplicatesIgnored
+    };
   };
 
-  const importVendas = (novasVendas: Venda[], append: boolean = false) => {
+  const importVendas = (novasVendas: Venda[], append: boolean = false): ImportResult => {
     setLoading(true);
     
     // Processar as vendas
@@ -226,22 +337,42 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     });
     
+    let newRecords = 0;
+    let duplicatesIgnored = 0;
+    
     if (append) {
       // Verificar duplicidades baseado no número da proposta
       const existingPropostas = new Set(vendas.map(v => v.numero_proposta));
       const novaVendasFiltradas = processedVendas.filter(v => !existingPropostas.has(v.numero_proposta));
       
-      setVendas(prevVendas => [...prevVendas, ...novaVendasFiltradas]);
-      console.log(`Adicionadas ${novaVendasFiltradas.length} novas vendas (${processedVendas.length - novaVendasFiltradas.length} duplicadas ignoradas)`);
+      const finalVendas = [...vendas, ...novaVendasFiltradas];
+      setVendas(finalVendas);
+      newRecords = novaVendasFiltradas.length;
+      duplicatesIgnored = processedVendas.length - novaVendasFiltradas.length;
+              infoLog(`Adicionadas ${novaVendasFiltradas.length} novas vendas (${duplicatesIgnored} duplicadas ignoradas)`);
+      
+      // Salvar no localStorage
+      saveToLocalStorage(STORAGE_KEYS.VENDAS, finalVendas);
     } else {
       setVendas(processedVendas);
-      console.log(`Importadas ${processedVendas.length} vendas`);
+      newRecords = processedVendas.length;
+      duplicatesIgnored = 0;
+      infoLog(`Importadas ${processedVendas.length} vendas`);
+      
+      // Salvar no localStorage
+      saveToLocalStorage(STORAGE_KEYS.VENDAS, processedVendas);
     }
     
     setLoading(false);
+
+    return {
+      totalProcessed: novasVendas.length,
+      newRecords,
+      duplicatesIgnored
+    };
   };
   
-  const importPrimeirosPagamentos = (pagamentos: PrimeiroPagamento[], append: boolean = false) => {
+  const importPrimeirosPagamentos = (pagamentos: PrimeiroPagamento[], append: boolean = false): ImportResult => {
     setLoading(true);
     
     if (append) {
@@ -276,42 +407,226 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Substituir apenas se o novo registro for mais recente
           if (new Date(novoPagamento.data_importacao) > new Date(existingPagamento.data_importacao)) {
             propostaMap.set(propostaKey, novoPagamento);
-            console.log(`Atualizado pagamento para proposta ${propostaKey} (registro mais recente)`);
+            debugLog(`[PAGAMENTO] Atualizado proposta ${propostaKey} (registro mais recente)`);
           } else {
-            console.log(`Ignorado pagamento para proposta ${propostaKey} (registro mais antigo)`);
+                          debugLog(`[PAGAMENTO] Ignorado proposta ${propostaKey} (registro mais antigo)`);
           }
         } else {
           // Proposta não existia, adicionar ao map
           propostaMap.set(propostaKey, novoPagamento);
-          console.log(`Adicionado novo pagamento para proposta ${propostaKey}`);
+                      debugLog(`[PAGAMENTO] Adicionado novo pagamento para proposta ${propostaKey}`);
         }
       });
       
       // Converter o map de volta para um array
       const pagamentosAtualizados = Array.from(propostaMap.values());
+      const novosRegistros = pagamentosAtualizados.length - primeirosPagamentos.length;
+      const duplicatasIgnoradas = pagamentos.length - novosRegistros;
+      
       setPrimeirosPagamentos(pagamentosAtualizados);
       
-      console.log(`Processados ${pagamentos.length} pagamentos. Resultado final: ${pagamentosAtualizados.length} registros.`);
+      // Salvar no localStorage
+      saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, pagamentosAtualizados);
+      
+      infoLog(`Processados ${pagamentos.length} pagamentos. Resultado final: ${pagamentosAtualizados.length} registros.`);
+      
+      setLoading(false);
+      
+      return {
+        totalProcessed: pagamentos.length,
+        newRecords: Math.max(0, novosRegistros),
+        duplicatesIgnored: Math.max(0, duplicatasIgnoradas)
+      };
     } else {
       // Se não for append, apenas substitui todos os registros
       setPrimeirosPagamentos(pagamentos);
-      console.log(`Importados ${pagamentos.length} pagamentos`);
+      
+      // Salvar no localStorage
+      saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, pagamentos);
+      
+      infoLog(`Importados ${pagamentos.length} pagamentos`);
+      
+      setLoading(false);
+      
+      return {
+        totalProcessed: pagamentos.length,
+        newRecords: pagamentos.length,
+        duplicatesIgnored: 0
+      };
+    }
+  };
+
+  const importMetas = (novasMetas: Meta[], append: boolean = false): ImportResult => {
+    setLoading(true);
+    
+    try {
+      let finalMetas: Meta[];
+      let newRecords = 0;
+      let duplicatesIgnored = 0;
+      
+      if (append) {
+        // Se append for true, verificar duplicidades antes de adicionar
+        const existingMetasKeys = new Set(metas.map(m => `${m.mes}-${m.ano}`));
+        const newMetasFiltered = novasMetas.filter(m => !existingMetasKeys.has(`${m.mes}-${m.ano}`));
+        
+        if (newMetasFiltered.length > 0) {
+          finalMetas = [...metas, ...newMetasFiltered];
+          setMetas(finalMetas);
+          newRecords = newMetasFiltered.length;
+          duplicatesIgnored = novasMetas.length - newMetasFiltered.length;
+          infoLog(`Adicionadas ${newMetasFiltered.length} novas metas (${duplicatesIgnored} duplicadas ignoradas)`);
+        } else {
+          finalMetas = metas;
+          newRecords = 0;
+          duplicatesIgnored = novasMetas.length;
+                      infoLog("Nenhuma nova meta para adicionar (todas já existem)");
+        }
+      } else {
+        finalMetas = novasMetas;
+        setMetas(finalMetas);
+        newRecords = novasMetas.length;
+        duplicatesIgnored = 0;
+        infoLog(`Importadas ${novasMetas.length} metas`);
+      }
+      
+      // Salvar no localStorage
+      saveToLocalStorage(STORAGE_KEYS.METAS, finalMetas);
+      
+      return {
+        totalProcessed: novasMetas.length,
+        newRecords,
+        duplicatesIgnored
+      };
+    } catch (error) {
+      console.error('Erro ao importar metas:', error);
+      return {
+        totalProcessed: novasMetas.length,
+        newRecords: 0,
+        duplicatesIgnored: novasMetas.length
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const importVendasMeta = (novasVendasMeta: VendaMeta[], append: boolean = false): ImportResult => {
+    setLoading(true);
+    
+    try {
+      let finalVendasMeta: VendaMeta[];
+      let newRecords = 0;
+      let duplicatesIgnored = 0;
+      
+      if (append) {
+        // Se append for true, verificar duplicidades antes de adicionar
+        const existingVendasKeys = new Set(vendasMeta.map(v => v.numero_proposta));
+        const newVendasFiltered = novasVendasMeta.filter(v => !existingVendasKeys.has(v.numero_proposta));
+        
+        if (newVendasFiltered.length > 0) {
+          finalVendasMeta = [...vendasMeta, ...newVendasFiltered];
+          setVendasMeta(finalVendasMeta);
+          newRecords = newVendasFiltered.length;
+          duplicatesIgnored = novasVendasMeta.length - newVendasFiltered.length;
+          infoLog(`Adicionadas ${newVendasFiltered.length} novas vendas de meta (${duplicatesIgnored} duplicadas ignoradas)`);
+        } else {
+          finalVendasMeta = vendasMeta;
+          newRecords = 0;
+          duplicatesIgnored = novasVendasMeta.length;
+                      infoLog("Nenhuma nova venda de meta para adicionar (todas já existem)");
+        }
+      } else {
+        finalVendasMeta = novasVendasMeta;
+        setVendasMeta(finalVendasMeta);
+        newRecords = novasVendasMeta.length;
+        duplicatesIgnored = 0;
+        infoLog(`Importadas ${novasVendasMeta.length} vendas de meta`);
+      }
+      
+      // Salvar no localStorage
+      saveToLocalStorage(STORAGE_KEYS.VENDAS_META, finalVendasMeta);
+      
+      return {
+        totalProcessed: novasVendasMeta.length,
+        newRecords,
+        duplicatesIgnored
+      };
+    } catch (error) {
+      console.error('Erro ao importar vendas de meta:', error);
+      return {
+        totalProcessed: novasVendasMeta.length,
+        newRecords: 0,
+        duplicatesIgnored: novasVendasMeta.length
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const importBaseData = (novoBaseData: BaseData[], append: boolean = false): ImportResult => {
+    setLoading(true);
+    
+    let newRecords = 0;
+    let duplicatesIgnored = 0;
+    
+    if (append) {
+      // Se append for true, verificar duplicidades antes de adicionar
+      const existingBaseDataKeys = new Set(baseData.map(b => b.mes));
+      const newBaseDataFiltered = novoBaseData.filter(b => !existingBaseDataKeys.has(b.mes));
+      
+      if (newBaseDataFiltered.length > 0) {
+        const finalBaseData = [...baseData, ...newBaseDataFiltered];
+        setBaseData(finalBaseData);
+        saveToLocalStorage(STORAGE_KEYS.BASE_DATA, finalBaseData);
+        newRecords = newBaseDataFiltered.length;
+        duplicatesIgnored = novoBaseData.length - newBaseDataFiltered.length;
+        infoLog(`Adicionadas ${newBaseDataFiltered.length} novas informações base (${duplicatesIgnored} duplicadas ignoradas)`);
+      } else {
+        newRecords = 0;
+        duplicatesIgnored = novoBaseData.length;
+        infoLog(`Nenhuma nova informação base para adicionar (${novoBaseData.length} duplicadas ignoradas)`);
+      }
+    } else {
+      // Substituir completamente
+      setBaseData(novoBaseData);
+      newRecords = novoBaseData.length;
+      duplicatesIgnored = 0;
+      infoLog(`Importadas ${novoBaseData.length} informações base`);
+      
+      // Salvar no localStorage
+      saveToLocalStorage(STORAGE_KEYS.BASE_DATA, novoBaseData);
     }
     
     setLoading(false);
+
+    return {
+      totalProcessed: novoBaseData.length,
+      newRecords,
+      duplicatesIgnored
+    };
   };
 
   const clearData = () => {
     setServiceOrders([]);
     setVendas([]);
     setPrimeirosPagamentos([]);
+    setMetas([]);
+    setVendasMeta([]);
+    setBaseData([]);
+    
+    // Limpar também do localStorage
+    Object.values(STORAGE_KEYS).forEach(key => {
+      localStorage.removeItem(key);
+    });
+    
+    infoLog('[PERSISTÊNCIA] Todos os dados foram limpos do localStorage');
   };
 
   const calculateTimeMetrics = (filteredOrders?: ServiceOrder[]) => {
     // Filtrar apenas serviços que devem ser incluídos nas métricas de tempo
     const metricsOrders = (filteredOrders || serviceOrders).filter(order => order.include_in_metrics);
     
-    console.log(`[DEBUG] calculateTimeMetrics: Total de ordens para análise: ${metricsOrders.length}`);
+    // Log otimizado - apenas em modo verbose
+    debugLog(`[MÉTRICAS TEMPO] Analisando ${metricsOrders.length} ordens`);
     
     if (metricsOrders.length === 0) {
       return {
@@ -330,7 +645,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const totalTime = metricsOrders.reduce((sum, order) => sum + (order.tempo_atendimento || 0), 0);
     const averageTime = totalTime / totalOrders;
     
-    console.log(`[DEBUG] calculateTimeMetrics: Ordens dentro da meta: ${ordersWithinGoal}/${totalOrders} (${percentWithinGoal.toFixed(2)}%)`);
+    // Log resumido da performance
+    debugLog(`[MÉTRICAS TEMPO] Resultado: ${ordersWithinGoal}/${totalOrders} (${percentWithinGoal.toFixed(1)}%) dentro da meta`);
 
     const servicesByType: Record<string, {
       totalOrders: number;
@@ -338,16 +654,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       percentWithinGoal: number;
       averageTime: number;
     }> = {};
-    
-    // Contagem de categorias padronizadas para depuração
-    const typeCounts: Record<string, number> = {};
 
     metricsOrders.forEach(order => {
       // Usar a função de padronização de categoria
       const standardType = standardizeServiceCategory(order.subtipo_servico, order.motivo);
-      
-      // Contar para depuração
-      typeCounts[standardType] = (typeCounts[standardType] || 0) + 1;
       
       // Ignorar ordens que não se encaixam nas categorias especificadas
       if (standardType === "Não classificado" || standardType === "Categoria não identificada") {
@@ -374,17 +684,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ) / servicesByType[standardType].totalOrders;
     });
 
-    // Log de contagem de categorias padronizadas
-    console.log('[DEBUG] Distribuição de categorias:');
-    Object.entries(typeCounts).forEach(([type, count]) => {
-      console.log(`[DEBUG]   - ${type}: ${count} ordens`);
-    });
-    
-    // Log de métricas por tipo de serviço
-    console.log('[DEBUG] Métricas por tipo de serviço:');
-    Object.entries(servicesByType).forEach(([type, metrics]) => {
-      console.log(`[DEBUG]   - ${type}: ${metrics.withinGoal}/${metrics.totalOrders} dentro da meta (${metrics.percentWithinGoal.toFixed(2)}%), tempo médio: ${metrics.averageTime.toFixed(2)}h`);
-    });
+    // Log detalhado apenas em modo super verboso
+    if (isVerboseDebug && Object.keys(servicesByType).length > 0) {
+      debugLog('[MÉTRICAS DETALHADAS]', servicesByType);
+    }
 
     Object.keys(servicesByType).forEach(type => {
       const { totalOrders, withinGoal } = servicesByType[type];
@@ -438,15 +741,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Contador para ordens originais por tipo
     const originalOrdersByType: Record<string, number> = {};
     
-    // Ordens para análise (excluindo canceladas)
-    const metricsOrders = (filteredOrders || serviceOrders).filter(order => 
-      order.include_in_metrics && !order.status.includes("Cancelada")
-    );
-    
-    // Adicionalmente, para o cálculo da taxa, consideramos apenas os tipos de serviço que podem gerar reaberturas
-    const metricsOrdersForRate = metricsOrders.filter(order => 
-      VALID_SUBTYPES.some(type => order.subtipo_servico?.includes(type))
-    );
+          // Ordens para análise (excluindo canceladas)
+      const metricsOrders = (filteredOrders || serviceOrders).filter(order => 
+        order.include_in_metrics && !order.status.includes("Cancelada")
+      );
+      
+      // Adicionalmente, para o cálculo da taxa, consideramos apenas os tipos de serviço que podem gerar reaberturas
+      const metricsOrdersForRate = metricsOrders.filter(order => 
+        VALID_SUBTYPES.some(type => order.subtipo_servico?.includes(type))
+      );
     
     // Contar ordens originais por tipo para análise de taxa
     metricsOrdersForRate.forEach(order => {
@@ -568,14 +871,71 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     Object.entries(ordersByClient).forEach(([clientCode, orders]) => {
       if (orders.length <= 1) return;
       
-      // Ordenar ordens por data de criação
-      orders.sort((a, b) => 
-        new Date(a.data_criacao).getTime() - new Date(b.data_criacao).getTime()
-      );
+      // 🆕 NOVA REGRA: Filtrar ordens duplicadas (mesmo cliente, mesmo motivo, data/hora próximas)
+      // Mantém apenas a segunda O.S. quando há duplicatas próximas no tempo
+      const filteredOrders: ServiceOrder[] = [];
+      const processedOrders = new Set<string>();
 
-      // Procurar por pares de reabertura
-      for (let i = 0; i < orders.length; i++) {
-        const currOrder = orders[i];
+      // Agrupar ordens por cliente + motivo para detectar sequências próximas
+      const ordersByClientAndReason = new Map<string, ServiceOrder[]>();
+      
+      orders.forEach(order => {
+        const key = `${order.codigo_cliente}_${order.motivo}`;
+        if (!ordersByClientAndReason.has(key)) {
+          ordersByClientAndReason.set(key, []);
+        }
+        ordersByClientAndReason.get(key)!.push(order);
+      });
+
+      // Processar cada grupo de cliente + motivo
+      ordersByClientAndReason.forEach((groupOrders, key) => {
+        if (groupOrders.length === 1) {
+          // Se há apenas uma ordem, incluir diretamente
+          filteredOrders.push(groupOrders[0]);
+          return;
+        }
+
+        // Ordenar por data de criação
+        groupOrders.sort((a, b) => new Date(a.data_criacao).getTime() - new Date(b.data_criacao).getTime());
+
+        let i = 0;
+        while (i < groupOrders.length) {
+          const currentOrder = groupOrders[i];
+          
+          // Verificar se esta ordem está muito próxima da próxima (duplicata)
+          if (i + 1 < groupOrders.length) {
+            const nextOrder = groupOrders[i + 1];
+            const currentTime = new Date(currentOrder.data_criacao).getTime();
+            const nextTime = new Date(nextOrder.data_criacao).getTime();
+            const diffMinutes = (nextTime - currentTime) / (1000 * 60); // Diferença em minutos
+
+            // Se as ordens estão muito próximas (dentro de 2 minutos), considerar como duplicatas
+            if (diffMinutes <= 2) {
+              debugLog(`[REABERTURA] Duplicata detectada - Cliente: ${currentOrder.codigo_cliente}, Motivo: ${currentOrder.motivo}`);
+              debugLog(`[REABERTURA] - Descartando primeira: ${currentOrder.codigo_os} (${currentOrder.data_criacao})`);
+              debugLog(`[REABERTURA] - Mantendo segunda: ${nextOrder.codigo_os} (${nextOrder.data_criacao})`);
+              
+              // Pular a primeira ordem (descartá-la) e incluir a segunda
+              filteredOrders.push(nextOrder);
+              i += 2; // Avançar duas posições (pular primeira, processar segunda)
+              continue;
+            }
+          }
+          
+          // Se não é duplicata, incluir a ordem normalmente
+          filteredOrders.push(currentOrder);
+          i++;
+        }
+      });
+
+      debugLog(`[REABERTURA] Cliente ${clientCode}: ${orders.length} ordens originais → ${filteredOrders.length} ordens após filtro de duplicatas`);
+
+      // Ordenar ordens por data de criação para garantir sequência cronológica correta
+      filteredOrders.sort((a, b) => new Date(a.data_criacao).getTime() - new Date(b.data_criacao).getTime());
+
+      // Procurar por pares de reabertura usando as ordens filtradas
+      for (let i = 0; i < filteredOrders.length; i++) {
+        const currOrder = filteredOrders[i];
         
         if (currOrder.tipo_servico?.includes("Assistência Técnica")) {
           // Rastrear a ordem de reabertura mais recente para este cliente
@@ -584,7 +944,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
           // Verificar todas as ordens anteriores (possíveis ordens originais ou reaberturas anteriores)
           for (let j = 0; j < i; j++) {
-            const prevOrder = orders[j];
+            const prevOrder = filteredOrders[j];
             
             // Para ordens canceladas, usar uma lógica especial para verificar finalização
             const isPrevOrderFinalized = prevOrder.status === "Cancelada" || 
@@ -594,24 +954,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               type => prevOrder.subtipo_servico?.includes(type)
             );
             
-            // Verificar se a OS tem "Cliente Cancelou via SAC" como ação tomada
-            const isClienteCancelou = prevOrder.acao_tomada?.includes("Cliente Cancelou via SAC");
+            // Usar data de finalização da ordem original (ou criação se ordem cancelada sem finalização)
+            const prevFinalization = prevOrder.status === "Cancelada" && !prevOrder.data_finalizacao
+              ? new Date(prevOrder.data_criacao)
+              : new Date(prevOrder.data_finalizacao);
             
-            // Para ordens canceladas, garantir que a data de finalização exista
-            const prevFinalizationDate = prevOrder.status === "Cancelada" && !prevOrder.data_finalizacao
-                                       ? prevOrder.data_criacao  // Usar data_criacao para canceladas sem finalização
-                                       : prevOrder.data_finalizacao;
+            const currCreation = new Date(currOrder.data_criacao);
             
             if (isPrevOrderFinalized && isPrevOrderOriginal && 
-                !isClienteCancelou && // Não considerar como reabertura se o cliente cancelou via SAC
-                prevFinalizationDate && currOrder.data_criacao &&
-                new Date(currOrder.data_criacao) > new Date(prevFinalizationDate) &&
+                prevOrder.data_criacao && currOrder.data_criacao &&
+                currCreation > prevFinalization && // Reabertura deve ser criada APÓS a finalização da original
                 currOrder.codigo_os !== prevOrder.codigo_os) {
               
-              const prevFinalization = new Date(prevFinalizationDate);
-              const currCreation = new Date(currOrder.data_criacao);
-              
-              // Verificar se estão no mesmo mês vigente
+              // Verificar se estão no mesmo mês vigente (baseado na finalização da original)
               const sameMonth = prevFinalization.getMonth() === currCreation.getMonth() && 
                                prevFinalization.getFullYear() === currCreation.getFullYear();
               
@@ -654,17 +1009,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
           // Se encontramos uma ordem válida para fazer o pareamento
           if (lastReopeningIndex >= 0) {
-            const mostRecentOrder = orders[lastReopeningIndex];
-            const mostRecentFinalizationDate = mostRecentOrder.status === "Cancelada" && !mostRecentOrder.data_finalizacao
-                                             ? mostRecentOrder.data_criacao
-                                             : mostRecentOrder.data_finalizacao;
+            const mostRecentOrder = filteredOrders[lastReopeningIndex];
             
-            const mostRecentFinalization = new Date(mostRecentFinalizationDate);
+            // Usar data de finalização da ordem original para cálculo do tempo
+            const mostRecentFinalization = mostRecentOrder.status === "Cancelada" && !mostRecentOrder.data_finalizacao
+              ? new Date(mostRecentOrder.data_criacao)
+              : new Date(mostRecentOrder.data_finalizacao);
+            
             const currCreation = new Date(currOrder.data_criacao);
             
-            // Calcular tempos entre as ordens
+            // Calcular tempos entre a finalização da ordem original e criação da reabertura
             const timeBetween = (currCreation.getTime() - mostRecentFinalization.getTime()) / (1000 * 60 * 60);
             const diffDays = (currCreation.getTime() - mostRecentFinalization.getTime()) / (1000 * 60 * 60 * 24);
+            
+            // Debug para detectar tempos negativos
+            if (timeBetween < 0) {
+              debugLog(`[REABERTURA] TEMPO NEGATIVO DETECTADO - Cliente: ${currOrder.codigo_cliente}`);
+              debugLog(`[REABERTURA] - Original: ${mostRecentOrder.codigo_os}, Finalização: ${mostRecentOrder.data_finalizacao}`);
+              debugLog(`[REABERTURA] - Reabertura: ${currOrder.codigo_os}, Criação: ${currOrder.data_criacao}`);
+              debugLog(`[REABERTURA] - Tempo: ${timeBetween.toFixed(2)} horas (${diffDays.toFixed(1)} dias)`);
+              continue; // Pular este par pois há erro na lógica
+            }
             
             // Identificar a categoria do serviço para ambas as ordens
             const originalServiceCategory = standardizeServiceCategory(
@@ -717,7 +1082,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return ehBLDGO && naoTemPagamento;
     });
     
-    console.log(`Processando ${vendasBLDGOSemPagamento.length} inclusões (vendas BL-DGO sem pagamento correspondente)`);
+    debugLog(`[PERMANÊNCIA] Processando ${vendasBLDGOSemPagamento.length} inclusões (vendas BL-DGO sem pagamento correspondente)`);
     
     // Gerar registros de pagamento para cada inclusão
     const inclusoes: PrimeiroPagamento[] = vendasBLDGOSemPagamento.map(venda => {
@@ -947,14 +1312,342 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     new Set(vendas.map(venda => venda.id_vendedor))
   );
 
+  // Função para mapear categoria de venda baseada no "Agrupamento do Produto"
+  const mapearCategoriaVenda = (venda: Venda | VendaMeta): string => {
+    // Para VendaMeta, usar o campo 'categoria', para Venda usar 'agrupamento_produto'
+    const agrupamento = ('agrupamento_produto' in venda 
+      ? venda.agrupamento_produto 
+      : 'categoria' in venda 
+        ? venda.categoria 
+        : ''
+    )?.toUpperCase().trim() || '';
+    
+    // Verificar se tem produtos secundários (para identificar seguros)
+    // Para VendaMeta, usar 'produtos_secundarios', para Venda normal não temos esse campo ainda
+    const produtosSecundarios = ('produtos_secundarios' in venda 
+      ? (venda as VendaMeta).produtos_secundarios
+      : ''
+    )?.toUpperCase() || '';
+    
+    // Debug do campo produtos_secundarios
+    if (!produtosSecundarios && 'produtos_secundarios' in venda) {
+              debugLog(`[METAS CAMPO] ⚠️ produtos_secundarios vazio:`, Object.keys(venda));
+    }
+    
+    // Verificar diferentes variações de seguro/fatura protegida
+    const temFaturaProtegida = produtosSecundarios.includes('FATURA PROTEGIDA') ||
+                               produtosSecundarios.includes('SEGURO') ||
+                               produtosSecundarios.includes('PROTEGIDA') ||
+                               produtosSecundarios.includes('PROTEÇÃO');
+    
+    // Debug detalhado para seguros
+    if (produtosSecundarios.includes('FATURA PROTEGIDA')) {
+              debugLog(`[METAS SEGURO] ✅ FATURA PROTEGIDA detectada: ${agrupamento}`);
+    } else if (temFaturaProtegida) {
+              debugLog(`[METAS SEGURO] ✅ Variação de seguro detectada: ${agrupamento}`);
+    }
+    
+    // Mapeamento com lógica de seguros:
+    // SEGUROS POS = POS + FATURA PROTEGIDA
+    // SEGUROS FIBRA = BL-DGO + FATURA PROTEGIDA
+    // FIBRA = BL-DGO (sem FATURA PROTEGIDA)
+    // SKY+ = DGO
+    
+    // Mapeamento principal por agrupamento (POS sempre vai para pos_pago, independente de seguro)
+    switch (agrupamento) {
+      case 'POS':
+        return 'pos_pago';
+      case 'PRE':
+        return 'flex_conforto';
+      case 'BL-DGO':
+        // Para BL-DGO, verificar se tem seguro
+        if (temFaturaProtegida) {
+          debugLog(`[METAS SEGURO] BL-DGO com seguro -> SEGUROS FIBRA`);
+          return 'seguros_fibra';
+        }
+        return 'fibra';
+      case 'NP':
+        return 'nova_parabolica';
+      case 'DGO':
+        return 'sky_mais';
+      default:
+        // Fallback para casos onde a sigla não está exata
+        if (agrupamento.includes('POS')) return 'pos_pago';
+        if (agrupamento.includes('PRE')) return 'flex_conforto';
+        if (agrupamento.includes('BL-DGO')) {
+          if (temFaturaProtegida) {
+            debugLog(`[METAS SEGURO] BL-DGO (fallback) com seguro -> SEGUROS FIBRA`);
+            return 'seguros_fibra';
+          }
+          return 'fibra';
+        }
+        if (agrupamento.includes('NP')) return 'nova_parabolica';
+        if (agrupamento.includes('DGO')) return 'sky_mais';
+        
+        return 'outros';
+    }
+  };
+
+  // Função para calcular métricas de metas
+  const calculateMetaMetrics = (mes?: number, ano?: number): MetaMetrics | null => {
+    const mesAtual = mes || new Date().getMonth() + 1;
+    const anoAtual = ano || new Date().getFullYear();
+    
+    debugLog(`[METAS] Buscando dados para ${mesAtual}/${anoAtual}`);
+    if (isVerboseDebug) {
+      debugLog(`[METAS] Disponíveis:`, metas.map(m => `${m.mes}/${m.ano}`));
+      debugLog(`[METAS] Vendas disponíveis:`, vendasMeta.map(v => `${v.mes}/${v.ano}`));
+    }
+    
+    // Buscar meta do mês/ano especificado
+    const metaDoMes = metas.find(m => m.mes === mesAtual && m.ano === anoAtual);
+    if (!metaDoMes) {
+      debugLog(`[METAS] ⚠️ Nenhuma meta encontrada para ${mesAtual}/${anoAtual}`);
+      return null;
+    }
+    
+    // Filtrar vendas do mês atual (combinar vendas normais e vendas de meta)
+    const vendasNormaisDoMes = vendas.filter(venda => {
+      if (!venda.data_habilitacao) return false;
+      const dataVenda = new Date(venda.data_habilitacao);
+      return dataVenda.getMonth() + 1 === mesAtual && dataVenda.getFullYear() === anoAtual;
+    });
+    
+    const vendasMetaDoMes = vendasMeta.filter(venda => venda.mes === mesAtual && venda.ano === anoAtual);
+    
+    debugLog(`[METAS VENDAS] Normais: ${vendasNormaisDoMes.length}, Meta: ${vendasMetaDoMes.length}`);
+    
+    // Debug: mostrar amostra das vendas de meta apenas em modo super verboso
+    if (isVerboseDebug && vendasMetaDoMes.length > 0) {
+      debugLog(`[METAS AMOSTRA]`, { 
+        primeira: vendasMetaDoMes[0],
+        temSeguro: vendasMetaDoMes.some(v => v.produtos_secundarios?.includes('FATURA PROTEGIDA'))
+      });
+    }
+    
+    const vendasDoMes = [...vendasNormaisDoMes, ...vendasMetaDoMes];
+    
+    // Debug: contar vendas POS antes do processamento - apenas em modo verboso
+    if (isVerboseDebug) {
+      const vendasPOSTotal = vendasDoMes.filter(venda => {
+        const agrupamento = ('agrupamento_produto' in venda 
+          ? venda.agrupamento_produto 
+          : 'categoria' in venda 
+            ? venda.categoria 
+            : ''
+        )?.toUpperCase().trim() || '';
+        return agrupamento === 'POS' || agrupamento.includes('POS');
+      });
+      debugLog(`[METAS POS] Vendas POS encontradas: ${vendasPOSTotal.length}`);
+    }
+    
+    // Agrupar vendas por categoria (contagem de quantidade, não valor)
+    const vendasPorCategoria: Record<string, number> = {
+      pos_pago: 0,
+      flex_conforto: 0,
+      nova_parabolica: 0,
+      fibra: 0,
+      seguros_pos: 0,
+      seguros_fibra: 0,
+      sky_mais: 0,
+      outros: 0
+    };
+    
+    vendasDoMes.forEach(venda => {
+      const categoria = mapearCategoriaVenda(venda);
+      const agrupamento = ('agrupamento_produto' in venda 
+        ? venda.agrupamento_produto 
+        : 'categoria' in venda 
+          ? venda.categoria 
+          : ''
+      ) || '';
+      
+      // Verificar produtos secundários para debug
+      const produtosSecundarios = ('produtos_secundarios' in venda 
+        ? (venda as VendaMeta).produtos_secundarios
+        : ''
+      )?.toUpperCase() || '';
+      
+      // Verificar diferentes variações de seguro/fatura protegida
+      const temFaturaProtegida = produtosSecundarios.includes('FATURA PROTEGIDA') ||
+                                 produtosSecundarios.includes('SEGURO') ||
+                                 produtosSecundarios.includes('PROTEGIDA') ||
+                                 produtosSecundarios.includes('PROTEÇÃO');
+      
+      // Log detalhado apenas em modo super verboso
+      if (isVerboseDebug) {
+        debugLog(`[METAS CATEGORIA] ${agrupamento} -> ${categoria}${temFaturaProtegida ? ' (com seguro)' : ''}`);
+      }
+      
+      // Contar quantidade de vendas, não valor monetário
+      vendasPorCategoria[categoria] += 1;
+      
+      // Contar seguros POS separadamente (vendas POS que têm fatura protegida)
+      if (categoria === 'pos_pago' && temFaturaProtegida) {
+        vendasPorCategoria['seguros_pos'] += 1;
+      }
+    });
+    
+    // Log resumido das vendas por categoria
+    const totalVendasProcessadas = Object.values(vendasPorCategoria).reduce((sum, val) => sum + val, 0);
+    debugLog(`[METAS RESULTADO] Processadas ${totalVendasProcessadas} vendas em ${Object.keys(vendasPorCategoria).length} categorias`);
+    
+    // Log detalhado apenas em modo super verboso
+    if (isVerboseDebug) {
+      debugLog(`[METAS CATEGORIAS]`, vendasPorCategoria);
+    }
+    
+    // Calcular métricas por categoria
+    const categorias: MetaCategoria[] = [
+      {
+        categoria: 'PÓS-PAGO',
+        meta_definida: metaDoMes.pos_pago,
+        vendas_realizadas: vendasPorCategoria.pos_pago,
+        percentual_atingido: metaDoMes.pos_pago > 0 ? (vendasPorCategoria.pos_pago / metaDoMes.pos_pago) * 100 : 0
+      },
+      {
+        categoria: 'FLEX/CONFORTO',
+        meta_definida: metaDoMes.flex_conforto,
+        vendas_realizadas: vendasPorCategoria.flex_conforto,
+        percentual_atingido: metaDoMes.flex_conforto > 0 ? (vendasPorCategoria.flex_conforto / metaDoMes.flex_conforto) * 100 : 0
+      },
+      {
+        categoria: 'NOVA PARABÓLICA',
+        meta_definida: metaDoMes.nova_parabolica,
+        vendas_realizadas: vendasPorCategoria.nova_parabolica,
+        percentual_atingido: metaDoMes.nova_parabolica > 0 ? (vendasPorCategoria.nova_parabolica / metaDoMes.nova_parabolica) * 100 : 0
+      },
+      {
+        categoria: 'FIBRA',
+        meta_definida: metaDoMes.fibra,
+        vendas_realizadas: vendasPorCategoria.fibra,
+        percentual_atingido: metaDoMes.fibra > 0 ? (vendasPorCategoria.fibra / metaDoMes.fibra) * 100 : 0
+      },
+      {
+        categoria: 'SEGUROS POS',
+        meta_definida: metaDoMes.seguros_pos,
+        vendas_realizadas: vendasPorCategoria.seguros_pos,
+        percentual_atingido: metaDoMes.seguros_pos > 0 ? (vendasPorCategoria.seguros_pos / metaDoMes.seguros_pos) * 100 : 0
+      },
+      {
+        categoria: 'SEGUROS FIBRA',
+        meta_definida: metaDoMes.seguros_fibra,
+        vendas_realizadas: vendasPorCategoria.seguros_fibra,
+        percentual_atingido: metaDoMes.seguros_fibra > 0 ? (vendasPorCategoria.seguros_fibra / metaDoMes.seguros_fibra) * 100 : 0
+      },
+      {
+        categoria: 'SKY MAIS',
+        meta_definida: metaDoMes.sky_mais,
+        vendas_realizadas: vendasPorCategoria.sky_mais,
+        percentual_atingido: metaDoMes.sky_mais > 0 ? (vendasPorCategoria.sky_mais / metaDoMes.sky_mais) * 100 : 0
+      }
+    ];
+    
+    // Calcular totais (quantidade de vendas)
+    const totalMeta = metaDoMes.total;
+    const totalVendas = Object.values(vendasPorCategoria).reduce((sum, val) => sum + val, 0);
+    const percentualGeral = totalMeta > 0 ? (totalVendas / totalMeta) * 100 : 0;
+    
+    // Calcular dias e projeções baseado no mês/ano selecionado
+    const hoje = new Date();
+    const ultimoDiaMes = new Date(anoAtual, mesAtual, 0).getDate();
+    
+    // Determinar se estamos analisando o mês atual ou um mês passado
+    const isCurrentMonth = anoAtual === hoje.getFullYear() && mesAtual === hoje.getMonth() + 1;
+    
+    // Função para calcular dias úteis (excluindo domingos)
+    const calcularDiasUteis = (dataInicio: Date, dataFim: Date): number => {
+      let diasUteis = 0;
+      const dataAtual = new Date(dataInicio);
+      
+      // Normalizar as datas para evitar problemas de timezone
+      dataAtual.setHours(0, 0, 0, 0);
+      const dataFimNormalizada = new Date(dataFim);
+      dataFimNormalizada.setHours(23, 59, 59, 999);
+      
+      // Garantir que inclui tanto o primeiro quanto o último dia
+      while (dataAtual <= dataFimNormalizada) {
+        if (dataAtual.getDay() !== 0) { // Não é domingo
+          diasUteis++;
+        }
+        dataAtual.setDate(dataAtual.getDate() + 1);
+      }
+      
+      return diasUteis;
+    };
+    
+    let diasDecorridos: number;
+    let diasRestantes: number;
+    
+    if (isCurrentMonth) {
+      // Mês atual: usar data atual
+      const primeiroDiaMes = new Date(anoAtual, mesAtual - 1, 1);
+      const ontem = new Date(hoje);
+      ontem.setDate(hoje.getDate() - 1);
+      const ultimoDiaDoMes = new Date(anoAtual, mesAtual, 0);
+      
+      diasDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, ontem));
+      diasRestantes = Math.max(0, calcularDiasUteis(hoje, ultimoDiaDoMes));
+      
+      // Log resumido dos dias úteis
+      debugLog(`[METAS DIAS] ${mesAtual}/${anoAtual}: ${diasDecorridos} decorridos, ${diasRestantes} restantes`);
+    } else {
+      // Mês passado: usar o mês completo
+      const primeiroDiaMes = new Date(anoAtual, mesAtual - 1, 1);
+      const ultimoDiaDoMes = new Date(anoAtual, mesAtual, 0);
+      
+      diasDecorridos = calcularDiasUteis(primeiroDiaMes, ultimoDiaDoMes);
+      diasRestantes = 0; // Mês já passou
+    }
+    
+    const mediaDiariaAtual = totalVendas / diasDecorridos;
+    const totalDiasUteisMes = isCurrentMonth ? 
+      diasDecorridos + diasRestantes : 
+      diasDecorridos;
+    const projecaoFinal = mediaDiariaAtual * totalDiasUteisMes;
+    
+    const valorRestante = Math.max(0, totalMeta - totalVendas);
+    const mediaDiariaNecessaria = diasRestantes > 0 ? valorRestante / diasRestantes : 0;
+    
+    // Determinar status
+    let status: MetaMetrics['status'] = 'em_dia';
+    if (percentualGeral >= 100) {
+      status = 'atingido';
+    } else if (projecaoFinal > totalMeta * 1.1) {
+      status = 'superado';
+    } else if (percentualGeral < (diasDecorridos / ultimoDiaMes) * 100 * 0.8) {
+      status = 'atrasado';
+    }
+    
+    return {
+      mes: mesAtual,
+      ano: anoAtual,
+      categorias,
+      total_meta: totalMeta,
+      total_vendas: totalVendas,
+      percentual_geral: percentualGeral,
+      dias_restantes: diasRestantes,
+      projecao_final: projecaoFinal,
+      media_diaria_atual: mediaDiariaAtual,
+      media_diaria_necessaria: mediaDiariaNecessaria,
+      status
+    };
+  };
+
   return (
     <DataContext.Provider value={{ 
       serviceOrders, 
       vendas,
       primeirosPagamentos,
+      metas,
+      vendasMeta,
+      baseData,
       importServiceOrders, 
       importVendas,
       importPrimeirosPagamentos,
+      importMetas,
+      importVendasMeta,
+      importBaseData,
       clearData, 
       loading, 
       calculateTimeMetrics,
@@ -962,6 +1655,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       getReopeningPairs,
       calculatePermanenciaMetrics,
       calculateVendedorMetrics,
+      calculateMetaMetrics,
+      mapearCategoriaVenda,
       technicians,
       vendedores
     }}>

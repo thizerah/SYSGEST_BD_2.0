@@ -3,6 +3,34 @@ import * as RechartsPrimitive from "recharts"
 
 import { cn } from "@/lib/utils"
 
+// Hook para suprimir warnings específicos do Recharts
+const useSupressRechartsWarnings = () => {
+  React.useEffect(() => {
+    // Salvar console.warn original
+    const originalWarn = console.warn;
+    
+    // Interceptar e filtrar warnings do Recharts sobre ResponsiveContainer
+    console.warn = (...args) => {
+      const message = args[0];
+      if (typeof message === 'string' && 
+          message.includes('The width') && 
+          message.includes('and height') && 
+          message.includes('are both fixed numbers') &&
+          message.includes("maybe you don't need to use a ResponsiveContainer")) {
+        // Suprimir este warning específico
+        return;
+      }
+      // Chamar console.warn original para outros warnings
+      originalWarn.apply(console, args);
+    };
+
+    // Limpar na desmontagem
+    return () => {
+      console.warn = originalWarn;
+    };
+  }, []);
+};
+
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const
 
@@ -43,6 +71,9 @@ const ChartContainer = React.forwardRef<
 >(({ id, className, children, config, ...props }, ref) => {
   const uniqueId = React.useId()
   const chartId = `chart-${id || uniqueId.replace(/:/g, "")}`
+  
+  // Usar hook para suprimir warnings do Recharts
+  useSupressRechartsWarnings()
 
   return (
     <ChartContext.Provider value={{ config }}>
@@ -56,6 +87,7 @@ const ChartContainer = React.forwardRef<
         {...props}
       >
         <ChartStyle id={chartId} config={config} />
+        {/* Suprimir warnings do Recharts sobre dimensões fixas - comportamento normal para responsividade */}
         <RechartsPrimitive.ResponsiveContainer>
           {children}
         </RechartsPrimitive.ResponsiveContainer>

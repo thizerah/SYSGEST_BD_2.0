@@ -123,21 +123,31 @@ export const normalizeNeighborhoodName = (neighborhoodName: string = ""): string
   return neighborhoodName.trim().charAt(0).toUpperCase() + neighborhoodName.trim().slice(1);
 };
 
+// Sistema de logs condicionais
+const isDevelopment = typeof process !== 'undefined' && process.env?.NODE_ENV === 'development';
+const isVerboseDebug = isDevelopment && typeof localStorage !== 'undefined' && localStorage.getItem('sysgest_debug_verbose') === 'true';
+
+const debugLog = (message: string) => {
+  if (isVerboseDebug) {
+    console.log(message);
+  }
+};
+
 // Função para obter o tempo de meta de atendimento por subtipo de serviço
 export const getServiceGoalBySubtype = (subtypeService: string = "", reason: string = ""): number => {
   const standardizedCategory = standardizeServiceCategory(subtypeService, reason);
   
-  console.log(`[DEBUG] getServiceGoalBySubtype: Tipo "${subtypeService}", Categoria Padronizada: "${standardizedCategory}"`);
+  debugLog(`[DEBUG] getServiceGoalBySubtype: Tipo "${subtypeService}", Categoria Padronizada: "${standardizedCategory}"`);
   
   switch (standardizedCategory) {
     case "Ponto Principal TV":
-      return 48; // Meta de 48 horas
+      return 62.983333; // Meta de 62h 59min
     case "Ponto Principal FIBRA":
-      return 48; // Meta de 48 horas
+      return 62.983333; // Meta de 62h 59min
     case "Assistência Técnica FIBRA":
-      return 34; // Meta de 34 horas
+      return 38.983333; // Meta de 38h 59min
     case "Assistência Técnica TV":
-      return 34; // Meta de 34 horas
+      return 38.983333; // Meta de 38h 59min
     default:
       return 48; // Meta padrão caso não se encaixe em nenhuma categoria
   }
@@ -235,6 +245,6 @@ export const standardizeServiceCategory = (typeService: string = "", reason: str
     ruleApplied = "Regra 10: Não atende aos critérios específicos";
   }
   
-  console.log(`[DEBUG] Tipo: "${typeService}", Motivo: "${reason}" => ${result} (${ruleApplied})`);
+  debugLog(`[DEBUG] Tipo: "${typeService}", Motivo: "${reason}" => ${result} (${ruleApplied})`);
   return result;
 }; 

@@ -46,17 +46,17 @@ export interface User {
 
 // Service time goals by service type
 export const SERVICE_TIME_GOALS: Record<string, number> = {
-  'Ponto Principal TV': 48,
-  'Ponto Principal Fibra': 48,
-  'Ponto Principal': 48,
-  'Ponto Principal BL': 48,
-  'Assistência Técnica Fibra': 24,
-  'Assistência Técnica TV': 34,
-  'Corretiva': 48,
-  'Corretiva BL': 48,
-  'Preventiva BL': 48,
-  'Prestação de Serviço': 48,
-  'Prestação de Serviço BL': 48,
+  'Ponto Principal TV': 62.983333, // 62h 59min
+  'Ponto Principal Fibra': 62.983333, // 62h 59min
+  'Ponto Principal': 62.983333, // 62h 59min
+  'Ponto Principal BL': 62.983333, // 62h 59min
+  'Assistência Técnica Fibra': 38.983333, // 38h 59min
+  'Assistência Técnica TV': 38.983333, // 38h 59min
+  'Corretiva': 38.983333, // 38h 59min (Assistência Técnica TV)
+  'Corretiva BL': 38.983333, // 38h 59min (Assistência Técnica FIBRA)
+  'Preventiva BL': 48, // Mantendo valor original
+  'Prestação de Serviço': 48, // Mantendo valor original
+  'Prestação de Serviço BL': 48, // Mantendo valor original
   'default': 48 // Default goal for unknown service types
 };
 
@@ -122,6 +122,9 @@ export interface Venda {
   telefone_celular?: string; // Telefone celular do cliente
   cidade?: string;           // Cidade do cliente
   bairro?: string;           // Bairro do cliente
+  // Campos opcionais para produtos diferenciais (compatibilidade)
+  produtos_secundarios?: string;
+  forma_pagamento?: string;
 }
 
 // Interface para dados de primeiro pagamento
@@ -158,4 +161,94 @@ export interface VendedorMetrics {
   percentual_adimplentes: number;
   percentual_inadimplentes: number;
   percentual_cancelados: number;
+}
+
+// Interface para dados de metas mensais por categoria
+export interface Meta {
+  id?: string;
+  mes: number; // 1-12
+  ano: number; // YYYY
+  pos_pago: number;
+  flex_conforto: number;
+  nova_parabolica: number;
+  total: number;
+  fibra: number;
+  seguros_pos: number;
+  seguros_fibra: number;
+  sky_mais: number;
+  data_criacao: string;
+  data_atualizacao: string;
+}
+
+// Interface para acompanhamento por categoria de meta
+export interface MetaCategoria {
+  categoria: string;
+  meta_definida: number;
+  vendas_realizadas: number;
+  percentual_atingido: number;
+}
+
+// Interface para métricas consolidadas de metas
+export interface MetaMetrics {
+  mes: number;
+  ano: number;
+  categorias: MetaCategoria[];
+  total_meta: number;
+  total_vendas: number;
+  percentual_geral: number;
+  dias_restantes: number;
+  projecao_final: number;
+  media_diaria_atual: number;
+  media_diaria_necessaria: number;
+  status: 'em_dia' | 'atrasado' | 'atingido' | 'superado';
+}
+
+// Interface para vendas do mês atual (específica para metas)
+export interface VendaMeta {
+  numero_proposta: string;
+  valor: number;
+  data_venda: string;
+  vendedor: string;
+  categoria: string;
+  produto: string;
+  produtos_secundarios?: string;
+  cidade?: string;
+  forma_pagamento?: string;
+  mes: number;
+  ano: number;
+}
+
+export interface BaseData {
+  mes: string;
+  base_tv: number;
+  base_fibra: number;
+  alianca: number;
+}
+
+export interface BaseMetrics {
+  tv: {
+    atual: number;
+    tendencia: 'positiva' | 'negativa' | 'estavel';
+    media3m: number;
+    percentualTendencia: number;
+    diferencaQuantidade: number;
+  };
+  fibra: {
+    atual: number;
+    tendencia: 'positiva' | 'negativa' | 'estavel';
+    media3m: number;
+    percentualTendencia: number;
+    diferencaQuantidade: number;
+  };
+  alianca: {
+    atual: number;
+    tendencia: 'positiva' | 'negativa' | 'estavel';
+    media3m: number;
+    percentualTendencia: number;
+    diferencaQuantidade: number;
+  };
+  // Informações sobre o período dos dados
+  mesUtilizado: number;
+  mesOriginal: number;
+  usandoMesAnterior: boolean;
 }

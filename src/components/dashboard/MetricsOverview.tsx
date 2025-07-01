@@ -24,7 +24,14 @@ import {
   RefreshCcw,
   Search,
   MessageCircle,
-  CheckCircle
+  CheckCircle,
+  Target,
+  Gauge,
+  ArrowUp,
+  ArrowDown,
+  TrendingUp,
+  TrendingDown,
+  DollarSign
 } from "lucide-react";
 import { 
   ChartContainer, 
@@ -41,7 +48,7 @@ import {
   ResponsiveContainer
 } from "recharts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
-import { ServiceOrder, User, VALID_STATUS, Venda, PrimeiroPagamento } from "@/types";
+import { ServiceOrder, User, VALID_STATUS, Venda, PrimeiroPagamento, Meta, VendaMeta, BaseData } from "@/types";
 import { useAuth } from "@/context/auth";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -67,15 +74,1321 @@ import { RegisterForm } from "@/components/auth/RegisterForm";
 import { PermanenciaPorTipoServico } from "./PermanenciaPorTipoServico";
 import { ValorDeFaceVendas } from "@/components/dashboard/ValorDeFaceVendas";
 import { VendasInstaladasPorCidade } from "@/components/dashboard/VendasInstaladasPorCidade";
+import { PermanenciaTrendChart } from "@/components/dashboard/PermanenciaTrendChart";
+import { DesempenhoTrendChart } from "@/components/dashboard/DesempenhoTrendChart";
+import { VendedorPermanenciaTrendChart } from "@/components/dashboard/VendedorPermanenciaTrendChart";
+import { VendedorDesempenhoTrendChart } from "@/components/dashboard/VendedorDesempenhoTrendChart";
+import { VendedorDesempenhoPerPeriodoTrendChart } from "@/components/dashboard/VendedorDesempenhoPerPeriodoTrendChart";
+import { VendedorDesempenhoCategoriaTrendChart } from "@/components/dashboard/VendedorDesempenhoCategoriaTrendChart";
 import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName } from "@/context/DataUtils";
 import { useSystemSettings } from "@/hooks/useSystemSettings";
 import { getReopeningColorByServiceType, getTimeAttendanceColorByServiceType, getTimeAttendanceBackgroundColorByServiceType, getTimeAttendanceIndicatorColorByServiceType } from "@/utils/colorUtils";
+import { BaseMetricsSection } from "@/components/dashboard/BaseMetricsSection";
+import { useBaseMetrics } from "@/hooks/useBaseMetrics";
+
+// Componente para o conteúdo da guia Metas
+function MetasTabContent() {
+  const { metas, vendas, vendasMeta, calculateMetaMetrics } = useData();
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+
+  // Debug: Log dos dados disponíveis
+  // Logs removidos para melhor performance - ativar apenas se necessário para debug
+  // console.log('[DEBUG MetasTabContent] Metas:', metas);
+  // console.log('[DEBUG MetasTabContent] VendasMeta:', vendasMeta);
+  // console.log('[DEBUG MetasTabContent] SelectedMonth:', selectedMonth);
+  // console.log('[DEBUG MetasTabContent] SelectedYear:', selectedYear);
+
+  // Função auxiliar para buscar vendas da fonte correta baseada no período
+  const buscarVendasDoPeriodo = (mes: number, ano: number) => {
+    const hoje = new Date();
+    const isCurrentMonth = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
+    
+    if (isCurrentMonth) {
+      // Mês atual: buscar da aba "vendas meta"
+      return vendasMeta.filter(venda => venda.mes === mes && venda.ano === ano);
+    } else {
+      // Meses anteriores: buscar da aba "vendas permanencia"
+      return vendas.filter(venda => {
+        if (!venda.data_habilitacao) return false;
+        const dataVenda = new Date(venda.data_habilitacao);
+        return dataVenda.getMonth() + 1 === mes && dataVenda.getFullYear() === ano;
+      });
+    }
+  };
+
+  // Função auxiliar para calcular dias úteis (sem domingos) de um mês
+  const calcularDiasUteisMes = (mes: number, ano: number) => {
+    const hoje = new Date();
+    const isCurrentMonth = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
+    
+    const primeiroDiaMes = new Date(ano, mes - 1, 1);
+    const ultimoDiaMes = new Date(ano, mes, 0);
+    
+    let diasDecorridos = 0;
+    let diasRestantes = 0;
+    
+    if (isCurrentMonth) {
+      // Mês atual: calcular trabalhados até ontem e restantes de hoje em diante
+      const ontem = new Date(hoje);
+      ontem.setDate(hoje.getDate() - 1);
+      
+      // Dias trabalhados (até ontem)
+      for (let d = new Date(primeiroDiaMes); d <= ontem; d.setDate(d.getDate() + 1)) {
+        if (d.getDay() !== 0) diasDecorridos++;
+      }
+      
+      // Dias restantes (de hoje até fim do mês)
+      for (let d = new Date(hoje); d <= ultimoDiaMes; d.setDate(d.getDate() + 1)) {
+        if (d.getDay() !== 0) diasRestantes++;
+      }
+    } else {
+      // Mês passado: contar todos os dias úteis do mês
+      for (let d = new Date(primeiroDiaMes); d <= ultimoDiaMes; d.setDate(d.getDate() + 1)) {
+        if (d.getDay() !== 0) diasDecorridos++;
+      }
+      diasRestantes = 0;
+    }
+    
+    return { diasDecorridos: Math.max(1, diasDecorridos), diasRestantes: Math.max(0, diasRestantes), diasTotais: diasDecorridos + diasRestantes };
+  };
+
+  // Função para calcular tendência de meta por categorias (comparar com mês anterior)
+  const calcularTendenciaMeta = () => {
+    if (!selectedMonth || !selectedYear) return null;
+    
+    const metaAtual = calculateMetaMetrics(selectedMonth, selectedYear);
+    if (!metaAtual) return null;
+    
+    // Calcular mês anterior
+    let mesAnterior = selectedMonth - 1;
+    let anoAnterior = selectedYear;
+    if (mesAnterior === 0) {
+      mesAnterior = 12;
+      anoAnterior = selectedYear - 1;
+    }
+    
+    const metaAnterior = calculateMetaMetrics(mesAnterior, anoAnterior);
+    if (!metaAnterior) return null;
+    
+    // Agrupar produtos nas categorias específicas
+    const agrupamentos = {
+      'PAY TV': {
+        mesAtual: {
+          meta: 0,
+          vendas: 0,
+          percentual: 0
+        },
+        mesAnterior: {
+          meta: 0,
+          vendas: 0,
+          percentual: 0
+        },
+        produtos: ['PÓS-PAGO', 'FLEX/CONFORTO', 'NOVA PARABÓLICA']
+      },
+      'INTERNET/STREAMING': {
+        mesAtual: {
+          meta: 0,
+          vendas: 0,
+          percentual: 0
+        },
+        mesAnterior: {
+          meta: 0,
+          vendas: 0,
+          percentual: 0
+        },
+        produtos: ['FIBRA', 'SKY MAIS']
+      },
+      'SEGUROS': {
+        mesAtual: {
+          meta: 0,
+          vendas: 0,
+          percentual: 0
+        },
+        mesAnterior: {
+          meta: 0,
+          vendas: 0,
+          percentual: 0
+        },
+        produtos: ['SEGUROS POS', 'SEGUROS FIBRA']
+      }
+    };
+    
+    // Calcular totais por categoria para mês atual
+    Object.keys(agrupamentos).forEach(categoria => {
+      const config = agrupamentos[categoria as keyof typeof agrupamentos];
+      
+      config.produtos.forEach(produto => {
+        const categoriaAtual = metaAtual.categorias.find(c => c.categoria === produto);
+        const categoriaAnterior = metaAnterior.categorias.find(c => c.categoria === produto);
+        
+        if (categoriaAtual) {
+          config.mesAtual.meta += categoriaAtual.meta_definida;
+          config.mesAtual.vendas += categoriaAtual.vendas_realizadas;
+        }
+        
+        if (categoriaAnterior) {
+          config.mesAnterior.meta += categoriaAnterior.meta_definida;
+          config.mesAnterior.vendas += categoriaAnterior.vendas_realizadas;
+        }
+      });
+      
+      // Calcular percentuais
+      config.mesAtual.percentual = config.mesAtual.meta > 0 ? (config.mesAtual.vendas / config.mesAtual.meta) * 100 : 0;
+      config.mesAnterior.percentual = config.mesAnterior.meta > 0 ? (config.mesAnterior.vendas / config.mesAnterior.meta) * 100 : 0;
+    });
+    
+    return {
+      mesAtual: {
+        mes: selectedMonth,
+        ano: selectedYear,
+        percentual: metaAtual.percentual_geral
+      },
+      mesAnterior: {
+        mes: mesAnterior,
+        ano: anoAnterior,
+        percentual: metaAnterior.percentual_geral
+      },
+      agrupamentos,
+      diferencaGeral: metaAtual.percentual_geral - metaAnterior.percentual_geral,
+      crescimentoGeral: metaAtual.percentual_geral > metaAnterior.percentual_geral,
+      // Incluir as métricas completas para uso na renderização
+      metricasAtual: metaAtual,
+      metricasAnterior: metaAnterior
+    };
+  };
+
+  // Função para obter meses e anos disponíveis nos dados
+  const getAvailablePeriodsFromData = () => {
+    const periods = new Set<string>();
+    
+    // Logs removidos para melhor performance
+    // console.log('[DEBUG getAvailablePeriodsFromData] Iniciando...');
+    // console.log('[DEBUG getAvailablePeriodsFromData] Metas length:', metas?.length || 0);
+    // console.log('[DEBUG getAvailablePeriodsFromData] VendasMeta length:', vendasMeta?.length || 0);
+    
+    // Adicionar períodos das metas
+    if (metas && metas.length > 0) {
+      metas.forEach(meta => {
+        const period = `${meta.mes}-${meta.ano}`;
+        // console.log('[DEBUG getAvailablePeriodsFromData] Adicionando período da meta:', period);
+        periods.add(period);
+      });
+    }
+    
+    // Adicionar períodos das vendas de meta (baseado nos campos mes/ano já processados)
+    if (vendasMeta && vendasMeta.length > 0) {
+      vendasMeta.forEach(venda => {
+        const period = `${venda.mes}-${venda.ano}`;
+                  // console.log('[DEBUG getAvailablePeriodsFromData] Adicionando período da venda meta:', period);
+        periods.add(period);
+      });
+    }
+    
+    const result = Array.from(periods).map(period => {
+      const [mes, ano] = period.split('-').map(Number);
+      return { mes, ano };
+    }).sort((a, b) => a.ano - b.ano || a.mes - b.mes);
+    
+    // console.log('[DEBUG getAvailablePeriodsFromData] Períodos finais:', result);
+    return result;
+  };
+
+  const availablePeriods = getAvailablePeriodsFromData();
+  
+  // Verificar se o período selecionado tem dados disponíveis
+  const hasSelectedPeriodData = selectedMonth && selectedYear && availablePeriods.some(period => 
+    period.mes === selectedMonth && period.ano === selectedYear
+  );
+
+  // Só calcular métricas se ambos os filtros estiverem selecionados e tiverem dados
+  const metaMetrics = (selectedMonth && selectedYear && hasSelectedPeriodData) ? 
+    calculateMetaMetrics(selectedMonth, selectedYear) : null;
+  
+  // console.log('[DEBUG MetasTabContent] metaMetrics result:', metaMetrics);
+  // console.log('[DEBUG MetasTabContent] availablePeriods:', availablePeriods);
+  
+  // Função para limpar filtros
+  const clearFilters = () => {
+    setSelectedMonth(null);
+    setSelectedYear(null);
+  };
+
+  // Calcular status color
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'atingido':
+        return 'text-green-600';
+      case 'superado':
+        return 'text-blue-600';
+      case 'em_dia':
+        return 'text-yellow-600';
+      case 'atrasado':
+        return 'text-red-600';
+      default:
+        return 'text-gray-600';
+    }
+  };
+
+  // Status badge
+  const getStatusBadge = (status: string) => {
+    const baseClasses = "px-2 py-1 rounded-full text-xs font-medium";
+    switch (status) {
+      case 'atingido':
+        return `${baseClasses} bg-green-100 text-green-800`;
+      case 'superado':
+        return `${baseClasses} bg-blue-100 text-blue-800`;
+      case 'em_dia':
+        return `${baseClasses} bg-yellow-100 text-yellow-800`;
+      case 'atrasado':
+        return `${baseClasses} bg-red-100 text-red-800`;
+      default:
+        return `${baseClasses} bg-gray-100 text-gray-800`;
+    }
+  };
+
+  // Função para obter cor da barra de progresso
+  const getProgressColor = (percentual: number) => {
+    if (percentual >= 100) return 'bg-green-500';
+    if (percentual >= 80) return 'bg-blue-500';
+    if (percentual >= 60) return 'bg-yellow-500';
+    return 'bg-red-500';
+  };
+
+  return (
+    <>
+      {/* Controles de filtro */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Target className="mr-2 h-5 w-5" />
+            Acompanhamento de Metas
+          </CardTitle>
+          <CardDescription>
+            Acompanhe o desempenho das vendas em relação às metas mensais definidas
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4 items-end">
+            <div>
+              <Label htmlFor="mes-select">Mês</Label>
+              <Select
+                value={selectedMonth?.toString() || ""}
+                onValueChange={(value) => setSelectedMonth(parseInt(value))}
+              >
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="Selecione o mês" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availablePeriods.length > 0 ? (
+                    // Mostrar apenas os meses que têm dados
+                    Array.from(new Set(availablePeriods.map(p => p.mes))).sort().map(mes => (
+                      <SelectItem key={mes} value={mes.toString()}>
+                        {new Date(0, mes - 1).toLocaleDateString('pt-BR', { month: 'long' })}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-data-month" disabled>
+                      Nenhum dado disponível
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Label htmlFor="ano-select">Ano</Label>
+              <Select
+                value={selectedYear?.toString() || ""}
+                onValueChange={(value) => setSelectedYear(parseInt(value))}
+              >
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder="Ano" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availablePeriods.length > 0 ? (
+                    // Mostrar apenas os anos que têm dados
+                    Array.from(new Set(availablePeriods.map(p => p.ano))).sort().map(ano => (
+                      <SelectItem key={ano} value={ano.toString()}>
+                        {ano}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-data-year" disabled>
+                      Nenhum dado disponível
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Button
+                variant="outline"
+                onClick={clearFilters}
+                className="flex items-center gap-2"
+              >
+                <RefreshCcw className="h-4 w-4" />
+                Limpar Filtros
+              </Button>
+            </div>
+            
+            {availablePeriods.length > 0 && (
+              <div className="text-sm text-muted-foreground">
+                <p>{availablePeriods.length} período(s) com dados disponíveis</p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Conteúdo principal */}
+      {!metaMetrics ? (
+        <Card>
+          <CardContent className="py-12">
+            <div className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                <Target className="h-8 w-8 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                {availablePeriods.length === 0 ? 'Nenhum Dado Importado' : 
+                 (!selectedMonth || !selectedYear) ? 'Selecione um Período' : 
+                 'Nenhuma Meta para este Período'}
+              </h3>
+              <p className="text-sm text-gray-500 max-w-sm mx-auto">
+                {availablePeriods.length === 0 ? (
+                  <>
+                    Não foram encontrados dados de metas ou vendas de meta.
+                    <br />
+                    Importe os dados usando o tipo "Metas (3 Planilhas)" para visualizar o acompanhamento.
+                  </>
+                ) : (!selectedMonth || !selectedYear) ? (
+                  <>
+                    Selecione um mês e ano nos filtros acima para visualizar o acompanhamento de metas.
+                    <br />
+                    Períodos disponíveis: {availablePeriods.map(p => 
+                      `${new Date(0, p.mes - 1).toLocaleDateString('pt-BR', { month: 'short' })}/${p.ano}`
+                    ).join(', ')}
+                  </>
+                ) : (
+                  <>
+                    Não foram encontradas metas para {new Date(0, selectedMonth - 1).toLocaleDateString('pt-BR', { month: 'long' })} de {selectedYear}.
+                    <br />
+                    Períodos disponíveis: {availablePeriods.map(p => 
+                      `${new Date(0, p.mes - 1).toLocaleDateString('pt-BR', { month: 'short' })}/${p.ano}`
+                    ).join(', ')}
+                  </>
+                )}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-6">
+          {/* Card de Tendência de Meta - Destaque */}
+          {(() => {
+            const tendencia = calcularTendenciaMeta();
+            if (!tendencia) return null;
+            
+            return (
+              <Card className="border-2 border-dashed border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center">
+                    <TrendingUp className="mr-2 h-5 w-5 text-blue-600" />
+                    Tendência de Meta
+                  </CardTitle>
+                  <CardDescription className="text-sm">
+                    Comparação com o mês anterior
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 pt-0">
+                  
+                  {/* Tendências por Categoria - Produtos Detalhados */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                      Tendências por Categoria
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {Object.entries(tendencia.agrupamentos).map(([categoria, dados]) => {
+                        return (
+                          <div key={categoria} className="bg-white border border-gray-200 rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <h5 className="font-medium text-sm text-gray-800">{categoria}</h5>
+                              <span className="text-xs text-muted-foreground bg-gray-100 px-2 py-0.5 rounded">
+                                {dados.produtos.length}
+                              </span>
+                            </div>
+                          
+                          {/* Lista de produtos detalhados */}
+                          <div className="space-y-1.5">
+                            {dados.produtos.map(produto => {
+                              const categoriaAtual = tendencia.metricasAtual.categorias.find(c => c.categoria === produto);
+                              const categoriaAnterior = tendencia.metricasAnterior.categorias.find(c => c.categoria === produto);
+                              
+                              if (!categoriaAtual || !categoriaAnterior) return null;
+                              
+                              const diferenca = categoriaAtual.percentual_atingido - categoriaAnterior.percentual_atingido;
+                              const crescimento = diferenca > 0;
+                              const percentualCrescimento = categoriaAnterior.percentual_atingido > 0 ? 
+                                (Math.abs(diferenca) / categoriaAnterior.percentual_atingido) * 100 : 0;
+                              
+                              return (
+                                <div key={produto} className="bg-gray-50 border border-gray-100 rounded-md p-2">
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <h6 className="font-medium text-sm text-gray-700">{produto}</h6>
+                                    <span className="text-xs text-muted-foreground">
+                                      Meta: {categoriaAtual.meta_definida}
+                                    </span>
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-3 gap-2 items-center">
+                                    {/* Mês Anterior */}
+                                    <div className="text-center">
+                                      <div className="text-xs text-muted-foreground mb-0.5">
+                                        {new Date(0, tendencia.mesAnterior.mes - 1).toLocaleDateString('pt-BR', { month: 'short' })}/{tendencia.mesAnterior.ano}
+                                      </div>
+                                      <div className="text-sm font-bold text-gray-600">
+                                        {categoriaAnterior.percentual_atingido.toFixed(1)}%
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {categoriaAnterior.vendas_realizadas}/{categoriaAnterior.meta_definida}
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Indicador de Tendência */}
+                                    <div className="text-center flex flex-col items-center">
+                                      <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                        crescimento 
+                                          ? 'bg-green-100 text-green-800' 
+                                          : diferenca === 0
+                                            ? 'bg-gray-100 text-gray-800'
+                                            : 'bg-red-100 text-red-800'
+                                      }`}>
+                                        {crescimento ? (
+                                          <TrendingUp className="h-3 w-3" />
+                                        ) : diferenca === 0 ? (
+                                          <span className="h-3 w-3 text-center">—</span>
+                                        ) : (
+                                          <TrendingDown className="h-3 w-3" />
+                                        )}
+                                        {diferenca === 0 ? '0pp' : `${diferenca > 0 ? '+' : ''}${diferenca.toFixed(1)}pp`}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground mt-0.5">
+                                        {diferenca === 0 ? 'estável' : `${percentualCrescimento.toFixed(1)}% ${crescimento ? 'crescimento' : 'queda'}`}
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Mês Atual */}
+                                    <div className="text-center">
+                                      <div className="text-xs text-muted-foreground mb-0.5">
+                                        {new Date(0, tendencia.mesAtual.mes - 1).toLocaleDateString('pt-BR', { month: 'short' })}/{tendencia.mesAtual.ano}
+                                      </div>
+                                      <div className="text-sm font-bold text-blue-600">
+                                        {categoriaAtual.percentual_atingido.toFixed(1)}%
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {categoriaAtual.vendas_realizadas}/{categoriaAtual.meta_definida}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* Cards de Métricas - Grid com tamanhos diferentes */}
+          <div className="grid grid-cols-1 lg:grid-cols-6 gap-4">
+            {/* Quadro Dias Totais do Mês - Compacto */}
+            <Card className="lg:col-span-1">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-semibold">Dias Totais do Mês</CardTitle>
+              </CardHeader>
+              <CardContent className="p-2 pt-1">
+                <div className="space-y-3">
+                  {(() => {
+                    const { diasDecorridos, diasRestantes, diasTotais } = calcularDiasUteisMes(selectedMonth || 0, selectedYear || 0);
+                    
+                    return (
+                      <>
+                        <div className="flex justify-between items-center py-1">
+                          <span className="text-sm text-muted-foreground">Trabalhados</span>
+                          <span className="text-lg font-bold text-blue-600">{diasDecorridos}</span>
+                        </div>
+                        <div className="flex justify-between items-center py-1">
+                          <span className="text-sm text-muted-foreground">Restantes</span>
+                          <span className="text-lg font-bold text-orange-600">{diasRestantes}</span>
+                        </div>
+                        <div className="flex justify-between items-center py-1">
+                          <span className="text-sm text-muted-foreground">Totais</span>
+                          <span className="text-lg font-bold text-gray-700">{diasTotais}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Total de Vendas por Forma de Pagamento */}
+            <Card className="lg:col-span-1">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-semibold">Total de Vendas por Forma de Pagamento</CardTitle>
+              </CardHeader>
+              <CardContent className="p-2 pt-1">
+                {(() => {
+                  // Filtrar vendas do período selecionado
+                  const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
+                  
+                                     // Mapear e agrupar formas de pagamento
+                   const formasPagamento = vendasDoPeriodo.reduce((acc, venda) => {
+                     const forma = ('forma_pagamento' in venda ? venda.forma_pagamento : '') || 'Não informado';
+                    
+                    // Normalizar formas de pagamento similares
+                    let formaNormalizada = forma.toUpperCase();
+                    
+                    if (formaNormalizada.includes('CARTÃO DE CRÉDITO') || formaNormalizada.includes('CARTAO DE CREDITO')) {
+                      formaNormalizada = 'CARTÃO DE CRÉDITO';
+                    } else if (formaNormalizada.includes('DIGITAL') || formaNormalizada.includes('PIX') || formaNormalizada.includes('PEC') || formaNormalizada.includes('LINHA DIGITÁVEL')) {
+                      formaNormalizada = 'DIGITAL/PIX/PEC';
+                    } else if (formaNormalizada.includes('DÉBITO') || formaNormalizada.includes('DEBITO')) {
+                      formaNormalizada = 'DÉBITO AUTOMÁTICO';
+                    } else if (formaNormalizada.includes('BOLETO')) {
+                      formaNormalizada = 'BOLETO';
+                    } else if (formaNormalizada.includes('NÃO HÁ COBRANÇA') || formaNormalizada.includes('NAO HA COBRANCA') || formaNormalizada.includes('SEM COBRANÇA')) {
+                      formaNormalizada = 'SEM COBRANÇA';
+                    } else if (formaNormalizada.includes('DINHEIRO') || formaNormalizada.includes('ESPÉCIE')) {
+                      formaNormalizada = 'DINHEIRO';
+                    } else if (formaNormalizada === 'NÃO INFORMADO' || formaNormalizada === '' || formaNormalizada === 'NULL') {
+                      formaNormalizada = 'NÃO INFORMADO';
+                    }
+                    
+                    acc[formaNormalizada] = (acc[formaNormalizada] || 0) + 1;
+                    return acc;
+                  }, {} as Record<string, number>);
+                  
+                  const totalVendas = vendasDoPeriodo.length;
+                  
+                  // Ordenar por quantidade (decrescente) e pegar top 5
+                  const formasOrdenadas = Object.entries(formasPagamento)
+                    .sort(([,a], [,b]) => b - a)
+                    .slice(0, 5);
+                  
+                  return (
+                    <div className="space-y-1">
+                      {formasOrdenadas.map(([forma, quantidade]) => {
+                        const percentual = totalVendas > 0 ? (quantidade / totalVendas) * 100 : 0;
+                        
+                        // Truncar nome da forma se muito longo
+                        const formaExibicao = forma.length > 18 ? 
+                          forma.substring(0, 15) + '...' : forma;
+                        
+                        return (
+                          <div key={forma} className="flex justify-between items-center py-0.5">
+                            <span className="text-xs text-muted-foreground" title={forma}>
+                              {formaExibicao}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className="font-semibold text-xs">
+                                {quantidade}
+                              </span>
+                              <span className="text-xs text-blue-600 font-medium">
+                                ({percentual.toFixed(1)}%)
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      
+                      {totalVendas > 0 && (
+                        <div className="border-t pt-1 mt-1">
+                          <div className="flex justify-between items-center py-0.5">
+                            <span className="text-xs font-bold">TOTAL</span>
+                            <span className="text-xs font-bold text-purple-600">
+                              {totalVendas} (100%)
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+
+            {/* Valor dos Produtos (Pacotes Face) */}
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Valor dos Produtos (Pacotes Face)</CardTitle>
+              </CardHeader>
+              <CardContent className="p-3 pt-1">
+                {(() => {
+                  // Filtrar vendas do período selecionado
+                  const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
+                  
+                  // Mapear categorias
+                  const mapearCategoria = (categoria: string): string => {
+                    if (categoria.includes('PÓS-PAGO') || categoria.includes('POS')) return 'POS';
+                    if (categoria.includes('PRÉ-PAGO') || categoria.includes('PRE')) return 'PRE';
+                    if (categoria.includes('NOVA PARABÓLICA') || categoria.includes('NP')) return 'NP';
+                    if (categoria.includes('FIBRA') || categoria.includes('BL-DGO')) return 'FIBRA';
+                    if (categoria.includes('SKY MAIS') || categoria.includes('DGO')) return 'SKY+';
+                    return 'OUTROS';
+                  };
+                  
+                                     // Agrupar valores por produto
+                   const valoresPorProduto = vendasDoPeriodo.reduce((acc, venda) => {
+                     const categoria = ('categoria' in venda ? venda.categoria : venda.agrupamento_produto) || '';
+                     const produto = mapearCategoria(categoria);
+                     // Para vendas de meta, não há campo "valor" direto, então assumir valor 0
+                     const valor = ('valor' in venda ? (venda as Venda).valor : 0) || 0;
+                     acc[produto] = (acc[produto] || 0) + valor;
+                     return acc;
+                   }, {} as Record<string, number>);
+                  
+                  // Calcular total
+                  const valorTotal = Object.values(valoresPorProduto).reduce((sum, valor) => sum + valor, 0);
+                  
+                  // Produtos ordenados
+                  const produtosOrdenados = ['POS', 'PRE', 'NP', 'FIBRA', 'SKY+'];
+                  
+                  return (
+                    <div className="space-y-1">
+                      {produtosOrdenados.map(produto => {
+                        const valor = valoresPorProduto[produto] || 0;
+                        return (
+                          <div key={produto} className="flex justify-between items-center py-0.5">
+                            <span className="text-sm text-muted-foreground">{produto}</span>
+                            <span className="font-semibold text-sm">
+                              {valor > 0 ? 
+                                valor.toLocaleString('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL',
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2
+                                }).replace('R$', 'R$').replace(/\s/g, '') : 'R$0,00'
+                              }
+                            </span>
+                          </div>
+                        );
+                      })}
+                      <div className="border-t pt-1 mt-1">
+                        <div className="flex justify-between items-center py-0.5">
+                          <span className="text-sm font-bold">TOTAL</span>
+                          <span className="text-sm font-bold text-purple-600">
+                            {valorTotal.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2
+                            }).replace('R$', 'R$').replace(/\s/g, '')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+
+            {/* Quantidade de Produtos Principais */}
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Quantidade de Produtos Principais</CardTitle>
+              </CardHeader>
+              <CardContent className="p-3 pt-1">
+                {(() => {
+                  // Filtrar vendas do período selecionado
+                  const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
+                  
+                                     // Contar produtos principais
+                   const produtosPorTipo = vendasDoPeriodo.reduce((acc, venda) => {
+                     const produto = ('produto' in venda ? venda.produto : venda.produto_principal) || '';
+                     acc[produto] = (acc[produto] || 0) + 1;
+                     return acc;
+                   }, {} as Record<string, number>);
+                  
+                  // Ordenar por quantidade (decrescente)
+                  const produtosOrdenados = Object.entries(produtosPorTipo)
+                    .sort(([,a], [,b]) => b - a)
+                    .slice(0, 8); // Mostrar top 8
+                  
+                  // Calcular total
+                  const totalQuantidade = Object.values(produtosPorTipo).reduce((sum, qtd) => sum + qtd, 0);
+                  
+                  return (
+                    <div className="space-y-1">
+                      {produtosOrdenados.map(([produto, quantidade]) => {
+                        // Converter para caixa alta e truncar nome do produto se muito longo
+                        const produtoUpperCase = (produto || '').toUpperCase();
+                        const produtoExibicao = produtoUpperCase.length > 35 ? 
+                          produtoUpperCase.substring(0, 32) + '...' : produtoUpperCase;
+                        
+                        return (
+                          <div key={produto} className="flex justify-between items-center py-0.5">
+                            <span className="text-xs text-muted-foreground" title={produtoUpperCase}>
+                              {produtoExibicao || 'NÃO INFORMADO'}
+                            </span>
+                            <span className="font-semibold text-xs">
+                              {quantidade}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      <div className="border-t pt-1 mt-1">
+                        <div className="flex justify-between items-center py-0.5">
+                          <span className="text-xs font-bold">TOTAL</span>
+                          <span className="text-xs font-bold text-purple-600">
+                            {totalQuantidade}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Vendas por Cidade - Segunda linha */}
+          <div className="grid grid-cols-1">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center">
+                  <MapPin className="mr-2 h-4 w-4" />
+                  Vendas por Cidade
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Top cidades por volume de vendas
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-4 pt-0">
+                <div className="space-y-2">
+                  {(() => {
+                     // Filtrar vendas do período selecionado
+                     const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
+                     
+                     interface VendaPorCidade {
+                       total: number;
+                       pos_pago: number;
+                       flex_conforto: number;
+                       nova_parabolica: number;
+                       fibra: number;
+                       sky_mais: number;
+                     }
+                     
+                     interface VendaMetaComCidade extends VendaMeta {
+                       cidade?: string;
+                     }
+                     
+                     const vendasPorCidade: Record<string, VendaPorCidade> = {};
+                     
+                     vendasDoPeriodo.forEach(venda => {
+                       // Usar o campo cidade da venda
+                       const cidade = ('cidade' in venda ? venda.cidade : venda.cidade) || 'Não informado';
+                       
+                       if (!vendasPorCidade[cidade]) {
+                         vendasPorCidade[cidade] = { 
+                           total: 0, 
+                           pos_pago: 0, 
+                           flex_conforto: 0, 
+                           nova_parabolica: 0, 
+                           fibra: 0, 
+                           sky_mais: 0 
+                         };
+                       }
+                       vendasPorCidade[cidade].total++;
+                       
+                       // Categorizar por tipo específico baseado no Agrupamento do Produto
+                       const agrupamento = (('categoria' in venda ? venda.categoria : venda.agrupamento_produto) || '').toUpperCase().trim();
+                       
+                       // Usar a mesma lógica de mapeamento do quadro de valores
+                       if (agrupamento.includes('PÓS-PAGO') || agrupamento.includes('POS')) {
+                         vendasPorCidade[cidade].pos_pago++;
+                       } else if (agrupamento.includes('PRÉ-PAGO') || agrupamento.includes('PRE')) {
+                         vendasPorCidade[cidade].flex_conforto++;
+                       } else if (agrupamento.includes('NOVA PARABÓLICA') || agrupamento.includes('NP')) {
+                         vendasPorCidade[cidade].nova_parabolica++;
+                       } else if (agrupamento.includes('FIBRA') || agrupamento.includes('BL-DGO')) {
+                         vendasPorCidade[cidade].fibra++;
+                       } else if (agrupamento.includes('SKY MAIS') || agrupamento.includes('DGO')) {
+                         vendasPorCidade[cidade].sky_mais++;
+                       }
+                     });
+
+                     // Converter para array e ordenar
+                     const cidadesArray = Object.entries(vendasPorCidade)
+                       .map(([cidade, dados]) => ({
+                         cidade,
+                         total: dados.total,
+                         pos_pago: dados.pos_pago,
+                         flex_conforto: dados.flex_conforto,
+                         nova_parabolica: dados.nova_parabolica,
+                         fibra: dados.fibra,
+                         sky_mais: dados.sky_mais,
+                         percentual: (dados.total / calculateMetaMetrics(selectedMonth || 0, selectedYear || 0)?.total_vendas || 0) * 100
+                       }))
+                       .sort((a, b) => b.total - a.total)
+                       .slice(0, 10); // Top 10
+
+                     return cidadesArray.length > 0 ? (
+                       <div className="space-y-2">
+                         {/* Cabeçalho */}
+                         <div className="grid grid-cols-9 gap-1 text-sm font-semibold border-b-2 border-slate-200 pb-2 bg-slate-50 px-2 py-1 rounded-t-md">
+                           <div className="col-span-2">Cidade</div>
+                           <div className="text-center">Total</div>
+                           <div className="text-center">POS</div>
+                           <div className="text-center">PRE</div>
+                           <div className="text-center">NP</div>
+                           <div className="text-center">FIBRA</div>
+                           <div className="text-center">SKY+</div>
+                           <div className="text-center">%</div>
+                         </div>
+                         
+                         {/* Dados */}
+                         {cidadesArray.map((item, index) => (
+                           <div key={index} className={`grid grid-cols-9 gap-1 text-sm py-2 px-2 rounded-md transition-colors hover:bg-slate-100 ${
+                             index % 2 === 0 ? 'bg-white' : 'bg-slate-25'
+                           } border-b border-slate-100`}>
+                             <div className="col-span-2 truncate font-medium" title={item.cidade}>
+                               {item.cidade.toUpperCase()}
+                             </div>
+                             <div className="text-center font-semibold text-slate-800">
+                               {item.total}
+                             </div>
+                             <div className="text-center text-blue-600">
+                               {item.pos_pago}
+                             </div>
+                             <div className="text-center text-purple-600">
+                               {item.flex_conforto}
+                             </div>
+                             <div className="text-center text-orange-600">
+                               {item.nova_parabolica}
+                             </div>
+                             <div className="text-center text-green-600">
+                               {item.fibra}
+                             </div>
+                             <div className="text-center text-cyan-600">
+                               {item.sky_mais}
+                             </div>
+                             <div className="text-center text-blue-700 font-semibold">
+                               {item.percentual.toFixed(1)}%
+                             </div>
+                           </div>
+                         ))}
+                       </div>
+                     ) : (
+                       <div className="text-center text-sm text-muted-foreground py-8 bg-slate-50 rounded-md">
+                         Nenhum dado de cidade disponível
+                       </div>
+                     );
+                   })()}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Detalhamento por Categoria */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Desempenho por Categoria</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-8">
+                {(() => {
+                  // Organizar categorias por grupos
+                  const categoriasPorGrupo = {
+                    payTV: metaMetrics.categorias.filter(c => 
+                      ['PÓS-PAGO', 'FLEX/CONFORTO', 'NOVA PARABÓLICA'].includes(c.categoria)
+                    ),
+                    internetStreaming: metaMetrics.categorias.filter(c => 
+                      ['FIBRA', 'SKY+', 'SKY MAIS'].includes(c.categoria)
+                    ),
+                    seguros: metaMetrics.categorias.filter(c => 
+                      ['SEGUROS POS', 'SEGUROS FIBRA'].includes(c.categoria)
+                    )
+                  };
+
+                  // Calcular totais por grupo
+                  const calcularTotalGrupo = (categorias: typeof metaMetrics.categorias) => {
+                    const totalMeta = categorias.reduce((sum, cat) => sum + cat.meta_definida, 0);
+                    const totalVendas = categorias.reduce((sum, cat) => sum + cat.vendas_realizadas, 0);
+                    const percentual = totalMeta > 0 ? (totalVendas / totalMeta) * 100 : 0;
+                    return { totalMeta, totalVendas, percentual };
+                  };
+
+                  // Função global para calcular dias úteis (reutilizada em todos os lugares)
+                  const calcularDiasUteisGlobal = (dataInicio: Date, dataFim: Date): number => {
+                    let diasUteis = 0;
+                    const dataAtual = new Date(dataInicio);
+                    
+                    // Normalizar as datas para evitar problemas de timezone
+                    dataAtual.setHours(0, 0, 0, 0);
+                    const dataFimNormalizada = new Date(dataFim);
+                    dataFimNormalizada.setHours(23, 59, 59, 999);
+                    
+                    while (dataAtual <= dataFimNormalizada) {
+                      if (dataAtual.getDay() !== 0) { // Não é domingo
+                        diasUteis++;
+                      }
+                      dataAtual.setDate(dataAtual.getDate() + 1);
+                    }
+                    
+                    return diasUteis;
+                  };
+
+                  const renderCategoria = (categoria: typeof metaMetrics.categorias[0], isSubcategory = false) => {
+                    const saldo = categoria.vendas_realizadas - categoria.meta_definida;
+                    const saldoPositivo = saldo >= 0;
+                    
+                    // Usar a função global para calcular dias úteis
+                    const calcularDiasUteis = calcularDiasUteisGlobal;
+                    
+                    // Cálculos para as novas colunas (excluindo domingos)
+                    const hoje = new Date();
+                    const primeiroDiaMes = new Date(metaMetrics.ano, metaMetrics.mes - 1, 1);
+                    const ultimoDiaMes = new Date(metaMetrics.ano, metaMetrics.mes, 0);
+                    
+                    // Dias úteis trabalhados (do primeiro dia do mês até ontem)
+                    const ontem = new Date(hoje);
+                    ontem.setDate(hoje.getDate() - 1);
+                    const diasUteisDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, ontem));
+                    
+                    // Dias úteis restantes (de hoje até o final do mês)
+                    const diasUteisRestantes = Math.max(1, calcularDiasUteis(hoje, ultimoDiaMes));
+                    
+                    // Total de dias úteis no mês
+                    const totalDiasUteisMes = calcularDiasUteis(primeiroDiaMes, ultimoDiaMes);
+                    
+                    // Projeção baseada no realizado vs dias úteis
+                    const mediaDiariaAtual = categoria.vendas_realizadas / diasUteisDecorridos;
+                    const projecaoFinal = mediaDiariaAtual * totalDiasUteisMes;
+                    
+                    // Média de vendas por dia útil (baseada nas vendas realizadas e dias úteis trabalhados)
+                    const mediaDiaria = mediaDiariaAtual;
+                    
+                    // Média de vendas por dia útil para atingir a meta (baseada no que falta e dias úteis restantes)
+                    const saldoRestante = Math.max(0, categoria.meta_definida - categoria.vendas_realizadas);
+                    const metaDiariaParaMeta = saldoRestante / diasUteisRestantes;
+                    
+                    // Determinar cor da Meta/Dia (verde se já atingiu meta, vermelho se está fora)
+                    const corMetaDiaria = categoria.percentual_atingido >= 100 
+                      ? 'text-green-600' 
+                      : projecaoFinal >= categoria.meta_definida 
+                        ? 'text-green-600' 
+                        : 'text-red-600';
+                    
+                    // Calcular o "Ideal": meta / dias totais * dias trabalhados (até ontem)
+                    const ideal = (categoria.meta_definida / totalDiasUteisMes) * diasUteisDecorridos;
+                    
+                    // Determinar cor do Ideal baseado na comparação com Realizado
+                    let corIdeal = 'text-gray-600'; // padrão
+                    if (ideal > categoria.vendas_realizadas) {
+                      corIdeal = 'text-red-600'; // Ideal maior que realizado = vermelho
+                    } else if (ideal === categoria.vendas_realizadas) {
+                      corIdeal = 'text-yellow-600'; // Ideal igual ao realizado = amarelo
+                    } else {
+                      corIdeal = 'text-green-600'; // Ideal menor que realizado = verde
+                    }
+
+                    return (
+                      <div className={`grid grid-cols-9 gap-3 py-3 px-3 rounded-lg ${isSubcategory ? 'bg-gray-50/80 ml-4 border-l-4 border-blue-200' : 'bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow'}`}>
+                        <div className="flex items-center text-left">
+                          <span className={`font-medium ${isSubcategory ? 'text-xs text-gray-700' : 'text-sm'}`}>
+                            {categoria.categoria}
+                          </span>
+                        </div>
+                        
+                        <div className="text-center">
+                          <p className="font-semibold text-blue-600 text-sm">
+                            {categoria.meta_definida.toLocaleString('pt-BR')}
+                          </p>
+                        </div>
+                        
+                        <div className="text-center">
+                          <p className="font-semibold text-green-600 text-sm">
+                            {categoria.vendas_realizadas.toLocaleString('pt-BR')}
+                          </p>
+                        </div>
+                        
+                        <div className="text-center">
+                          <p className={`font-semibold text-sm ${saldoPositivo ? 'text-green-600' : 'text-red-600'}`}>
+                            {saldoPositivo ? '+' : ''}{Math.abs(saldo).toLocaleString('pt-BR')}
+                          </p>
+                        </div>
+                        
+                        <div className="text-center">
+                          <span className={`text-sm font-bold px-2 py-1 rounded ${
+                            categoria.percentual_atingido >= 100 
+                              ? 'bg-green-100 text-green-800' 
+                              : categoria.percentual_atingido >= 80 
+                              ? 'bg-yellow-100 text-yellow-800' 
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            {categoria.percentual_atingido.toFixed(1)}%
+                          </span>
+                        </div>
+                        
+                        <div className="text-center">
+                          <p className="font-semibold text-purple-600 text-sm">
+                            {projecaoFinal.toFixed(0)}
+                          </p>
+                        </div>
+                        
+                        <div className="text-center">
+                          <p className={`font-semibold text-sm ${corIdeal}`}>
+                            {ideal.toFixed(0)}
+                          </p>
+                        </div>
+                        
+                        <div className="text-center">
+                          <p className="font-semibold text-blue-600 text-sm">
+                            {mediaDiaria.toFixed(1)}
+                          </p>
+                        </div>
+                        
+                        <div className="text-center">
+                          <p className={`font-semibold text-sm ${corMetaDiaria}`}>
+                            {metaDiariaParaMeta.toFixed(1)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  const renderGrupo = (titulo: string, categorias: typeof metaMetrics.categorias, cor: string) => {
+                    if (categorias.length === 0) return null;
+                    
+                    const total = calcularTotalGrupo(categorias);
+                    const saldoTotal = total.totalVendas - total.totalMeta;
+                    const saldoPositivo = saldoTotal >= 0;
+
+                                          return (
+                      <div className="space-y-3">
+                        {/* Cabeçalho do Grupo */}
+                        <div className={`${cor} py-3 px-3 rounded-lg shadow-lg`}>
+                          <div className="grid grid-cols-9 gap-3">
+                            <div className="flex items-center text-left">
+                              <h3 className="font-bold text-white text-lg">{titulo}</h3>
+                            </div>
+                            <div className="flex items-center justify-center text-center">
+                              <p className="font-bold text-white text-base">
+                                {total.totalMeta.toLocaleString('pt-BR')}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-center text-center">
+                              <p className="font-bold text-white text-base">
+                                {total.totalVendas.toLocaleString('pt-BR')}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-center text-center">
+                              <p className="font-bold text-white text-base">
+                                {saldoPositivo ? '+' : ''}{Math.abs(saldoTotal).toLocaleString('pt-BR')}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-center text-center">
+                              <p className="font-bold text-white text-base">
+                                {total.percentual.toFixed(1)}%
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-center text-center">
+                              <p className="font-bold text-white text-base">
+                                {(() => {
+                                  // Função para calcular dias úteis (excluindo domingos)
+                                  const calcularDiasUteis = (dataInicio: Date, dataFim: Date): number => {
+                                    let diasUteis = 0;
+                                    const dataAtual = new Date(dataInicio);
+                                    
+                                    while (dataAtual <= dataFim) {
+                                      if (dataAtual.getDay() !== 0) { // Não é domingo
+                                        diasUteis++;
+                                      }
+                                      dataAtual.setDate(dataAtual.getDate() + 1);
+                                    }
+                                    
+                                    return diasUteis;
+                                  };
+                                  
+                                  const hoje = new Date();
+                                  const primeiroDiaMes = new Date(metaMetrics.ano, metaMetrics.mes - 1, 1);
+                                  const ultimoDiaMes = new Date(metaMetrics.ano, metaMetrics.mes, 0);
+                                  const ontem = new Date(hoje);
+                                  ontem.setDate(hoje.getDate() - 1);
+                                  
+                                  const diasUteisDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, ontem));
+                                  const totalDiasUteisMes = calcularDiasUteis(primeiroDiaMes, ultimoDiaMes);
+                                  const mediaDiaria = total.totalVendas / diasUteisDecorridos;
+                                  const projecao = mediaDiaria * totalDiasUteisMes;
+                                  return projecao.toFixed(0);
+                                })()}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-center text-center">
+                              <p className="font-bold text-white text-base">
+                                {(() => {
+                                  // Calcular o "Ideal" para o grupo: meta total / dias totais * dias trabalhados
+                                  const calcularDiasUteis = (dataInicio: Date, dataFim: Date): number => {
+                                    let diasUteis = 0;
+                                    const dataAtual = new Date(dataInicio);
+                                    
+                                    while (dataAtual <= dataFim) {
+                                      if (dataAtual.getDay() !== 0) { // Não é domingo
+                                        diasUteis++;
+                                      }
+                                      dataAtual.setDate(dataAtual.getDate() + 1);
+                                    }
+                                    
+                                    return diasUteis;
+                                  };
+                                  
+                                  const hoje = new Date();
+                                  const primeiroDiaMes = new Date(metaMetrics.ano, metaMetrics.mes - 1, 1);
+                                  const ultimoDiaMes = new Date(metaMetrics.ano, metaMetrics.mes, 0);
+                                  const ontem = new Date(hoje);
+                                  ontem.setDate(hoje.getDate() - 1);
+                                  
+                                  const diasUteisDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, ontem));
+                                  const totalDiasUteisMes = calcularDiasUteis(primeiroDiaMes, ultimoDiaMes);
+                                  const ideal = (total.totalMeta / totalDiasUteisMes) * diasUteisDecorridos;
+                                  return ideal.toFixed(0);
+                                })()}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-center text-center">
+                              <p className="font-bold text-white text-base">
+                                {(() => {
+                                  // Função para calcular dias úteis (excluindo domingos)
+                                  const calcularDiasUteis = (dataInicio: Date, dataFim: Date): number => {
+                                    let diasUteis = 0;
+                                    const dataAtual = new Date(dataInicio);
+                                    
+                                    while (dataAtual <= dataFim) {
+                                      if (dataAtual.getDay() !== 0) { // Não é domingo
+                                        diasUteis++;
+                                      }
+                                      dataAtual.setDate(dataAtual.getDate() + 1);
+                                    }
+                                    
+                                    return diasUteis;
+                                  };
+                                  
+                                  const hoje = new Date();
+                                  const primeiroDiaMes = new Date(metaMetrics.ano, metaMetrics.mes - 1, 1);
+                                  const ontem = new Date(hoje);
+                                  ontem.setDate(hoje.getDate() - 1);
+                                  
+                                  const diasUteisDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, ontem));
+                                  const mediaDiaria = total.totalVendas / diasUteisDecorridos;
+                                  return mediaDiaria.toFixed(1);
+                                })()}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-center text-center">
+                              <p className="font-bold text-white text-base">
+                                {(() => {
+                                  // Função para calcular dias úteis (excluindo domingos)
+                                  const calcularDiasUteis = (dataInicio: Date, dataFim: Date): number => {
+                                    let diasUteis = 0;
+                                    const dataAtual = new Date(dataInicio);
+                                    
+                                    while (dataAtual <= dataFim) {
+                                      if (dataAtual.getDay() !== 0) { // Não é domingo
+                                        diasUteis++;
+                                      }
+                                      dataAtual.setDate(dataAtual.getDate() + 1);
+                                    }
+                                    
+                                    return diasUteis;
+                                  };
+                                  
+                                  const hoje = new Date();
+                                  const ultimoDiaMes = new Date(metaMetrics.ano, metaMetrics.mes, 0);
+                                  const diasUteisRestantes = Math.max(1, calcularDiasUteis(hoje, ultimoDiaMes));
+                                  const saldoRestante = Math.max(0, total.totalMeta - total.totalVendas);
+                                  const metaDiaria = saldoRestante / diasUteisRestantes;
+                                  return metaDiaria.toFixed(1);
+                                })()}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Subcategorias */}
+                        <div className="space-y-1">
+                          {categorias.map((categoria, index) => (
+                            <div key={index}>
+                              {renderCategoria(categoria, true)}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <>
+                      {/* Cabeçalho da Tabela */}
+                      <div className="grid grid-cols-9 gap-3 py-4 px-3 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-200 font-bold text-sm text-gray-800 shadow-sm">
+                        <div className="text-left">Categoria</div>
+                        <div className="text-center">Meta</div>
+                        <div className="text-center">Realizado</div>
+                        <div className="text-center">Saldo</div>
+                        <div className="text-center">%</div>
+                        <div className="text-center">Projeção</div>
+                        <div className="text-center">Ideal</div>
+                        <div className="text-center">Média/Dia</div>
+                        <div className="text-center">Meta/Dia</div>
+                      </div>
+
+                      {/* Grupos */}
+                      {renderGrupo("PAY TV", categoriasPorGrupo.payTV, "bg-gradient-to-r from-blue-600 to-blue-700")}
+                      {renderGrupo("INTERNET/STREAMING", categoriasPorGrupo.internetStreaming, "bg-gradient-to-r from-blue-600 to-blue-700")}
+                      {renderGrupo("SEGUROS", categoriasPorGrupo.seguros, "bg-gradient-to-r from-blue-600 to-blue-700")}
+                    </>
+                  );
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </>
+  );
+}
 
 export function MetricsOverview() {
   const data = useData();
-  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs, vendas } = data;
+  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs, vendas, baseData } = data;
   const { user } = useAuth();
   const { getSetting, updateSetting } = useSystemSettings();
+
+  // Suprimir warnings globais do Recharts sobre ResponsiveContainer
+  useEffect(() => {
+    const originalWarn = console.warn;
+    console.warn = (...args) => {
+      const message = args[0];
+      if (typeof message === 'string' && 
+          message.includes('The width') && 
+          message.includes('and height') && 
+          message.includes('are both fixed numbers') &&
+          message.includes("maybe you don't need to use a ResponsiveContainer")) {
+        return; // Suprimir este warning
+      }
+      originalWarn.apply(console, args);
+    };
+    
+    return () => {
+      console.warn = originalWarn;
+    };
+  }, []);
   
   // Estado para controlar qual aba está ativa
   const [activeTab, setActiveTab] = useState("time");
@@ -141,6 +1454,13 @@ export function MetricsOverview() {
     // Reset do filtro ao mudar de guia
     setOriginalServiceTypeFilter("");
   }, [activeTab]);
+  
+  // Hook para calcular métricas BASE
+  const baseMetrics = useBaseMetrics({
+    baseData,
+    selectedMonth: selectedMonth ? parseInt(selectedMonth) : undefined,
+    selectedYear: selectedYear ? parseInt(selectedYear) : undefined
+  });
   
   // Função para determinar a cor do alerta baseado na taxa de reabertura
   const getReopeningAlertColor = (rate: number) => {
@@ -230,10 +1550,10 @@ export function MetricsOverview() {
             // Verificar se a data de finalização está no mês/ano selecionado
             includeByFinalization = (orderMonth === selectedMonth && orderYear === selectedYear);
             
-            if (includeByFinalization) {
-              console.log(`✅ OS incluída por FINALIZAÇÃO: ${order.codigo_os}, Data finalizacao: ${order.data_finalizacao}, 
-                Mês/Ano: ${orderMonth}/${orderYear}, Filtro: ${selectedMonth}/${selectedYear}`);
-            }
+            // Log removido para melhor performance - executava a cada filtro
+            // if (includeByFinalization) {
+            //   console.log(`✅ OS incluída por FINALIZAÇÃO: ${order.codigo_os}, Data finalizacao: ${order.data_finalizacao}, Mês/Ano: ${orderMonth}/${orderYear}, Filtro: ${selectedMonth}/${selectedYear}`);
+            // }
           }
         } catch (error) {
           console.error(`Erro ao processar data de finalização: ${order.data_finalizacao}`, error);
@@ -276,10 +1596,10 @@ export function MetricsOverview() {
             // Verificar se a data de criação está no mês/ano selecionado
             includeByCreation = (orderMonth === selectedMonth && orderYear === selectedYear);
             
-            if (includeByCreation) {
-              console.log(`✅ OS incluída por CRIAÇÃO: ${order.codigo_os}, Data criação: ${order.data_criacao}, 
-                Mês/Ano: ${orderMonth}/${orderYear}, Filtro: ${selectedMonth}/${selectedYear}`);
-            }
+            // Log removido para melhor performance - executava a cada filtro
+            // if (includeByCreation) {
+            //   console.log(`✅ OS incluída por CRIAÇÃO: ${order.codigo_os}, Data criação: ${order.data_criacao}, Mês/Ano: ${orderMonth}/${orderYear}, Filtro: ${selectedMonth}/${selectedYear}`);
+            // }
           }
         } catch (error) {
           console.error(`Erro ao processar data de criação: ${order.data_criacao}`, error);
@@ -289,9 +1609,10 @@ export function MetricsOverview() {
       // Incluir a OS se ela satisfizer qualquer um dos critérios (criação OU finalização no mês)
       const shouldInclude = includeByFinalization || includeByCreation;
       
-      if (!shouldInclude) {
-        console.log(`❌ OS excluída: ${order.codigo_os}`);
-      }
+      // Log removido para melhor performance - executava a cada filtro
+      // if (!shouldInclude) {
+      //   console.log(`❌ OS excluída: ${order.codigo_os}`);
+      // }
       
       return shouldInclude;
     });
@@ -350,18 +1671,12 @@ export function MetricsOverview() {
         const reopeningMonth = month.toString().padStart(2, '0');
         const reopeningYear = year.toString();
         
-        // Para depuração
-        if (reopeningMonth === selectedMonth && reopeningYear === selectedYear) {
-          console.log(`✅ Reabertura incluída: ${pair.reopeningOrder.codigo_os}, 
-            Data criação: ${reopeningDateStr}, 
-            Mês/Ano identificado: ${reopeningMonth}/${reopeningYear}, 
-            Filtro selecionado: ${selectedMonth}/${selectedYear}`);
-        } else {
-          console.log(`❌ Reabertura excluída: ${pair.reopeningOrder.codigo_os}, 
-            Data criação: ${reopeningDateStr}, 
-            Mês/Ano identificado: ${reopeningMonth}/${reopeningYear}, 
-            Filtro selecionado: ${selectedMonth}/${selectedYear}`);
-        }
+        // Logs removidos para melhor performance - executavam a cada filtro
+        // if (reopeningMonth === selectedMonth && reopeningYear === selectedYear) {
+        //   console.log(`✅ Reabertura incluída: ${pair.reopeningOrder.codigo_os}, Data criação: ${reopeningDateStr}, Mês/Ano identificado: ${reopeningMonth}/${reopeningYear}, Filtro selecionado: ${selectedMonth}/${selectedYear}`);
+        // } else {
+        //   console.log(`❌ Reabertura excluída: ${pair.reopeningOrder.codigo_os}, Data criação: ${reopeningDateStr}, Mês/Ano identificado: ${reopeningMonth}/${reopeningYear}, Filtro selecionado: ${selectedMonth}/${selectedYear}`);
+        // }
         
         // Filtrar por mês/ano e pelo tipo de serviço original, se selecionado
         const matchesDateFilter = reopeningMonth === selectedMonth && reopeningYear === selectedYear;
@@ -603,22 +1918,21 @@ export function MetricsOverview() {
       const servicesAbove = Math.abs(servicesNeeded);
       return (
         <span className="text-green-600 font-medium">
-          ✓ Meta - +{servicesAbove} acima.
+          +{servicesAbove} acima
         </span>
       );
     } else if (servicesNeeded === 0) {
       // Exatamente no limite da meta
       return (
         <span className="text-green-600 font-medium">
-          ✓ Meta - limite
+          limite
         </span>
       );
     } else {
       // Fora da meta - precisa de mais serviços
       return (
-        <span>
-          <span className="text-red-600 font-medium">❌ Meta</span>
-          <span className="text-blue-600 font-medium"> - +{servicesNeeded} serviços</span>
+        <span className="text-red-600 font-medium">
+          +{servicesNeeded} serviços
         </span>
       );
     }
@@ -671,7 +1985,7 @@ export function MetricsOverview() {
     
     // Se estamos fora da meta, calcular quantos serviços precisamos para baixar o percentual
     // Queremos que o percentual fique ligeiramente abaixo da meta
-    const desiredRate = targetRate - 0.1; // Margem de segurança de 0.1%
+    const desiredRate = targetRate - 0.04; // Margem de segurança de 0.04%
     
     // Fórmula: novoTotal = reaberturas ÷ (desiredRate ÷ 100)
     const targetTotal = currentReopenings / (desiredRate / 100);
@@ -952,27 +2266,17 @@ export function MetricsOverview() {
     setShowData(false);
     setIsFiltering(false);
     
-    // Com um pequeno delay, limpar os filtros para garantir uma experiência consistente
-    setTimeout(() => {
-      setSelectedMonth(null);
-      setSelectedYear(null);
-    }, 150);
+    // Limpar os filtros imediatamente ao trocar de aba
+    setSelectedMonth(null);
+    setSelectedYear(null);
   }, [activeTab]);
   
   // Verificar se podemos exibir os dados quando os filtros são alterados
   useEffect(() => {
-    // Quando o mês ou ano mudam, devemos limpar e reaplicar os filtros
-    // Isso evita que ordens de diferentes meses apareçam juntas
+    // Quando o mês ou ano mudam, aplicar filtros imediatamente
     if (selectedMonth && selectedYear) {
-      // Forçamos uma limpeza temporária dos resultados antes de mostrar os novos
-      setShowData(false);
-      setIsFiltering(true);
-      
-      // Aplicamos o filtro após um pequeno delay para garantir que a UI mostre a transição
-      setTimeout(() => {
-        setShowData(true);
-        setIsFiltering(false);
-      }, 500); // Aumentado para dar tempo do efeito de carregamento ser visível
+      setShowData(true);
+      setIsFiltering(false);
     } else {
       setShowData(false);
       setIsFiltering(false);
@@ -982,15 +2286,9 @@ export function MetricsOverview() {
   // Função para aplicar filtros
   const handleApplyFilters = () => {
     if (selectedMonth && selectedYear) {
-      // Limpar temporariamente antes de mostrar novos resultados
-      setShowData(false);
-      setIsFiltering(true);
-      
-      // Aplicar filtros com um pequeno delay para garantir que a UI atualize corretamente
-      setTimeout(() => {
-        setShowData(true);
-        setIsFiltering(false);
-      }, 500);
+      // Aplicar filtros imediatamente
+      setShowData(true);
+      setIsFiltering(false);
     }
   };
   
@@ -1128,46 +2426,52 @@ export function MetricsOverview() {
   return (
     <>
       <Tabs defaultValue="time" className="space-y-4 w-full" onValueChange={setActiveTab}>
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Indicadores de Desempenho</h2>
-        <TabsList>
-          <TabsTrigger value="time" className="flex items-center">
-            <Clock className="mr-2 h-4 w-4" />
-            Tempos
-          </TabsTrigger>
-          <TabsTrigger value="reopening" className="flex items-center">
-            <Repeat className="mr-2 h-4 w-4" />
-            Reaberturas
-          </TabsTrigger>
-          <TabsTrigger value="permanencia" className="flex items-center">
-            <AlertTriangle className="mr-2 h-4 w-4" />
-            Permanência
-          </TabsTrigger>
-          <TabsTrigger value="technicians" className="flex items-center">
-            <Users className="mr-2 h-4 w-4" />
-            Técnicos
-          </TabsTrigger>
-          <TabsTrigger value="vendedor" className="flex items-center">
-            <BarChart2 className="mr-2 h-4 w-4" />
-            Vendedor
-          </TabsTrigger>
-          <TabsTrigger value="indicadores" className="flex items-center">
-            <BarChart2 className="mr-2 h-4 w-4" />
-            Indicadores
-          </TabsTrigger>
-          <TabsTrigger value="users" className="flex items-center">
-            <UserCog className="mr-2 h-4 w-4" />
-            Usuários
-          </TabsTrigger>
-          <TabsTrigger value="payments" className="flex items-center">
-            <CreditCard className="mr-2 h-4 w-4" />
-            Pagamentos
-          </TabsTrigger>
-          <TabsTrigger value="import" className="flex items-center">
-            <FileUp className="mr-2 h-4 w-4" />
-            Importação
-        </TabsTrigger>
-        </TabsList>
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+        <h2 className="text-xl sm:text-2xl font-bold">Indicadores de Desempenho</h2>
+        <div className="overflow-x-auto">
+          <TabsList className="flex flex-nowrap min-w-max">
+            <TabsTrigger value="time" className="flex items-center whitespace-nowrap">
+              <Clock className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Tempos</span>
+            </TabsTrigger>
+            <TabsTrigger value="reopening" className="flex items-center whitespace-nowrap">
+              <Repeat className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Reaberturas</span>
+            </TabsTrigger>
+            <TabsTrigger value="permanencia" className="flex items-center whitespace-nowrap">
+              <AlertTriangle className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Permanência</span>
+            </TabsTrigger>
+            <TabsTrigger value="metas" className="flex items-center whitespace-nowrap">
+              <BarChart2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Metas</span>
+            </TabsTrigger>
+            <TabsTrigger value="technicians" className="flex items-center whitespace-nowrap">
+              <Users className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Técnicos</span>
+            </TabsTrigger>
+            <TabsTrigger value="vendedor" className="flex items-center whitespace-nowrap">
+              <BarChart2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Vendedor</span>
+            </TabsTrigger>
+            <TabsTrigger value="indicadores" className="flex items-center whitespace-nowrap">
+              <BarChart2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Indicadores</span>
+            </TabsTrigger>
+            <TabsTrigger value="users" className="flex items-center whitespace-nowrap">
+              <UserCog className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Usuários</span>
+            </TabsTrigger>
+            <TabsTrigger value="payments" className="flex items-center whitespace-nowrap">
+              <CreditCard className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Pagamentos</span>
+            </TabsTrigger>
+            <TabsTrigger value="import" className="flex items-center whitespace-nowrap">
+              <FileUp className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Importação</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
       </div>
       
       {/* Time Metrics Tab */}
@@ -1206,26 +2510,45 @@ export function MetricsOverview() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {Object.entries(timeMetrics.servicesByType).map(([type, metrics]) => {
-                      const goalPercent = metrics.percentWithinGoal;
-                      const servicesNeeded = calculateServicesNeededForTimeTarget(type, metrics.withinGoal, metrics.totalOrders);
+                    {(() => {
+                      // Ordem específica solicitada
+                      const orderedTypes = [
+                        'Assistência Técnica TV',
+                        'Assistência Técnica FIBRA',
+                        'Ponto Principal TV',
+                        'Ponto Principal FIBRA'
+                      ];
                       
-                      return (
-                        <TableRow key={type}>
-                          <TableCell className="font-medium text-sm px-2">{type}</TableCell>
-                          <TableCell className="text-center text-sm px-2">{metrics.withinGoal}</TableCell>
-                          <TableCell className="text-center text-sm px-2">{metrics.totalOrders}</TableCell>
-                          <TableCell className="text-center text-sm px-2">
-                            <span className={`font-bold ${getTimeAttendanceColorByServiceType(type, goalPercent)}`}>
-                              {goalPercent.toFixed(2)}%
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-center text-sm px-2">
-                            {formatTimeMetaDisplay(servicesNeeded)}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                      // Filtrar e ordenar os tipos que existem nos dados
+                      return orderedTypes
+                        .filter(type => timeMetrics.servicesByType[type])
+                        .map(type => {
+                          const metrics = timeMetrics.servicesByType[type] as {
+                            totalOrders: number;
+                            withinGoal: number;
+                            percentWithinGoal: number;
+                            averageTime: number;
+                          };
+                          const goalPercent = metrics.percentWithinGoal;
+                          const servicesNeeded = calculateServicesNeededForTimeTarget(type, metrics.withinGoal, metrics.totalOrders);
+                          
+                          return (
+                            <TableRow key={type}>
+                              <TableCell className="font-medium text-sm px-2">{type}</TableCell>
+                              <TableCell className="text-center text-sm px-2">{metrics.withinGoal}</TableCell>
+                              <TableCell className="text-center text-sm px-2">{metrics.totalOrders}</TableCell>
+                              <TableCell className="text-center text-sm px-2">
+                                <span className={`font-bold ${getTimeAttendanceColorByServiceType(type, goalPercent)}`}>
+                                  {goalPercent.toFixed(2)}%
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-center text-sm px-2">
+                                {formatTimeMetaDisplay(servicesNeeded)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        });
+                    })()}
                     
                     {Object.keys(timeMetrics.servicesByType).length === 0 && (
                       <TableRow>
@@ -1237,7 +2560,7 @@ export function MetricsOverview() {
                   </TableBody>
                 </Table>
                 <div className="mt-3 text-sm text-muted-foreground italic space-y-1">
-                  <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">✓ Meta - +X acima.</span> = dentro da meta com X serviços acima, <span className="text-green-600 font-medium">✓ Meta - limite</span> = exatamente no limite da meta, <span className="text-red-600 font-medium">❌ Meta</span> - <span className="text-blue-600 font-medium">+X serviços</span> = fora da meta, precisa de X serviços adicionais para voltar à faixa verde.</p>
+                  <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">+X acima</span> = dentro da meta com X serviços acima, <span className="text-green-600 font-medium">limite</span> = exatamente no limite da meta, <span className="text-red-600 font-medium">+X serviços</span> = fora da meta, precisa de X serviços adicionais para voltar à faixa verde.</p>
                 </div>
               </div>
             </CardContent>
@@ -1257,77 +2580,191 @@ export function MetricsOverview() {
               </CardDescription>
             </CardHeader>
                          <CardContent className="py-4">
-               <div className="space-y-1">
-                 {finishedServicesComparison.map((item) => {
-                   const percentChange = item.previousMonth > 0 
-                     ? ((item.currentMonth - item.previousMonth) / item.previousMonth) * 100 
-                     : item.currentMonth > 0 ? 100 : 0;
-                   
-                   const difference = item.currentMonth - item.previousMonth;
-                   const isIncrease = difference > 0;
-                   const isDecrease = difference < 0;
+               <div className="space-y-2">
+                 {/* Função para mapear os nomes dos tipos para a nova nomenclatura */}
+                 {(() => {
+                   const mapServiceTypeName = (originalType: string): string => {
+                     const typeMapping: Record<string, string> = {
+                       'Corretiva': 'Assistência Técnica TV',
+                       'Corretiva BL': 'Assistência Técnica FIBRA'
+                     };
+                     return typeMapping[originalType] || originalType;
+                   };
 
-                   // Calcular diferença com a média dos 3 meses
-                   const averageThreeMonths = Math.round(item.averageThreeMonths); // Número inteiro
-                   const averageDifference = item.currentMonth - averageThreeMonths;
-                   const averagePercentChange = averageThreeMonths > 0 
-                     ? ((item.currentMonth - averageThreeMonths) / averageThreeMonths) * 100 
-                     : item.currentMonth > 0 ? 100 : 0;
-                   
-                   const isAverageIncrease = averageDifference > 0;
-                   const isAverageDecrease = averageDifference < 0;
-                   
-                   return (
-                     <div key={item.subtipo} className="border-b border-gray-50 pb-1 last:border-b-0">
-                       <div className="mb-0.5">
-                         <span className="font-medium text-xs">{item.subtipo}</span>
-                       </div>
-                       
-                       <div className="grid grid-cols-12 gap-1 text-xs items-center">
-                         {/* Seção Mês Atual vs Anterior */}
-                         <div className="col-span-1">
-                           <div className="text-gray-400 text-xs">Atual</div>
-                           <div className="font-semibold text-xs">{item.currentMonth}</div>
-                         </div>
-                         <div className="col-span-1">
-                           <div className="text-gray-400 text-xs">Anterior</div>
-                           <div className="font-semibold text-xs">{item.previousMonth}</div>
-                         </div>
-                         <div className="col-span-3">
-                           <div className="text-gray-400 text-xs">Diferença</div>
-                           <div className={`font-semibold text-xs ${
-                             isIncrease ? 'text-green-600' : 
-                             isDecrease ? 'text-red-600' : 
-                             'text-gray-600'
-                           }`}>
-                             {difference >= 0 ? '+' : ''}{difference} ({percentChange >= 0 ? '+' : ''}{percentChange.toFixed(2).replace('.', ',')}%)
-                           </div>
-                         </div>
+                   // Função para determinar a cor baseada no tipo de serviço e diferença
+                   const getDifferenceColor = (serviceType: string, difference: number): string => {
+                     const mappedType = mapServiceTypeName(serviceType);
+                     
+                     // Para Assistência Técnica, valores negativos são BONS (menos chamados = melhor)
+                     if (mappedType === 'Assistência Técnica TV' || mappedType === 'Assistência Técnica FIBRA') {
+                       if (difference > 0) return 'text-red-600'; // Aumento é ruim
+                       if (difference < 0) return 'text-green-600'; // Diminuição é bom
+                       return 'text-gray-600'; // Sem mudança
+                     }
+                     
+                     // Para outros tipos, mantém lógica padrão
+                     if (difference > 0) return 'text-green-600'; // Aumento é bom
+                     if (difference < 0) return 'text-red-600'; // Diminuição é ruim
+                     return 'text-gray-600'; // Sem mudança
+                   };
 
-                         {/* Separador Visual */}
-                         <div className="col-span-1 flex justify-center">
-                           <div className="border-l border-gray-300 h-8"></div>
-                         </div>
-
-                         {/* Seção Média 3 Meses */}
-                         <div className="col-span-2">
-                           <div className="text-gray-400 text-xs">Média 3 meses</div>
-                           <div className="font-semibold text-xs">{averageThreeMonths}</div>
-                         </div>
-                         <div className="col-span-4">
-                           <div className="text-gray-400 text-xs">Diferença</div>
-                           <div className={`font-semibold text-xs ${
-                             isAverageIncrease ? 'text-green-600' : 
-                             isAverageDecrease ? 'text-red-600' : 
-                             'text-gray-600'
-                           }`}>
-                             {averageDifference >= 0 ? '+' : ''}{averageDifference} ({averagePercentChange >= 0 ? '+' : ''}{averagePercentChange.toFixed(2).replace('.', ',')}%)
-                           </div>
-                         </div>
-                       </div>
-                     </div>
+                   // Separar serviços por categoria
+                   const assistenciaTecnica = finishedServicesComparison.filter(item => 
+                     ['Corretiva', 'Corretiva BL'].includes(item.subtipo)
                    );
-                 })}
+                   
+                   const outrosServicos = finishedServicesComparison.filter(item => 
+                     !['Corretiva', 'Corretiva BL'].includes(item.subtipo)
+                   );
+
+                   return (
+                     <>
+                       {/* Seção Assistência Técnica */}
+                       {assistenciaTecnica.length > 0 && (
+                         <div className="mb-4">
+                           <div className="flex items-center mb-2 pb-1 border-b border-blue-200">
+                             <div className="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
+                             <h4 className="font-semibold text-sm text-blue-700">Assistência Técnica</h4>
+                             <span className="ml-2 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                               Redução = Melhoria
+                             </span>
+                           </div>
+                           <div className="space-y-1 ml-5">
+                             {assistenciaTecnica.map((item) => {
+                               const percentChange = item.previousMonth > 0 
+                                 ? ((item.currentMonth - item.previousMonth) / item.previousMonth) * 100 
+                                 : item.currentMonth > 0 ? 100 : 0;
+                               
+                               const difference = item.currentMonth - item.previousMonth;
+
+                               // Calcular diferença com a média dos 3 meses
+                               const averageThreeMonths = Math.round(item.averageThreeMonths);
+                               const averageDifference = item.currentMonth - averageThreeMonths;
+                               const averagePercentChange = averageThreeMonths > 0 
+                                 ? ((item.currentMonth - averageThreeMonths) / averageThreeMonths) * 100 
+                                 : item.currentMonth > 0 ? 100 : 0;
+                               
+                               return (
+                                 <div key={item.subtipo} className="border-b border-gray-50 pb-1 last:border-b-0">
+                                   <div className="mb-0.5">
+                                     <span className="font-medium text-xs">{mapServiceTypeName(item.subtipo)}</span>
+                                   </div>
+                                   
+                                   <div className="grid grid-cols-12 gap-1 text-xs items-center">
+                                     {/* Seção Mês Atual vs Anterior */}
+                                     <div className="col-span-1">
+                                       <div className="text-gray-400 text-xs">Atual</div>
+                                       <div className="font-semibold text-xs">{item.currentMonth}</div>
+                                     </div>
+                                     <div className="col-span-1">
+                                       <div className="text-gray-400 text-xs">Anterior</div>
+                                       <div className="font-semibold text-xs">{item.previousMonth}</div>
+                                     </div>
+                                     <div className="col-span-3">
+                                       <div className="text-gray-400 text-xs">Diferença</div>
+                                       <div className={`font-semibold text-xs ${getDifferenceColor(item.subtipo, difference)}`}>
+                                         {difference >= 0 ? '+' : ''}{difference} ({percentChange >= 0 ? '+' : ''}{percentChange.toFixed(2).replace('.', ',')}%)
+                                       </div>
+                                     </div>
+
+                                     {/* Separador Visual */}
+                                     <div className="col-span-1 flex justify-center">
+                                       <div className="border-l border-gray-300 h-8"></div>
+                                     </div>
+
+                                     {/* Seção Média 3 Meses */}
+                                     <div className="col-span-2">
+                                       <div className="text-gray-400 text-xs">Média 3 meses</div>
+                                       <div className="font-semibold text-xs">{averageThreeMonths}</div>
+                                     </div>
+                                     <div className="col-span-4">
+                                       <div className="text-gray-400 text-xs">Diferença</div>
+                                       <div className={`font-semibold text-xs ${getDifferenceColor(item.subtipo, averageDifference)}`}>
+                                         {averageDifference >= 0 ? '+' : ''}{averageDifference} ({averagePercentChange >= 0 ? '+' : ''}{averagePercentChange.toFixed(2).replace('.', ',')}%)
+                                       </div>
+                                     </div>
+                                   </div>
+                                 </div>
+                               );
+                             })}
+                           </div>
+                         </div>
+                       )}
+
+                       {/* Seção Outros Serviços */}
+                       {outrosServicos.length > 0 && (
+                         <div>
+                           <div className="flex items-center mb-2 pb-1 border-b border-green-200">
+                             <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                             <h4 className="font-semibold text-sm text-green-700">Outros Serviços</h4>
+                             <span className="ml-2 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                               Aumento = Melhoria
+                             </span>
+                           </div>
+                           <div className="space-y-1 ml-5">
+                             {outrosServicos.map((item) => {
+                               const percentChange = item.previousMonth > 0 
+                                 ? ((item.currentMonth - item.previousMonth) / item.previousMonth) * 100 
+                                 : item.currentMonth > 0 ? 100 : 0;
+                               
+                               const difference = item.currentMonth - item.previousMonth;
+
+                               // Calcular diferença com a média dos 3 meses
+                               const averageThreeMonths = Math.round(item.averageThreeMonths);
+                               const averageDifference = item.currentMonth - averageThreeMonths;
+                               const averagePercentChange = averageThreeMonths > 0 
+                                 ? ((item.currentMonth - averageThreeMonths) / averageThreeMonths) * 100 
+                                 : item.currentMonth > 0 ? 100 : 0;
+                               
+                               return (
+                                 <div key={item.subtipo} className="border-b border-gray-50 pb-1 last:border-b-0">
+                                   <div className="mb-0.5">
+                                     <span className="font-medium text-xs">{mapServiceTypeName(item.subtipo)}</span>
+                                   </div>
+                                   
+                                   <div className="grid grid-cols-12 gap-1 text-xs items-center">
+                                     {/* Seção Mês Atual vs Anterior */}
+                                     <div className="col-span-1">
+                                       <div className="text-gray-400 text-xs">Atual</div>
+                                       <div className="font-semibold text-xs">{item.currentMonth}</div>
+                                     </div>
+                                     <div className="col-span-1">
+                                       <div className="text-gray-400 text-xs">Anterior</div>
+                                       <div className="font-semibold text-xs">{item.previousMonth}</div>
+                                     </div>
+                                     <div className="col-span-3">
+                                       <div className="text-gray-400 text-xs">Diferença</div>
+                                       <div className={`font-semibold text-xs ${getDifferenceColor(item.subtipo, difference)}`}>
+                                         {difference >= 0 ? '+' : ''}{difference} ({percentChange >= 0 ? '+' : ''}{percentChange.toFixed(2).replace('.', ',')}%)
+                                       </div>
+                                     </div>
+
+                                     {/* Separador Visual */}
+                                     <div className="col-span-1 flex justify-center">
+                                       <div className="border-l border-gray-300 h-8"></div>
+                                     </div>
+
+                                     {/* Seção Média 3 Meses */}
+                                     <div className="col-span-2">
+                                       <div className="text-gray-400 text-xs">Média 3 meses</div>
+                                       <div className="font-semibold text-xs">{averageThreeMonths}</div>
+                                     </div>
+                                     <div className="col-span-4">
+                                       <div className="text-gray-400 text-xs">Diferença</div>
+                                       <div className={`font-semibold text-xs ${getDifferenceColor(item.subtipo, averageDifference)}`}>
+                                         {averageDifference >= 0 ? '+' : ''}{averageDifference} ({averagePercentChange >= 0 ? '+' : ''}{averagePercentChange.toFixed(2).replace('.', ',')}%)
+                                       </div>
+                                     </div>
+                                   </div>
+                                 </div>
+                               );
+                             })}
+                           </div>
+                         </div>
+                       )}
+                     </>
+                   );
+                 })()}
                  
                  {finishedServicesComparison.length === 0 && (
                    <div className="text-center text-muted-foreground py-2 text-xs">
@@ -1369,9 +2806,23 @@ export function MetricsOverview() {
                     className="w-full p-2 border rounded-md text-sm"
                   >
                     <option value="">Todos os tipos</option>
-                    {uniqueOriginalServiceTypes.map((type) => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
+                    {uniqueOriginalServiceTypes.map((type) => {
+                      // Função para mapear os nomes dos tipos originais para a nova nomenclatura
+                      const mapOriginalServiceTypeName = (originalType: string): string => {
+                        const typeMapping: Record<string, string> = {
+                          'Corretiva': 'Assistência Técnica TV',
+                          'Corretiva BL': 'Assistência Técnica FIBRA',
+                          'Ponto Principal': 'Ponto Principal TV',
+                          'Ponto Principal BL': 'Ponto Principal FIBRA'
+                        };
+                        return typeMapping[originalType] || originalType;
+                      };
+                      
+                      const displayName = mapOriginalServiceTypeName(type);
+                      return (
+                        <option key={type} value={type}>{displayName}</option>
+                      );
+                    })}
                   </select>
                 </div>
                 {originalServiceTypeFilter && (
@@ -1388,7 +2839,25 @@ export function MetricsOverview() {
             </div>
             {originalServiceTypeFilter && (
               <div className="mt-2 text-xs text-muted-foreground">
-                <span className="text-primary font-medium">{getFilteredReopeningPairs.length}</span> reaberturas encontradas com o tipo de serviço original: <span className="font-medium">{originalServiceTypeFilter}</span>
+                {(() => {
+                  // Função para mapear os nomes dos tipos originais para a nova nomenclatura
+                  const mapOriginalServiceTypeName = (originalType: string): string => {
+                    const typeMapping: Record<string, string> = {
+                      'Corretiva': 'Assistência Técnica TV',
+                      'Corretiva BL': 'Assistência Técnica FIBRA',
+                      'Ponto Principal': 'Ponto Principal TV',
+                      'Ponto Principal BL': 'Ponto Principal FIBRA'
+                    };
+                    return typeMapping[originalType] || originalType;
+                  };
+                  
+                  const displayName = mapOriginalServiceTypeName(originalServiceTypeFilter);
+                  return (
+                    <>
+                      <span className="text-primary font-medium">{getFilteredReopeningPairs.length}</span> reaberturas encontradas com o tipo de serviço original: <span className="font-medium">{displayName}</span>
+                    </>
+                  );
+                })()}
               </div>
             )}
           </CardContent>
@@ -1493,10 +2962,22 @@ export function MetricsOverview() {
                         return a[0].localeCompare(b[0]);
                       })
                       .map(([type, data]) => {
+                        // Função para mapear os nomes dos tipos originais para a nova nomenclatura
+                        const mapOriginalServiceTypeName = (originalType: string): string => {
+                          const typeMapping: Record<string, string> = {
+                            'Corretiva': 'Assistência Técnica TV',
+                            'Corretiva BL': 'Assistência Técnica FIBRA',
+                            'Ponto Principal': 'Ponto Principal TV',
+                            'Ponto Principal BL': 'Ponto Principal FIBRA'
+                          };
+                          return typeMapping[originalType] || originalType;
+                        };
+                        
+                        const displayName = mapOriginalServiceTypeName(type);
                         const servicesNeeded = calculateServicesNeededForTarget(type, data.reopenings, data.totalOriginals);
                         return (
                           <TableRow key={type}>
-                            <TableCell className="font-medium text-sm px-2">{type}</TableCell>
+                            <TableCell className="font-medium text-sm px-2">{displayName}</TableCell>
                             <TableCell className="text-center text-sm px-2">{data.totalOriginals}</TableCell>
                             <TableCell className="text-center text-sm px-2">{data.reopenings}</TableCell>
                             <TableCell className="text-center text-sm px-2">
@@ -1506,12 +2987,13 @@ export function MetricsOverview() {
                             </TableCell>
                             <TableCell className="text-center text-sm px-2">
                               {servicesNeeded < 0 ? (
-                                <span className="text-green-600 font-medium">✓ Meta - {Math.abs(servicesNeeded)} reab. disp.</span>
+                                <span className="text-green-600 font-medium">{Math.abs(servicesNeeded)} reab. disp.</span>
                               ) : servicesNeeded === 0 ? (
-                                <span className="text-green-600 font-medium">✓ Meta - 0 reab. disp.</span>
+                                <span className="text-amber-600 font-medium">0 reab. disp.</span>
                               ) : (
-                                <span className="font-medium">
-                                  <span className="text-red-600">❌ Meta</span> - <span className="text-blue-600">+{servicesNeeded} serviços</span>
+                                <span className="text-red-600 font-medium">
+                                  +{servicesNeeded} serviços
+                                  <span className="text-muted-foreground ml-1">({data.totalOriginals + servicesNeeded} total)</span>
                                 </span>
                               )}
                             </TableCell>
@@ -1531,7 +3013,7 @@ export function MetricsOverview() {
                 </Table>
                 <div className="mt-3 text-sm text-muted-foreground italic space-y-1">
                   <p><strong>Nota:</strong> Na coluna "Serviços" são contabilizadas todas as ordens que foram <strong>criadas OU finalizadas</strong> no mês selecionado.</p>
-                  <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">✓ Meta - X reab. disp.</span> = dentro da meta com X reaberturas ainda disponíveis, <span className="text-red-600 font-medium">❌ Meta</span> - <span className="text-blue-600 font-medium">+X serviços</span> = fora da meta, precisa de X serviços adicionais para voltar à faixa verde.</p>
+                  <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">X reab. disp.</span> = dentro da meta com X reaberturas ainda disponíveis, <span className="text-amber-600 font-medium">0 reab. disp.</span> = no limite exato da meta (ponto de atenção), <span className="text-red-600 font-medium">+X serviços (Y total)</span> = fora da meta, precisa de X serviços adicionais (chegando a Y serviços no total) para voltar à faixa verde.</p>
                 </div>
               </div>
             </CardContent>
@@ -1564,7 +3046,7 @@ export function MetricsOverview() {
                 Tempo Médio Entre OS
               </CardTitle>
               <CardDescription className="text-xs">
-                Média entre finalização original e reabertura
+                Tempo médio entre finalização original e reabertura
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-0 pb-2">
@@ -1601,7 +3083,7 @@ export function MetricsOverview() {
                     <TableHead>Técnico Responsável</TableHead>
                     <TableHead>OS Original</TableHead>
                     <TableHead>Ação Tomada Original</TableHead>
-                    <TableHead>Data Criação Original</TableHead>
+                    <TableHead>Finalização Original</TableHead>
                     <TableHead>OS Reabertura</TableHead>
                     <TableHead>Ação Tomada Reabertura</TableHead>
                     <TableHead>Data Criação Reabertura</TableHead>
@@ -1661,7 +3143,7 @@ export function MetricsOverview() {
                         <TableCell className="font-medium">{pair.originalOrder.nome_tecnico}</TableCell>
                         <TableCell>{pair.originalOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.originalOrder.subtipo_servico}</span></TableCell>
                         <TableCell>{getAcaoTomadaBadge(pair.originalOrder.acao_tomada, pair.originalOrder.status)}</TableCell>
-                        <TableCell>{formatDate(pair.originalOrder.data_criacao)}</TableCell>
+                        <TableCell>{formatDate(pair.originalOrder.data_finalizacao)}</TableCell>
                         <TableCell>{pair.reopeningOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.reopeningOrder.subtipo_servico}</span></TableCell>
                         <TableCell>{getAcaoTomadaBadge(pair.reopeningOrder.acao_tomada, pair.reopeningOrder.status)}</TableCell>
                         <TableCell>{formatDate(pair.reopeningOrder.data_criacao)}</TableCell>
@@ -1689,6 +3171,8 @@ export function MetricsOverview() {
                       <p>Nota: As reaberturas são identificadas quando uma nova OS é criada no mesmo mês que a OS original foi finalizada.
                       <strong> Exceção:</strong> Se a OS original foi finalizada no último dia do mês e a reabertura ocorreu no primeiro dia do mês seguinte, 
                       também é considerada uma reabertura válida.</p>
+                      
+                      <p className="mt-1"><strong>Importante:</strong> O tempo entre OS é calculado da <strong>finalização da OS original</strong> até a <strong>criação da OS de reabertura</strong>.</p>
                       
                       <p className="mt-1"><strong>Importante:</strong> O filtro de Mês/Ano considera a <strong>data de criação da OS de reabertura</strong> (não a data da OS original). 
                       Isso significa que você verá as reaberturas que foram <strong>criadas</strong> no mês selecionado, mesmo que a OS original tenha sido finalizada em um mês anterior.</p>
@@ -1914,6 +3398,11 @@ export function MetricsOverview() {
           <PermanenciaTabContent setFiltroGlobal={setFiltroDataHabilitacao} />
       </TabsContent>
       
+      {/* Metas Tab */}
+      <TabsContent value="metas" className="space-y-4">
+          <MetasTabContent />
+      </TabsContent>
+      
       {/* Vendedor Tab */}
       <TabsContent value="vendedor" className="space-y-4">
         <VendedorTabContent />
@@ -2008,6 +3497,13 @@ export function MetricsOverview() {
                         })()}
                       </div>
                     </div>
+                    
+                    {/* Seção BASE TV */}
+                    <BaseMetricsSection
+                      type="tv"
+                      metrics={baseMetrics}
+                      title="Base de Clientes TV"
+                    />
                   </div>
                   
                   {/* Ponto Principal TV */}
@@ -2144,6 +3640,13 @@ export function MetricsOverview() {
                         })()}
                       </div>
                     </div>
+                    
+                    {/* Seção BASE FIBRA */}
+                    <BaseMetricsSection
+                      type="fibra"
+                      metrics={baseMetrics}
+                      title="Base de Clientes FIBRA"
+                    />
                   </div>
                   
                   {/* Ponto Principal FIBRA */}
@@ -2268,6 +3771,24 @@ export function MetricsOverview() {
                       else bonusPercentage = 0;
                     }
                     
+                    // Calcular ganho monetário: base TV × aliança
+                    const baseTV = baseMetrics?.tv?.atual || 0;
+                    const alianca = baseMetrics?.alianca?.atual || 0;
+                    const ganhoMonetario = baseTV * alianca;
+                    
+                    // Calcular bônus da aliança: ganho base × (percentual bonificação / 100)
+                    const bonusAlianca = bonusPercentage > 0 ? ganhoMonetario * (bonusPercentage / 100) : 0;
+                    
+                    // Calcular tendência comparado ao mês anterior usando diferencaQuantidade
+                    const baseTVAnterior = baseTV - (baseMetrics?.tv?.diferencaQuantidade || 0);
+                    const aliancaAnterior = alianca - (baseMetrics?.alianca?.diferencaQuantidade || 0);
+                    const ganhoAnterior = baseTVAnterior * aliancaAnterior;
+                    const bonusAnterior = ganhoAnterior > 0 ? ganhoAnterior * (bonusPercentage / 100) : 0;
+                    const totalAtual = ganhoMonetario + bonusAlianca;
+                    const totalAnterior = ganhoAnterior + bonusAnterior;
+                    const diferencaValor = totalAtual - totalAnterior;
+                    const diferencaPercentual = totalAnterior > 0 ? (diferencaValor / totalAnterior) * 100 : 0;
+                    
                     const cardClass = bonusPercentage > 0 ? "bg-green-50" : "bg-red-50";
                     const textClass = bonusPercentage > 0 ? "text-green-700" : "text-red-700";
                     
@@ -2285,6 +3806,71 @@ export function MetricsOverview() {
                           <div className={`text-xl font-bold ${textClass}`}>
                             {bonusPercentage > 0 ? `${bonusPercentage}% bonificação` : "Não Elegível"}
                           </div>
+                          {baseMetrics && (
+                            <div className="mt-2 pt-2 border-t border-gray-200">
+                              <div className="grid grid-cols-2 gap-3">
+                                {/* Ganho Base */}
+                                <div>
+                                  <div className="text-sm text-gray-600 mb-1">Ganho Base</div>
+                                  <div className="text-lg font-semibold text-blue-700">
+                                    {ganhoMonetario.toLocaleString('pt-BR', { 
+                                      style: 'currency', 
+                                      currency: 'BRL' 
+                                    })}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {baseTV.toLocaleString('pt-BR')} × R$ {alianca.toFixed(2)}
+                                  </div>
+                                </div>
+                                
+                                {/* Bônus Aliança */}
+                                <div>
+                                  <div className="text-sm text-gray-600 mb-1">Bônus Aliança</div>
+                                  {bonusPercentage > 0 ? (
+                                    <>
+                                      <div className="text-lg font-semibold text-green-700">
+                                        {bonusAlianca.toLocaleString('pt-BR', { 
+                                          style: 'currency', 
+                                          currency: 'BRL' 
+                                        })}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        {bonusPercentage}% do ganho base
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="text-lg font-semibold text-red-600">
+                                        Não Vigente
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        Não elegível
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              {/* Tendência vs Mês Anterior */}
+                              {totalAnterior > 0 && (
+                                <div className="mt-3 pt-2 border-t border-gray-100">
+                                  <div className="text-sm text-gray-600 mb-1">Tendência vs Mês Anterior</div>
+                                  <div className={`text-sm font-medium flex items-center gap-1 ${
+                                    diferencaValor > 0 ? 'text-green-600' : diferencaValor < 0 ? 'text-red-600' : 'text-gray-600'
+                                  }`}>
+                                    <span className="text-base">
+                                      {diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}
+                                    </span>
+                                    {diferencaValor > 0 ? '+' : ''}{diferencaPercentual.toFixed(1)}% 
+                                    ({diferencaValor > 0 ? '+' : ''}{diferencaValor.toLocaleString('pt-BR', { 
+                                      style: 'currency', 
+                                      currency: 'BRL' 
+                                    })})
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                     );
@@ -2326,6 +3912,24 @@ export function MetricsOverview() {
                       else bonusPercentage = 0;
                     }
                     
+                    // Calcular ganho monetário: base FIBRA × aliança
+                    const baseFIBRA = baseMetrics?.fibra?.atual || 0;
+                    const alianca = baseMetrics?.alianca?.atual || 0;
+                    const ganhoMonetario = baseFIBRA * alianca;
+                    
+                    // Calcular bônus da aliança: ganho base × (percentual bonificação / 100)
+                    const bonusAlianca = bonusPercentage > 0 ? ganhoMonetario * (bonusPercentage / 100) : 0;
+                    
+                    // Calcular tendência comparado ao mês anterior usando diferencaQuantidade
+                    const baseFIBRAAnterior = baseFIBRA - (baseMetrics?.fibra?.diferencaQuantidade || 0);
+                    const aliancaAnterior = alianca - (baseMetrics?.alianca?.diferencaQuantidade || 0);
+                    const ganhoAnterior = baseFIBRAAnterior * aliancaAnterior;
+                    const bonusAnterior = ganhoAnterior > 0 ? ganhoAnterior * (bonusPercentage / 100) : 0;
+                    const totalAtual = ganhoMonetario + bonusAlianca;
+                    const totalAnterior = ganhoAnterior + bonusAnterior;
+                    const diferencaValor = totalAtual - totalAnterior;
+                    const diferencaPercentual = totalAnterior > 0 ? (diferencaValor / totalAnterior) * 100 : 0;
+                    
                     const cardClass = bonusPercentage > 0 ? "bg-green-50" : "bg-red-50";
                     const textClass = bonusPercentage > 0 ? "text-green-700" : "text-red-700";
                     
@@ -2343,6 +3947,71 @@ export function MetricsOverview() {
                           <div className={`text-xl font-bold ${textClass}`}>
                             {bonusPercentage > 0 ? `${bonusPercentage}% bonificação` : "Não Elegível"}
                           </div>
+                          {baseMetrics && (
+                            <div className="mt-2 pt-2 border-t border-gray-200">
+                              <div className="grid grid-cols-2 gap-3">
+                                {/* Ganho Base */}
+                                <div>
+                                  <div className="text-sm text-gray-600 mb-1">Ganho Base</div>
+                                  <div className="text-lg font-semibold text-blue-700">
+                                    {ganhoMonetario.toLocaleString('pt-BR', { 
+                                      style: 'currency', 
+                                      currency: 'BRL' 
+                                    })}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {baseFIBRA.toLocaleString('pt-BR')} × R$ {alianca.toFixed(2)}
+                                  </div>
+                                </div>
+                                
+                                {/* Bônus Aliança */}
+                                <div>
+                                  <div className="text-sm text-gray-600 mb-1">Bônus Aliança</div>
+                                  {bonusPercentage > 0 ? (
+                                    <>
+                                      <div className="text-lg font-semibold text-green-700">
+                                        {bonusAlianca.toLocaleString('pt-BR', { 
+                                          style: 'currency', 
+                                          currency: 'BRL' 
+                                        })}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        {bonusPercentage}% do ganho base
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="text-lg font-semibold text-red-600">
+                                        Não Vigente
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        Não elegível
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              {/* Tendência vs Mês Anterior */}
+                              {totalAnterior > 0 && (
+                                <div className="mt-3 pt-2 border-t border-gray-100">
+                                  <div className="text-sm text-gray-600 mb-1">Tendência vs Mês Anterior</div>
+                                  <div className={`text-sm font-medium flex items-center gap-1 ${
+                                    diferencaValor > 0 ? 'text-green-600' : diferencaValor < 0 ? 'text-red-600' : 'text-gray-600'
+                                  }`}>
+                                    <span className="text-base">
+                                      {diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}
+                                    </span>
+                                    {diferencaValor > 0 ? '+' : ''}{diferencaPercentual.toFixed(1)}% 
+                                    ({diferencaValor > 0 ? '+' : ''}{diferencaValor.toLocaleString('pt-BR', { 
+                                      style: 'currency', 
+                                      currency: 'BRL' 
+                                    })})
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                     );
@@ -2357,6 +4026,36 @@ export function MetricsOverview() {
                     
                     // Obter o percentual de Reabertura para Ponto Principal
                     const reopeningRate = getReopeningMetrics.reopeningsByOriginalType["Ponto Principal"]?.reopeningRate || 0;
+                    
+                    // Contar serviços finalizados de Ponto Principal TV
+                    const servicosFinalizados = filteredServiceOrdersByFinalization.filter(o => {
+                      const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                      return category === "Ponto Principal TV" && o.include_in_metrics;
+                    }).length;
+                    
+                    // Valor vigente por serviço
+                    const valorPorServico = 20.00;
+                    const ganhoTotal = servicosFinalizados * valorPorServico;
+                    
+                    // Calcular tendência - buscar serviços do mês anterior baseado nos filtros aplicados
+                    const mesAtualFiltro = selectedMonth ? parseInt(selectedMonth) : new Date().getMonth() + 1;
+                    const anoAtualFiltro = selectedYear ? parseInt(selectedYear) : new Date().getFullYear();
+                    const mesAnterior = mesAtualFiltro === 1 ? 12 : mesAtualFiltro - 1;
+                    const anoAnterior = mesAtualFiltro === 1 ? anoAtualFiltro - 1 : anoAtualFiltro;
+                    
+                    // Buscar nos dados completos (sem filtro de período) para pegar o mês anterior
+                    const servicosFinalizadosAnterior = serviceOrders.filter(o => {
+                      const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                      const dataFinalizacao = new Date(o.data_finalizacao);
+                      return category === "Ponto Principal TV" && 
+                             o.include_in_metrics &&
+                             dataFinalizacao.getMonth() + 1 === mesAnterior &&
+                             dataFinalizacao.getFullYear() === anoAnterior;
+                    }).length;
+                    
+                    const ganhoAnterior = servicosFinalizadosAnterior * valorPorServico;
+                    const diferencaValor = ganhoTotal - ganhoAnterior;
+                    const diferencaPercentual = ganhoAnterior > 0 ? (diferencaValor / ganhoAnterior) * 100 : 0;
                     
                     // Determinar a bonificação com base nas tabelas
                     let result = "Não Elegível";
@@ -2384,6 +4083,42 @@ export function MetricsOverview() {
                           <div className={`text-xl font-bold ${textClass}`}>
                             {result}
                           </div>
+                          {servicosFinalizados > 0 && (
+                            <div className="mt-2 pt-2 border-t border-gray-200">
+                              <div className="text-sm text-gray-600 mb-1">Ganho por Serviços</div>
+                              <div className="text-lg font-semibold text-blue-700">
+                                {ganhoTotal.toLocaleString('pt-BR', { 
+                                  style: 'currency', 
+                                  currency: 'BRL' 
+                                })}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {servicosFinalizados} serviços × R$ {valorPorServico.toFixed(2)}
+                              </div>
+                              
+                              {/* Tendência vs Mês Anterior */}
+                              {ganhoAnterior > 0 && (
+                                <div className="mt-2 pt-2 border-t border-gray-100">
+                                  <div className="text-sm text-gray-600 mb-1">Tendência vs Mês Anterior</div>
+                                  <div className={`text-sm font-medium flex items-center gap-1 ${
+                                    diferencaValor > 0 ? 'text-green-600' : diferencaValor < 0 ? 'text-red-600' : 'text-gray-600'
+                                  }`}>
+                                    <span className="text-base">
+                                      {diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}
+                                    </span>
+                                    {diferencaValor > 0 ? '+' : ''}{diferencaPercentual.toFixed(1)}% 
+                                    ({diferencaValor > 0 ? '+' : ''}{diferencaValor.toLocaleString('pt-BR', { 
+                                      style: 'currency', 
+                                      currency: 'BRL' 
+                                    })})
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {servicosFinalizadosAnterior} serviços no mês anterior
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                     );
@@ -2398,6 +4133,36 @@ export function MetricsOverview() {
                     
                     // Obter o percentual de Reabertura para Ponto Principal BL
                     const reopeningRate = getReopeningMetrics.reopeningsByOriginalType["Ponto Principal BL"]?.reopeningRate || 0;
+                    
+                    // Contar serviços finalizados de Ponto Principal FIBRA
+                    const servicosFinalizados = filteredServiceOrdersByFinalization.filter(o => {
+                      const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                      return category === "Ponto Principal FIBRA" && o.include_in_metrics;
+                    }).length;
+                    
+                    // Valor vigente por serviço
+                    const valorPorServico = 40.00;
+                    const ganhoTotal = servicosFinalizados * valorPorServico;
+                    
+                    // Calcular tendência - buscar serviços do mês anterior baseado nos filtros aplicados
+                    const mesAtualFiltro = selectedMonth ? parseInt(selectedMonth) : new Date().getMonth() + 1;
+                    const anoAtualFiltro = selectedYear ? parseInt(selectedYear) : new Date().getFullYear();
+                    const mesAnterior = mesAtualFiltro === 1 ? 12 : mesAtualFiltro - 1;
+                    const anoAnterior = mesAtualFiltro === 1 ? anoAtualFiltro - 1 : anoAtualFiltro;
+                    
+                    // Buscar nos dados completos (sem filtro de período) para pegar o mês anterior
+                    const servicosFinalizadosAnterior = serviceOrders.filter(o => {
+                      const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                      const dataFinalizacao = new Date(o.data_finalizacao);
+                      return category === "Ponto Principal FIBRA" && 
+                             o.include_in_metrics &&
+                             dataFinalizacao.getMonth() + 1 === mesAnterior &&
+                             dataFinalizacao.getFullYear() === anoAnterior;
+                    }).length;
+                    
+                    const ganhoAnterior = servicosFinalizadosAnterior * valorPorServico;
+                    const diferencaValor = ganhoTotal - ganhoAnterior;
+                    const diferencaPercentual = ganhoAnterior > 0 ? (diferencaValor / ganhoAnterior) * 100 : 0;
                     
                     // Determinar a bonificação com base nas tabelas
                     let result = "Não Elegível";
@@ -2425,6 +4190,42 @@ export function MetricsOverview() {
                           <div className={`text-xl font-bold ${textClass}`}>
                             {result}
                           </div>
+                          {servicosFinalizados > 0 && (
+                            <div className="mt-2 pt-2 border-t border-gray-200">
+                              <div className="text-sm text-gray-600 mb-1">Ganho por Serviços</div>
+                              <div className="text-lg font-semibold text-blue-700">
+                                {ganhoTotal.toLocaleString('pt-BR', { 
+                                  style: 'currency', 
+                                  currency: 'BRL' 
+                                })}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {servicosFinalizados} serviços × R$ {valorPorServico.toFixed(2)}
+                              </div>
+                              
+                              {/* Tendência vs Mês Anterior */}
+                              {ganhoAnterior > 0 && (
+                                <div className="mt-2 pt-2 border-t border-gray-100">
+                                  <div className="text-sm text-gray-600 mb-1">Tendência vs Mês Anterior</div>
+                                  <div className={`text-sm font-medium flex items-center gap-1 ${
+                                    diferencaValor > 0 ? 'text-green-600' : diferencaValor < 0 ? 'text-red-600' : 'text-gray-600'
+                                  }`}>
+                                    <span className="text-base">
+                                      {diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}
+                                    </span>
+                                    {diferencaValor > 0 ? '+' : ''}{diferencaPercentual.toFixed(1)}% 
+                                    ({diferencaValor > 0 ? '+' : ''}{diferencaValor.toLocaleString('pt-BR', { 
+                                      style: 'currency', 
+                                      currency: 'BRL' 
+                                    })})
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {servicosFinalizadosAnterior} serviços no mês anterior
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                     );
@@ -3455,23 +5256,23 @@ export function MetricsOverview() {
 // Helper functions
 function getServiceGoal(serviceType: string): number {
   const goals: Record<string, number> = {
-    'Ponto Principal TV': 48,
-    'Ponto Principal Fibra': 48,
-    'Ponto Principal FIBRA': 48,
-    'Ponto Principal': 48,
-    'Ponto Principal BL': 48,
-    'Assistência Técnica Fibra': 34,
-    'Assistência Técnica FIBRA': 34,
-    'Assistência Técnica TV': 34,
-    'Corretiva': 48,
-    'Corretiva BL': 48,
-    'Preventiva BL': 48,
-    'Prestação de Serviço': 48,
-    'Prestação de Serviço BL': 48
+    'Ponto Principal TV': 62.983333, // 62h 59min
+    'Ponto Principal Fibra': 62.983333, // 62h 59min
+    'Ponto Principal FIBRA': 62.983333, // 62h 59min
+    'Ponto Principal': 62.983333, // 62h 59min
+    'Ponto Principal BL': 62.983333, // 62h 59min
+    'Assistência Técnica Fibra': 38.983333, // 38h 59min
+    'Assistência Técnica FIBRA': 38.983333, // 38h 59min
+    'Assistência Técnica TV': 38.983333, // 38h 59min
+    'Corretiva': 38.983333, // 38h 59min (Assistência Técnica TV)
+    'Corretiva BL': 38.983333, // 38h 59min (Assistência Técnica FIBRA)
+    'Preventiva BL': 48, // Mantendo valor original
+    'Prestação de Serviço': 48, // Mantendo valor original
+    'Prestação de Serviço BL': 48 // Mantendo valor original
   };
   
   const goal = goals[serviceType] || 48;
-  console.log(`[DEBUG] Meta para tipo "${serviceType}": ${goal} horas`);
+      // console.log(`[DEBUG] Meta para tipo "${serviceType}": ${goal} horas`);
   return goal;
 }
 
@@ -4311,12 +6112,12 @@ function PaymentsManagement() {
 
 // ImportData component
 function ImportData() {
-  const { importServiceOrders, importVendas, importPrimeirosPagamentos } = useData();
+  const { importServiceOrders, importVendas, importPrimeirosPagamentos, importMetas, importVendasMeta, importBaseData } = useData();
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [importType, setImportType] = useState<'os' | 'vendas' | 'pagamentos'>('os');
+  const [importType, setImportType] = useState<'pagamentos' | 'metas' | 'servicos-base'>('pagamentos');
   const { toast } = useToast();
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4353,6 +6154,250 @@ function ImportData() {
           
           const binary = e.target?.result;
           const workbook = XLSX.read(binary, { type: 'binary', cellDates: true });
+          
+          // Para importação de metas, processar as 3 planilhas separadas
+          if (importType === 'metas') {
+            const sheetNames = workbook.SheetNames;
+            // Log otimizado - só durante desenvolvimento
+      if (process.env.NODE_ENV === 'development') {
+        console.log("Planilhas encontradas:", sheetNames);
+      }
+            
+            // Verificar se as 3 planilhas necessárias existem
+            const requiredSheets = ['VENDAS PERMANENCIA', 'VENDAS META', 'METAS'];
+            const missingSheets = requiredSheets.filter(sheet => !sheetNames.includes(sheet));
+            
+            if (missingSheets.length > 0) {
+              throw new Error(`Planilhas obrigatórias não encontradas: ${missingSheets.join(', ')}. As planilhas devem se chamar: ${requiredSheets.join(', ')}`);
+            }
+            
+            // Processar as 3 planilhas
+            const vendasPermanenciaSheet = workbook.Sheets['VENDAS PERMANENCIA'];
+            const vendasMetaSheet = workbook.Sheets['VENDAS META'];
+            const metasSheet = workbook.Sheets['METAS'];
+            
+            const vendasPermanenciaData = XLSX.utils.sheet_to_json(vendasPermanenciaSheet);
+            const vendasMetaData = XLSX.utils.sheet_to_json(vendasMetaSheet);
+            const metasData = XLSX.utils.sheet_to_json(metasSheet);
+            
+            // Log otimizado
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`Processando planilhas - Vendas Permanência: ${vendasPermanenciaData.length}, Vendas Meta: ${vendasMetaData.length}, Metas: ${metasData.length}`);
+          }
+            
+            if (vendasPermanenciaData.length === 0 && vendasMetaData.length === 0 && metasData.length === 0) {
+              setError("Todas as planilhas parecem estar vazias");
+              setProcessing(false);
+              setProgress(0);
+              return;
+            }
+            
+            // Processar e importar cada tipo de dado
+            try {
+              let novasVendasPermanencia = 0;
+              let novasVendasMeta = 0;
+              let novasMetas = 0;
+              
+              // Processar vendas de permanência (usando a função existente)
+              if (vendasPermanenciaData.length > 0) {
+                const processedVendasPermanencia = processVendas(vendasPermanenciaData as Record<string, unknown>[]);
+                const result = importVendas(processedVendasPermanencia, true);
+                novasVendasPermanencia = result.newRecords;
+                if (process.env.NODE_ENV === 'development') {
+              console.log(`Importadas ${result.newRecords} novas vendas de permanência`);
+            }
+              }
+              
+              // Processar vendas de meta
+              if (vendasMetaData.length > 0) {
+                const processedVendasMeta = processVendasMeta(vendasMetaData as Record<string, unknown>[]);
+                const result = importVendasMeta(processedVendasMeta, true);
+                novasVendasMeta = result.newRecords;
+                if (process.env.NODE_ENV === 'development') {
+              console.log(`Importadas ${result.newRecords} novas vendas de meta`);
+            }
+              }
+              
+              // Processar metas
+              if (metasData.length > 0) {
+                const processedMetas = processMetas(metasData as Record<string, unknown>[]);
+                const result = importMetas(processedMetas, true);
+                novasMetas = result.newRecords;
+                if (process.env.NODE_ENV === 'development') {
+              console.log(`Importadas ${result.newRecords} novas metas`);
+            }
+              }
+              
+              // Criar descrição detalhada
+              const detalhes = [];
+              if (novasVendasPermanencia > 0) {
+                detalhes.push(`${novasVendasPermanencia} Novas vendas de permanência`);
+              }
+              if (novasVendasMeta > 0) {
+                detalhes.push(`${novasVendasMeta} Novas vendas de meta`);
+              }
+              if (novasMetas > 0) {
+                detalhes.push(`${novasMetas} Nova${novasMetas > 1 ? 's' : ''} meta${novasMetas > 1 ? 's' : ''}`);
+              }
+              
+              const totalNovos = novasVendasPermanencia + novasVendasMeta + novasMetas;
+              
+              toast({
+                title: "Importação de Metas concluída",
+                description: totalNovos > 0 
+                  ? `Foram adicionadas:\n${detalhes.join('\n')}`
+                  : "Nenhum novo registro foi adicionado (todos já existiam)."
+              });
+              
+              setProgress(100);
+              setFile(null);
+              setProcessing(false);
+              return;
+            } catch (processError) {
+              console.error('Erro no processamento das planilhas de metas:', processError);
+              setError(processError instanceof Error ? processError.message : "Erro ao processar as planilhas de metas");
+              setProcessing(false);
+              setProgress(0);
+              return;
+            }
+          }
+          
+          // Para importação de serviços + BASE, processar as 2 planilhas separadas
+          if (importType === 'servicos-base') {
+            const sheetNames = workbook.SheetNames;
+            console.log("[ImportData] Planilhas encontradas:", sheetNames);
+            
+            // Detectar abas automaticamente
+            let servicosSheet: string | null = null;
+            let baseSheet: string | null = null;
+            
+            // Detectar aba de serviços (primeira aba ou aba com nome relacionado)
+            if (sheetNames.length > 0) {
+              servicosSheet = sheetNames[0]; // Por padrão, primeira aba
+              
+              // Procurar por nomes mais específicos
+              const servicosPatterns = ['serviço', 'servico', 'os', 'ordem', 'service'];
+              for (const pattern of servicosPatterns) {
+                const found = sheetNames.find(name => 
+                  name.toLowerCase().includes(pattern.toLowerCase())
+                );
+                if (found) {
+                  servicosSheet = found;
+                  break;
+                }
+              }
+            }
+            
+            // Detectar aba BASE
+            const basePatterns = ['base', 'BASE'];
+            for (const pattern of basePatterns) {
+              const found = sheetNames.find(name => 
+                name.toLowerCase().includes(pattern.toLowerCase())
+              );
+              if (found) {
+                baseSheet = found;
+                break;
+              }
+            }
+            
+            console.log("[ImportData] Abas detectadas:", { servicos: servicosSheet, base: baseSheet });
+            
+            if (!servicosSheet && !baseSheet) {
+              throw new Error("Nenhuma aba de serviços ou BASE foi encontrada. Verifique se o arquivo contém as abas corretas.");
+            }
+            
+            let processedServiceOrders = 0;
+            let processedBaseData = 0;
+            let totalProcessedServices = 0;
+            let totalProcessedBase = 0;
+            let hasValidData = false;
+            
+            // Processar aba de serviços
+            if (servicosSheet) {
+              const servicosWorksheet = workbook.Sheets[servicosSheet];
+              const servicosJsonData = XLSX.utils.sheet_to_json(servicosWorksheet, { defval: null, raw: false });
+              
+              if (servicosJsonData && servicosJsonData.length > 0) {
+                console.log("[ImportData] Processando", servicosJsonData.length, "registros de serviços");
+                try {
+                  const processedServices = processData(servicosJsonData as Record<string, unknown>[]);
+                  const result = importServiceOrders(processedServices, true);
+                  processedServiceOrders = result.newRecords;
+                  totalProcessedServices = result.totalProcessed;
+                  hasValidData = true;
+                  console.log(`[ImportData] Serviços: ${result.totalProcessed} processados, ${result.newRecords} novos, ${result.duplicatesIgnored} duplicados`);
+                } catch (serviceError) {
+                  console.warn("[ImportData] Erro ao processar serviços:", serviceError);
+                  // Continuar processamento mesmo se houver erro nos serviços
+                }
+              }
+            }
+            
+            // Processar aba BASE
+            if (baseSheet) {
+              const baseWorksheet = workbook.Sheets[baseSheet];
+              const baseJsonData = XLSX.utils.sheet_to_json(baseWorksheet, { defval: null, raw: false });
+              
+              if (baseJsonData && baseJsonData.length > 0) {
+                console.log("[ImportData] Processando", baseJsonData.length, "registros BASE");
+                try {
+                  const processedBase = processBaseData(baseJsonData as Record<string, unknown>[]);
+                  const result = importBaseData(processedBase, true);
+                  processedBaseData = result.newRecords;
+                  totalProcessedBase = result.totalProcessed;
+                  hasValidData = true;
+                  console.log(`[ImportData] BASE: ${result.totalProcessed} processados, ${result.newRecords} novos, ${result.duplicatesIgnored} duplicados`);
+                } catch (baseError) {
+                  console.warn("[ImportData] Erro ao processar BASE:", baseError);
+                  // Continuar mesmo se houver erro no BASE
+                }
+              }
+            }
+            
+            // Verificar se pelo menos algum dado foi encontrado e processado
+            if (!hasValidData) {
+              throw new Error("Nenhum dado válido encontrado nas abas processadas. Verifique se as abas contêm dados ou se os campos obrigatórios estão presentes.");
+            }
+            
+            // Se dados foram processados mas nenhum é novo, mostrar mensagem informativa
+            if (processedServiceOrders === 0 && processedBaseData === 0 && (totalProcessedServices > 0 || totalProcessedBase > 0)) {
+              toast({
+                title: "Importação de Serviços e Base concluída!",
+                description: "Nenhum novo registro foi adicionado (todos já existiam).",
+                variant: "default"
+              });
+              
+              setProgress(100);
+              setFile(null);
+              setProcessing(false);
+              return;
+            }
+            
+            // Mensagem de sucesso baseada nos dados processados
+            const detalhes = [];
+            if (processedServiceOrders > 0) {
+              detalhes.push(`${processedServiceOrders} Nova${processedServiceOrders > 1 ? 's' : ''} ordem${processedServiceOrders > 1 ? 's' : ''} de serviço`);
+            }
+            if (processedBaseData > 0) {
+              detalhes.push(`${processedBaseData} Novo${processedBaseData > 1 ? 's' : ''} registro${processedBaseData > 1 ? 's' : ''} BASE`);
+            }
+            
+            const totalNovos = processedServiceOrders + processedBaseData;
+            
+            toast({
+              title: "Importação de Serviços + BASE concluída",
+              description: totalNovos > 0 
+                ? `Foram adicionados:\n${detalhes.join('\n')}`
+                : "Nenhum novo registro foi adicionado (todos já existiam)."
+            });
+            
+            setProgress(100);
+            setFile(null);
+            setProcessing(false);
+            return;
+          }
+          
+          // Para outros tipos de importação, usar o processamento padrão (uma planilha)
           const sheetName = workbook.SheetNames[0];
           const sheet = workbook.Sheets[sheetName];
           
@@ -4360,7 +6405,10 @@ function ImportData() {
           const data = XLSX.utils.sheet_to_json(sheet);
           
           setProgress(75);
-          console.log(`Processando ${data.length} linhas da planilha`);
+          // Log otimizado
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Processando ${data.length} linhas da planilha`);
+    }
           
           if (data.length === 0) {
             setError("A planilha parece estar vazia");
@@ -4371,34 +6419,16 @@ function ImportData() {
           
           try {
             // Processar dados conforme o tipo de importação selecionado
-            if (importType === 'os') {
-              // Processamento existente para ordens de serviço
-              const processedOrders = processData(data as Record<string, unknown>[]);
-              importServiceOrders(processedOrders, true);
-              
-              toast({
-                title: "Importação concluída",
-                description: `${processedOrders.length} ordens de serviço foram adicionadas com sucesso.`
-              });
-            } 
-            else if (importType === 'vendas') {
-              // Processamento para vendas
-              const processedVendas = processVendas(data as Record<string, unknown>[]);
-              importVendas(processedVendas, true);
-              
-              toast({
-                title: "Importação concluída",
-                description: `${processedVendas.length} vendas foram adicionadas com sucesso.`
-              });
-            }
-            else if (importType === 'pagamentos') {
+            if (importType === 'pagamentos') {
               // Processamento para pagamentos
               const processedPagamentos = processPagamentos(data as Record<string, unknown>[], toast);
-              importPrimeirosPagamentos(processedPagamentos, true);
+              const result = importPrimeirosPagamentos(processedPagamentos, true);
               
               toast({
                 title: "Importação concluída",
-                description: `${processedPagamentos.length} registros de primeiro pagamento foram adicionados com sucesso.`
+                description: result.newRecords > 0
+                  ? `Foram adicionados ${result.newRecords} primeiros pagamentos novos.`
+                  : "Nenhum novo primeiro pagamento foi adicionado (todos já existiam)."
               });
             }
             
@@ -4459,7 +6489,10 @@ function ImportData() {
       "Finalização"
     ];
     
-    console.log("Headers necessários:", REQUIRED_FIELDS);
+                  // Log otimizado
+              if (process.env.NODE_ENV === 'development') {
+                console.log("Headers necessários:", REQUIRED_FIELDS);
+              }
     console.log("Headers encontrados na planilha:", excelHeaders);
     
     const missingRequiredFields: string[] = [];
@@ -4798,13 +6831,46 @@ function ImportData() {
       const cidadeColumn = findColumnContaining("cidade");
       const bairroColumn = findColumnContaining("bairro");
       
-      if (!numeroProposta || !idVendedor || !nomeProprietario || !agrupamentoProduto || 
-          !produtoPrincipal || !valor || !statusProposta || !dataHabilitacao) {
-        throw new Error(`Não foi possível encontrar todas as colunas necessárias na linha ${index + 2}`);
+      // Buscar campos para produtos diferenciais
+      const produtosSecundariosColumn = findColumn("ProdutosSecundarios") || findColumn("produtos_secundarios");
+      const formaPagamentoColumn = findColumn("FormaPagamento") || findColumn("forma_pagamento");
+      
+      // Verificar se é produto Nova Parabólica (NP) para flexibilizar validação
+      const agrupamentoValue = String(row[agrupamentoProduto] || '').toUpperCase().trim();
+      const isNP = agrupamentoValue === 'NP' || agrupamentoValue.includes('NP') || agrupamentoValue.includes('NOVA PARABÓLICA');
+      
+      // Para produtos NP, só exigir campos essenciais: ID/Código do vendedor e Nome completo do proprietário
+      if (isNP) {
+        if (!idVendedor || !nomeProprietario || !agrupamentoProduto) {
+          throw new Error(`Para produtos Nova Parabólica (NP), são obrigatórios apenas: ID/Código do vendedor, Nome completo do proprietário e Agrupamento do Produto na linha ${index + 2}`);
+        }
+      } else {
+        // Para outros produtos, manter validação original
+        if (!numeroProposta || !idVendedor || !nomeProprietario || !agrupamentoProduto || 
+            !produtoPrincipal || !valor || !statusProposta || !dataHabilitacao) {
+          throw new Error(`Não foi possível encontrar todas as colunas necessárias na linha ${index + 2}`);
+        }
       }
       
+      // Para produtos NP, gerar valores padrão para campos não obrigatórios
+      const generateNPDefaults = () => {
+        const currentDate = new Date().toISOString();
+        const vendedorId = String(row[idVendedor]);
+        const timestamp = Date.now();
+        
+        return {
+          numero_proposta: numeroProposta && row[numeroProposta] ? String(row[numeroProposta]) : `NP-${vendedorId}-${timestamp}`,
+          produto_principal: produtoPrincipal && row[produtoPrincipal] ? String(row[produtoPrincipal]) : "Nova Parabólica",
+          valor: valor && row[valor] ? parseValue(String(row[valor])) : 0,
+          status_proposta: statusProposta && row[statusProposta] ? String(row[statusProposta]) : "HABILITADO",
+          data_habilitacao: dataHabilitacao && row[dataHabilitacao] ? formatDate(String(row[dataHabilitacao])) : currentDate
+        };
+      };
+      
+      const npDefaults = isNP ? generateNPDefaults() : null;
+      
       const venda: Venda = {
-        numero_proposta: String(row[numeroProposta]),
+        numero_proposta: isNP ? npDefaults!.numero_proposta : String(row[numeroProposta]),
         id_vendedor: String(row[idVendedor]),
         nome_proprietario: String(row[nomeProprietario]),
         cpf: cpfColumn ? String(row[cpfColumn] || "") : "",
@@ -4813,10 +6879,13 @@ function ImportData() {
         cidade: cidadeColumn ? String(row[cidadeColumn] || "") : "",
         bairro: bairroColumn ? String(row[bairroColumn] || "") : "",
         agrupamento_produto: String(row[agrupamentoProduto]),
-        produto_principal: String(row[produtoPrincipal]),
-        valor: parseValue(String(row[valor])),
-        status_proposta: String(row[statusProposta]),
-        data_habilitacao: formatDate(String(row[dataHabilitacao]))
+        produto_principal: isNP ? npDefaults!.produto_principal : String(row[produtoPrincipal]),
+        valor: isNP ? npDefaults!.valor : parseValue(String(row[valor])),
+        status_proposta: isNP ? npDefaults!.status_proposta : String(row[statusProposta]),
+        data_habilitacao: isNP ? npDefaults!.data_habilitacao : formatDate(String(row[dataHabilitacao])),
+        // Campos para produtos diferenciais
+        produtos_secundarios: produtosSecundariosColumn ? String(row[produtosSecundariosColumn] || "") : undefined,
+        forma_pagamento: formaPagamentoColumn ? String(row[formaPagamentoColumn] || "") : undefined
       };
       
       return venda;
@@ -5037,6 +7106,311 @@ function ImportData() {
     return formattedData;
   };
 
+  // Função para processar vendas de meta
+  const processVendasMeta = (data: Record<string, unknown>[]): VendaMeta[] => {
+    if (data.length === 0) {
+      throw new Error("Nenhum dado de vendas de meta encontrado para processamento");
+    }
+    
+    const firstRow = data[0];
+    const excelHeaders = Object.keys(firstRow);
+    
+    // Campos esperados na planilha VENDAS META (mesmos nomes da VENDAS PERMANENCIA)
+    const REQUIRED_FIELDS = [
+      "Número da proposta",
+      "ID/Código do vendedor", 
+      "Agrupamento do Produto",
+      "Produto principal",
+      "Valor",
+      "Data da Habilitação"
+    ];
+    
+    console.log("Headers encontrados na planilha VENDAS META:", excelHeaders);
+    
+    // Verificar se todos os campos obrigatórios estão presentes
+    const missingFields = REQUIRED_FIELDS.filter(field => !excelHeaders.includes(field));
+    if (missingFields.length > 0) {
+      throw new Error(`Campos obrigatórios ausentes na planilha VENDAS META: ${missingFields.join(", ")}`);
+    }
+    
+    const processedVendasMeta: VendaMeta[] = [];
+    
+    data.forEach((row, index) => {
+      try {
+        const numeroPropostaRaw = row["Número da proposta"];
+        const valorRaw = row["Valor"];
+        const dataHabilitacaoRaw = row["Data da Habilitação"];
+        const idVendedorRaw = row["ID/Código do vendedor"];
+        const agrupamentoProdutoRaw = row["Agrupamento do Produto"];
+        const produtoPrincipalRaw = row["Produto principal"];
+        const produtosSecundariosRaw = row["ProdutosSecundarios"];
+        const cidadeRaw = row["Cidade"];
+        const formaPagamentoRaw = row["FormaPagamento"];
+        
+        // Verificar se é produto Nova Parabólica (NP) para flexibilizar validação
+        const agrupamentoValue = String(agrupamentoProdutoRaw || '').toUpperCase().trim();
+        const isNP = agrupamentoValue === 'NP' || agrupamentoValue.includes('NP') || agrupamentoValue.includes('NOVA PARABÓLICA');
+        
+        // Para produtos NP, só exigir campos essenciais: ID/Código do vendedor
+        if (isNP) {
+          if (!idVendedorRaw || !agrupamentoProdutoRaw) {
+            console.warn(`Linha ${index + 2}: Para produtos Nova Parabólica (NP), são obrigatórios apenas: ID/Código do vendedor e Agrupamento do Produto, pulando linha`);
+            return;
+          }
+        } else {
+          // Para outros produtos, manter validação original
+          if (!numeroPropostaRaw || !valorRaw || !dataHabilitacaoRaw || !idVendedorRaw) {
+            console.warn(`Linha ${index + 2}: Campos obrigatórios ausentes, pulando linha`);
+            return;
+          }
+        }
+        
+        // Para produtos NP, gerar valores padrão para campos não obrigatórios
+        const generateNPDefaultsMeta = () => {
+          const currentDate = new Date();
+          const vendedorId = String(idVendedorRaw);
+          const timestamp = Date.now();
+          
+          return {
+            numero_proposta: numeroPropostaRaw ? String(numeroPropostaRaw) : `NP-META-${vendedorId}-${timestamp}`,
+            valor: valorRaw ? (typeof valorRaw === 'number' ? valorRaw : parseFloat(String(valorRaw).replace(/[R$\s.,]/g, '').replace(',', '.')) || 0) : 0,
+            data_habilitacao: dataHabilitacaoRaw ? (dataHabilitacaoRaw instanceof Date ? dataHabilitacaoRaw.toISOString().split('T')[0] : String(dataHabilitacaoRaw)) : currentDate.toISOString().split('T')[0],
+            produto_principal: produtoPrincipalRaw ? String(produtoPrincipalRaw) : "Nova Parabólica",
+            mes: currentDate.getMonth() + 1,
+            ano: currentDate.getFullYear()
+          };
+        };
+        
+        // Processar valores normais ou usar padrões para NP
+        let valor = 0;
+        let dataHabilitacao = '';
+        let mes = 0;
+        let ano = 0;
+        
+        if (isNP) {
+          const npDefaults = generateNPDefaultsMeta();
+          valor = npDefaults.valor;
+          dataHabilitacao = npDefaults.data_habilitacao;
+          mes = npDefaults.mes;
+          ano = npDefaults.ano;
+        } else {
+          // Processar valor normalmente
+          if (typeof valorRaw === 'number') {
+            valor = valorRaw;
+          } else if (typeof valorRaw === 'string') {
+            valor = parseFloat(valorRaw.replace(/[R$\s.,]/g, '').replace(',', '.')) || 0;
+          }
+          
+          // Processar data normalmente
+          if (dataHabilitacaoRaw instanceof Date) {
+            dataHabilitacao = dataHabilitacaoRaw.toISOString().split('T')[0];
+          } else if (typeof dataHabilitacaoRaw === 'string') {
+            dataHabilitacao = dataHabilitacaoRaw;
+          }
+          
+          // Extrair mês e ano da data de habilitação
+          const dataObj = new Date(dataHabilitacao);
+          mes = dataObj.getMonth() + 1;
+          ano = dataObj.getFullYear();
+        }
+        
+        // Debug do campo ProdutosSecundarios
+                  // console.log(`[DEBUG PRODUTOS_SEC] Linha ${index + 2}: ProdutosSecundarios = "${produtosSecundariosRaw}"`);
+        
+        const npDefaults = isNP ? generateNPDefaultsMeta() : null;
+        
+        const vendaMeta = {
+          numero_proposta: isNP ? npDefaults!.numero_proposta : String(numeroPropostaRaw),
+          valor: valor,
+          data_venda: dataHabilitacao,
+          vendedor: String(idVendedorRaw),
+          categoria: String(agrupamentoProdutoRaw || ''),
+          produto: isNP ? npDefaults!.produto_principal : String(produtoPrincipalRaw || ''),
+          produtos_secundarios: String(produtosSecundariosRaw || ''),
+          cidade: String(cidadeRaw || ''),
+          forma_pagamento: String(formaPagamentoRaw || ''),
+          mes: mes,
+          ano: ano
+        };
+        
+        processedVendasMeta.push(vendaMeta);
+        
+      } catch (error) {
+        console.error(`Erro ao processar linha ${index + 2}:`, error);
+      }
+    });
+    
+    console.log(`Processadas ${processedVendasMeta.length} vendas de meta de ${data.length} linhas`);
+    return processedVendasMeta;
+  };
+
+  // Função para processar dados BASE
+  const processBaseData = (data: Record<string, unknown>[]): Array<{mes: string; base_tv: number; base_fibra: number; alianca: number}> => {
+    if (data.length === 0) {
+      throw new Error("Nenhum dado BASE encontrado para processamento");
+    }
+    
+    const processedBaseData = data.map((row, index) => {
+      const parseNumericValue = (value: unknown): number => {
+        if (value === null || value === undefined || value === "") return 0;
+        
+        const numValue = typeof value === 'number' ? value : parseFloat(String(value).replace(/[^\d.-]/g, ''));
+        return isNaN(numValue) ? 0 : numValue;
+      };
+      
+      // Mapear campos da planilha BASE
+      const baseItem = {
+        mes: String(row["MÊS"] || row["MES"] || row["Mês"] || `Mês ${index + 1}`),
+        base_tv: parseNumericValue(row["BASE TV"] || row["BASE_TV"] || row["base_tv"]),
+        base_fibra: parseNumericValue(row["BASE FIBRA"] || row["BASE_FIBRA"] || row["base_fibra"]),
+        alianca: parseNumericValue(row["ALIANCA"] || row["ALIANÇA"] || row["alianca"])
+      };
+      
+      console.log(`[BASE DATA] Linha ${index + 1}:`, baseItem);
+      return baseItem;
+    });
+    
+    console.log(`[BASE DATA] Processados ${processedBaseData.length} registros BASE`);
+    return processedBaseData;
+  };
+
+  // Função para processar metas
+  const processMetas = (data: Record<string, unknown>[]): Array<{
+    mes: number;
+    ano: number;
+    pos_pago: number;
+    flex_conforto: number;
+    nova_parabolica: number;
+    total: number;
+    fibra: number;
+    seguros_pos: number;
+    seguros_fibra: number;
+    sky_mais: number;
+    data_criacao: string;
+    data_atualizacao: string;
+  }> => {
+    if (data.length === 0) {
+      throw new Error("Nenhum dado de metas encontrado para processamento");
+    }
+    
+    const firstRow = data[0];
+    const excelHeaders = Object.keys(firstRow);
+    
+    // Campos esperados na planilha METAS (conforme sua imagem)
+    const REQUIRED_FIELDS = [
+      "MÊS", "ANO", "PÓS-PAGO", "FLEX/CONFORTO", "NOVA PARABÓLICA", 
+      "TOTAL", "FIBRA", "SEGUROS POS", "SEGUROS FIBRA", "SKY MAIS"
+    ];
+    
+    console.log("Headers encontrados na planilha METAS:", excelHeaders);
+    
+    // Verificar se todos os campos obrigatórios estão presentes
+    const missingFields = REQUIRED_FIELDS.filter(field => !excelHeaders.includes(field));
+    if (missingFields.length > 0) {
+      throw new Error(`Campos obrigatórios ausentes na planilha METAS: ${missingFields.join(", ")}`);
+    }
+    
+    const processedMetas: Array<{
+      mes: number;
+      ano: number;
+      pos_pago: number;
+      flex_conforto: number;
+      nova_parabolica: number;
+      total: number;
+      fibra: number;
+      seguros_pos: number;
+      seguros_fibra: number;
+      sky_mais: number;
+      data_criacao: string;
+      data_atualizacao: string;
+    }> = [];
+    
+    data.forEach((row, index) => {
+      try {
+        const mesRaw = row["MÊS"];
+        const anoRaw = row["ANO"];
+        const posPagoRaw = row["PÓS-PAGO"];
+        const flexConfortoRaw = row["FLEX/CONFORTO"];
+        const novaParabolicaRaw = row["NOVA PARABÓLICA"];
+        const totalRaw = row["TOTAL"];
+        const fibraRaw = row["FIBRA"];
+        const segurosPosRaw = row["SEGUROS POS"];
+        const segurosFibraRaw = row["SEGUROS FIBRA"];
+        const skyMaisRaw = row["SKY MAIS"];
+        
+        // Validar campos obrigatórios
+        if (!mesRaw || !anoRaw) {
+          console.warn(`Linha ${index + 2}: Mês ou ano ausente, pulando linha`);
+          return;
+        }
+        
+        // Processar valores numéricos
+        const parseNumber = (value: unknown): number => {
+          if (typeof value === 'number') return value;
+          if (typeof value === 'string') {
+            return parseFloat(value.replace(/[R$\s.,]/g, '').replace(',', '.')) || 0;
+          }
+          return 0;
+        };
+        
+        // Função para converter nome do mês em número
+        const convertMesParaNumero = (mesValue: unknown): number => {
+          if (typeof mesValue === 'number') return mesValue;
+          
+          const mesString = String(mesValue).toLowerCase().trim();
+          const mesesMap: Record<string, number> = {
+            'janeiro': 1, 'jan': 1,
+            'fevereiro': 2, 'fev': 2,
+            'março': 3, 'mar': 3, 'marco': 3,
+            'abril': 4, 'abr': 4,
+            'maio': 5, 'mai': 5,
+            'junho': 6, 'jun': 6,
+            'julho': 7, 'jul': 7,
+            'agosto': 8, 'ago': 8,
+            'setembro': 9, 'set': 9,
+            'outubro': 10, 'out': 10,
+            'novembro': 11, 'nov': 11,
+            'dezembro': 12, 'dez': 12
+          };
+          
+          return mesesMap[mesString] || parseInt(mesString) || 0;
+        };
+        
+        // console.log(`[DEBUG processMetas] Linha ${index + 2}: mesRaw =`, mesRaw, 'tipo:', typeof mesRaw);
+        // console.log(`[DEBUG processMetas] Linha ${index + 2}: anoRaw =`, anoRaw, 'tipo:', typeof anoRaw);
+        
+        const mes = convertMesParaNumero(mesRaw);
+        const ano = typeof anoRaw === 'number' ? anoRaw : parseInt(String(anoRaw));
+        
+        // console.log(`[DEBUG processMetas] Linha ${index + 2}: mes processado =`, mes);
+        // console.log(`[DEBUG processMetas] Linha ${index + 2}: ano processado =`, ano);
+        
+        const meta = {
+          mes: mes,
+          ano: ano,
+          pos_pago: parseNumber(posPagoRaw),
+          flex_conforto: parseNumber(flexConfortoRaw),
+          nova_parabolica: parseNumber(novaParabolicaRaw),
+          total: parseNumber(totalRaw),
+          fibra: parseNumber(fibraRaw),
+          seguros_pos: parseNumber(segurosPosRaw),
+          seguros_fibra: parseNumber(segurosFibraRaw),
+          sky_mais: parseNumber(skyMaisRaw),
+          data_criacao: new Date().toISOString(),
+          data_atualizacao: new Date().toISOString()
+        };
+        
+        processedMetas.push(meta);
+        
+      } catch (error) {
+        console.error(`Erro ao processar linha ${index + 2}:`, error);
+      }
+    });
+    
+    console.log(`Processadas ${processedMetas.length} metas de ${data.length} linhas`);
+    return processedMetas;
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -5051,28 +7425,28 @@ function ImportData() {
                 <Label className="mb-2 block">Tipo de Importação</Label>
                 <div className="flex flex-wrap gap-2">
                   <Button
-                    onClick={() => setImportType('os')}
-                    variant={importType === 'os' ? 'default' : 'outline'}
-                    className="flex-1"
-                  >
-                    <FileIcon className="mr-2 h-4 w-4" />
-                    Ordens de Serviço
-                  </Button>
-                  <Button
-                    onClick={() => setImportType('vendas')}
-                    variant={importType === 'vendas' ? 'default' : 'outline'}
-                    className="flex-1"
-                  >
-                    <FileIcon className="mr-2 h-4 w-4" />
-                    Vendas
-                  </Button>
-                  <Button
                     onClick={() => setImportType('pagamentos')}
                     variant={importType === 'pagamentos' ? 'default' : 'outline'}
                     className="flex-1"
                   >
                     <FileIcon className="mr-2 h-4 w-4" />
-                    Primeiro Pagamento
+                    Primeiro Pagamento (Icare)
+                  </Button>
+                  <Button
+                    onClick={() => setImportType('metas')}
+                    variant={importType === 'metas' ? 'default' : 'outline'}
+                    className="flex-1"
+                  >
+                    <Target className="mr-2 h-4 w-4" />
+                    Comercial (Vendas Permanencia, Vendas Atual e Metas)
+                  </Button>
+                  <Button
+                    onClick={() => setImportType('servicos-base')}
+                    variant={importType === 'servicos-base' ? 'default' : 'outline'}
+                    className="flex-1"
+                  >
+                    <FileIcon className="mr-2 h-4 w-4" />
+                    Operacional (Serviços e Base)
                   </Button>
                 </div>
               </div>
@@ -5152,68 +7526,126 @@ function ImportData() {
               </p>
             </div>
             
-            {importType === 'os' && (
-              <div>
-                <h3 className="text-sm font-semibold mb-2">Campos Obrigatórios - Ordens de Serviço</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-                  <div>• Código OS</div>
-                  <div>• ID Técnico</div>
-                  <div>• Técnico</div>
-                  <div>• SGL</div>
-                  <div>• Tipo de serviço</div>
-                  <div>• Sub-Tipo de serviço</div>
-                  <div>• Motivo</div>
-                  <div>• Código Cliente</div>
-                  <div>• Cliente</div>
-                  <div>• Status</div>
-                  <div>• Criação</div>
-                  <div>• Finalização</div>
-                </div>
-                <h3 className="text-sm font-semibold mb-2 mt-4">Campos Opcionais - Ordens de Serviço</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-                  <div>• Cidade</div>
-                  <div>• Bairro</div>
-                  <div>• Info: ponto_de_ref</div>
-                  <div>• Info: info_cto</div>
-                  <div>• Info: info_porta</div>
-                  <div>• Info: info_endereco_completo</div>
-                  <div>• Info: info_empresa_parceira</div>
-                  <div>• Ação Tomada</div>
-                </div>
-              </div>
-            )}
-            
-            {importType === 'vendas' && (
-              <div>
-                <h3 className="text-sm font-semibold mb-2">Campos Obrigatórios - Vendas</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-                  <div>• Número da proposta</div>
-                  <div>• ID/Código do vendedor</div>
-                  <div>• Nome completo do proprietário</div>
-                  <div>• Agrupamento do Produto</div>
-                  <div>• Produto principal</div>
-                  <div>• Valor</div>
-                  <div>• Status da Proposta</div>
-                  <div>• Data da Habilitação</div>
-                </div>
-                <h3 className="text-sm font-semibold mb-2 mt-4">Campos Opcionais - Vendas</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-                  <div>• CPF</div>
-                  <div>• Nome Fantasia</div>
-                  <div>• Cidade</div>
-                  <div>• Bairro</div>
-                </div>
-              </div>
-            )}
-            
+
             {importType === 'pagamentos' && (
               <div>
-                <h3 className="text-sm font-semibold mb-2">Campos Obrigatórios - Primeiro Pagamento</h3>
+                <h3 className="text-sm font-semibold mb-2">Campos Obrigatórios - Primeiro Pagamento (Icare)</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
                   <div>• Proposta</div>
                   <div>• Passo</div>
                   <div>• Vencimento da Fatura</div>
                   <div>• Status do Pacote</div>
+                </div>
+              </div>
+            )}
+            
+            {importType === 'metas' && (
+              <div>
+                <h3 className="text-sm font-semibold mb-2">Importação Comercial - 3 Planilhas</h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  O arquivo Excel deve conter <strong>exatamente 3 planilhas</strong> com os nomes:
+                </p>
+                
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-semibold mb-1">Planilha: "VENDAS PERMANENCIA" (Vendas Permanência)</h4>
+                    <p className="text-xs text-muted-foreground mb-2">Usar o mesmo formato da importação de vendas normais</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs">
+                      <div>• Número da proposta</div>
+                      <div>• ID/Código do vendedor</div>
+                      <div>• Nome completo do proprietário</div>
+                      <div>• Agrupamento do Produto</div>
+                      <div>• Produto principal</div>
+                      <div>• Valor</div>
+                      <div>• Status da Proposta</div>
+                      <div>• Data da Habilitação</div>
+                    </div>
+                    <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-xs">
+                      <p className="font-medium text-orange-800">⚡ Nova Parabólica (NP) - Inserção Simplificada:</p>
+                      <p className="text-orange-700">Para produtos com agrupamento "NP", apenas <strong>ID/Código do vendedor</strong> e <strong>Nome completo do proprietário</strong> são obrigatórios. Os demais campos serão preenchidos automaticamente.</p>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h4 className="text-sm font-semibold mb-1">Planilha: "VENDAS META" (Vendas Atual)</h4>
+                    <p className="text-xs text-muted-foreground mb-2">Usar o mesmo formato da importação de vendas normais</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs">
+                      <div>• Número da proposta</div>
+                      <div>• ID/Código do vendedor</div>
+                      <div>• Agrupamento do Produto</div>
+                      <div>• Produto principal</div>
+                      <div>• Valor</div>
+                      <div>• Data da Habilitação</div>
+                    </div>
+                    <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-xs">
+                      <p className="font-medium text-orange-800">⚡ Nova Parabólica (NP) - Inserção Simplificada:</p>
+                      <p className="text-orange-700">Para produtos com agrupamento "NP", apenas <strong>ID/Código do vendedor</strong> é obrigatório. Os demais campos serão preenchidos automaticamente.</p>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h4 className="text-sm font-semibold mb-1">Planilha: "METAS" (Metas Comerciais)</h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs">
+                      <div>• MÊS</div>
+                      <div>• ANO</div>
+                      <div>• PÓS-PAGO</div>
+                      <div>• FLEX/CONFORTO</div>
+                      <div>• NOVA PARABÓLICA</div>
+                      <div>• TOTAL</div>
+                      <div>• FIBRA</div>
+                      <div>• SEGUROS POS</div>
+                      <div>• SEGUROS FIBRA</div>
+                      <div>• SKY MAIS</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {importType === 'servicos-base' && (
+              <div>
+                <h3 className="text-sm font-semibold mb-2">Importação Operacional - 2 Planilhas</h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  O arquivo Excel deve conter <strong>2 planilhas</strong>:
+                </p>
+                
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-semibold mb-1">Primeira Planilha: Dados de Serviços (Operacional)</h4>
+                    <p className="text-xs text-muted-foreground mb-2">Nome sugerido: "SERVICOS" ou similar</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs">
+                      <div>• Código OS</div>
+                      <div>• ID Técnico</div>
+                      <div>• Técnico</div>
+                      <div>• SGL</div>
+                      <div>• Tipo de serviço</div>
+                      <div>• Sub-Tipo de serviço</div>
+                      <div>• Motivo</div>
+                      <div>• Código Cliente</div>
+                      <div>• Cliente</div>
+                      <div>• Status</div>
+                      <div>• Criação</div>
+                      <div>• Finalização</div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h4 className="text-sm font-semibold mb-1">Segunda Planilha: "BASE" (Dados Base)</h4>
+                    <p className="text-xs text-muted-foreground mb-2">Nome obrigatório: "BASE"</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs">
+                      <div>• MÊS</div>
+                      <div>• BASE TV</div>
+                      <div>• BASE FIBRA</div>
+                      <div>• ALIANCA</div>
+                    </div>
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                      <p className="font-medium text-blue-800">Exemplo de dados BASE:</p>
+                      <p>MÊS: Janeiro, Fevereiro, Março...</p>
+                      <p>BASE TV: 1500, 1520, 1480...</p>
+                      <p>BASE FIBRA: 2300, 2350, 2400...</p>
+                      <p>ALIANCA: 800, 820, 850...</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -5464,7 +7896,10 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   // Obter valores únicos para os filtros
   const siglas = useMemo(() => {
     const valores = new Set<string>();
-    vendas.forEach(venda => {
+    // Usar vendas filtradas pelos filtros de permanência se houver filtros aplicados
+    const vendasParaUsar = (filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) ? vendasFiltradas : vendas;
+    
+    vendasParaUsar.forEach(venda => {
       const agrupamento = venda.agrupamento_produto || '';
       const produto = venda.produto_principal || '';
       
@@ -5474,15 +7909,18 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
       if (produto.includes('BL-DGO')) valores.add('BL-DGO');
     });
     return Array.from(valores);
-  }, [vendas]);
+  }, [vendas, vendasFiltradas, filtroMesPermanencia, filtroAnoPermanencia]);
   
   const vendedoresUnicos = useMemo(() => {
     const valores = new Set<string>();
-    vendas.forEach(venda => {
+    // Usar vendas filtradas pelos filtros de permanência se houver filtros aplicados
+    const vendasParaUsar = (filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) ? vendasFiltradas : vendas;
+    
+    vendasParaUsar.forEach(venda => {
       if (venda.nome_proprietario) valores.add(venda.nome_proprietario);
     });
-    return Array.from(valores);
-  }, [vendas]);
+    return Array.from(valores).sort(); // Ordenar alfabeticamente
+  }, [vendas, vendasFiltradas, filtroMesPermanencia, filtroAnoPermanencia]);
   
   const passosUnicos = useMemo(() => {
     const valores = new Set<string>();
@@ -5510,7 +7948,10 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   
   const datasHabilitacaoUnicas = useMemo(() => {
     const valores = new Set<string>();
-    vendas.forEach(venda => {
+    // Usar vendas filtradas pelos filtros de permanência se houver filtros aplicados
+    const vendasParaUsar = (filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) ? vendasFiltradas : vendas;
+    
+    vendasParaUsar.forEach(venda => {
       if (venda.data_habilitacao) {
         // Normalizar a data para o formato YYYY-MM-DD
         const dataHabilitacao = new Date(venda.data_habilitacao);
@@ -5524,7 +7965,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
       const dataB = new Date(b);
       return dataA.getTime() - dataB.getTime(); // Ordem crescente (mais antigo primeiro)
     });
-  }, [vendas]);
+  }, [vendas, vendasFiltradas, filtroMesPermanencia, filtroAnoPermanencia]);
 
   // Obter meses únicos de permanência (baseado nas datas de habilitação + 4 meses)
   const mesesPermanenciaUnicos = useMemo(() => {
@@ -6030,6 +8471,17 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
       setFiltroBairro(bairrosFiltrados);
     }
   }, [bairrosUnicos, filtroBairro]);
+
+  // Limpar filtro de data de habilitação quando filtros de permanência mudam
+  useEffect(() => {
+    // Filtrar datas de habilitação selecionadas que ainda estão disponíveis
+    const datasDisponiveis = datasHabilitacaoUnicas;
+    const datasFiltradas = filtroDataHabilitacao.filter(data => datasDisponiveis.includes(data));
+    
+    if (datasFiltradas.length !== filtroDataHabilitacao.length) {
+      setFiltroDataHabilitacao(datasFiltradas);
+    }
+  }, [datasHabilitacaoUnicas, filtroDataHabilitacao]);
   
   return (
     <>
@@ -6542,6 +8994,37 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
 
 // Componente separado para o conteúdo da tab Vendedor
 function VendedorTabContent() {
+  // Estado para controlar a subguia ativa
+  const [activeVendedorTab, setActiveVendedorTab] = useState("permanencia");
+
+  return (
+    <Tabs value={activeVendedorTab} onValueChange={setActiveVendedorTab} className="space-y-4">
+      <TabsList className="grid w-full grid-cols-2">
+        <TabsTrigger value="permanencia" className="flex items-center">
+          <AlertTriangle className="mr-2 h-4 w-4" />
+          Permanência
+        </TabsTrigger>
+        <TabsTrigger value="desempenho" className="flex items-center">
+          <Target className="mr-2 h-4 w-4" />
+          Desempenho
+        </TabsTrigger>
+      </TabsList>
+
+      {/* Subguia Permanência */}
+      <TabsContent value="permanencia" className="space-y-4">
+        <VendedorPermanenciaContent />
+      </TabsContent>
+
+      {/* Subguia Desempenho */}
+      <TabsContent value="desempenho" className="space-y-4">
+        <VendedorDesempenhoContent />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+// Componente para o conteúdo da subguia Permanência
+function VendedorPermanenciaContent() {
   // Obter as métricas e dados de vendedor
   const dataContext = useData();
   const vendedorMetricsData = dataContext.calculateVendedorMetrics();
@@ -6752,12 +9235,89 @@ function VendedorTabContent() {
   // Calcular métricas
   const vendedoresPorSigla = useMemo(() => calcularMetricasPorVendedorESigla(), [calcularMetricasPorVendedorESigla]);
   
+  // Calcular totais por sigla
+  const totaisPorSigla = useMemo(() => {
+    const totais = {
+      POS: {
+        total: 0,
+        adimplentes: 0,
+        inadimplentes: 0,
+        cancelados: 0,
+        percentual_adimplencia: 0
+      },
+      "BL-DGO": {
+        total: 0,
+        adimplentes: 0,
+        inadimplentes: 0,
+        cancelados: 0,
+        percentual_adimplencia: 0
+      }
+    };
+
+    vendedoresPorSigla.forEach(vendedor => {
+      // Totais POS
+      totais.POS.total += vendedor.siglas.POS.total;
+      totais.POS.adimplentes += vendedor.siglas.POS.adimplentes;
+      totais.POS.inadimplentes += vendedor.siglas.POS.inadimplentes;
+      totais.POS.cancelados += vendedor.siglas.POS.cancelados;
+
+      // Totais BL-DGO
+      totais["BL-DGO"].total += vendedor.siglas["BL-DGO"].total;
+      totais["BL-DGO"].adimplentes += vendedor.siglas["BL-DGO"].adimplentes;
+      totais["BL-DGO"].inadimplentes += vendedor.siglas["BL-DGO"].inadimplentes;
+      totais["BL-DGO"].cancelados += vendedor.siglas["BL-DGO"].cancelados;
+    });
+
+    // Calcular percentuais
+    totais.POS.percentual_adimplencia = totais.POS.total > 0 ? (totais.POS.adimplentes / totais.POS.total) * 100 : 0;
+    totais["BL-DGO"].percentual_adimplencia = totais["BL-DGO"].total > 0 ? (totais["BL-DGO"].adimplentes / totais["BL-DGO"].total) * 100 : 0;
+
+    return totais;
+  }, [vendedoresPorSigla]);
+  
   // Função para obter a cor do percentual
   const getPercentualColor = useCallback((percentual: number) => {
     if (percentual <= 45.00) return "text-red-600";
-    if (percentual <= 60.00) return "text-amber-600";
+    if (percentual < 50.00) return "text-amber-600";
     return "text-green-600";
   }, []);
+
+  // Função para calcular os meses de referência das vendas baseado nos filtros de permanência
+  const calcularMesesReferencia = useCallback(() => {
+    if (filtroMesPermanencia.length === 0 || filtroAnoPermanencia.length === 0) {
+      return '';
+    }
+
+    const mesesMap = {
+      'Janeiro': 0, 'Fevereiro': 1, 'Março': 2, 'Abril': 3, 'Maio': 4, 'Junho': 5,
+      'Julho': 6, 'Agosto': 7, 'Setembro': 8, 'Outubro': 9, 'Novembro': 10, 'Dezembro': 11
+    };
+
+    const mesesNomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+    const referenciaInfo = filtroMesPermanencia.map(mesPermanencia => {
+      const mesIndex = mesesMap[mesPermanencia];
+      // Subtrair 4 meses para encontrar o mês de referência das vendas
+      let mesReferenciaIndex = mesIndex - 4;
+      let anoReferencia = parseInt(filtroAnoPermanencia[0]); // Assumindo que o primeiro ano é a referência
+
+      // Ajustar se o mês de referência for negativo (ano anterior)
+      if (mesReferenciaIndex < 0) {
+        mesReferenciaIndex += 12;
+        anoReferencia -= 1;
+      }
+
+      const mesReferencia = mesesNomes[mesReferenciaIndex];
+      return `${mesReferencia}/${anoReferencia}`;
+    });
+
+    if (referenciaInfo.length === 1) {
+      return `(Ref. Vendas: ${referenciaInfo[0]})`;
+    } else {
+      return `(Ref. Vendas: ${referenciaInfo.join(', ')})`;
+    }
+  }, [filtroMesPermanencia, filtroAnoPermanencia]);
   
   return (
     <>
@@ -6825,121 +9385,231 @@ function VendedorTabContent() {
       {/* Verificar se AMBOS os filtros de permanência estão selecionados */}
       {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) ? (
         <>
-          {/* Cartão para POS */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>
-            Desempenho POS
-          </CardTitle>
-          <CardDescription>
-            Análise de status de clientes por vendedor para serviços POS
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID Vendedor</TableHead>
-                  <TableHead className="text-center">Total</TableHead>
-                  <TableHead className="text-center">Adimplentes</TableHead>
-                  <TableHead className="text-center">Inadimplentes</TableHead>
-                  <TableHead className="text-center">Cancelados</TableHead>
-                  <TableHead className="text-center">% Adimplência</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {vendedoresPorSigla.length > 0 ? (
-                  vendedoresPorSigla.map((vendedor, index) => (
-                    <TableRow key={`pos-${index}`}>
-                      <TableCell className="font-medium">{vendedor.id_vendedor} - {vendedor.nome_vendedor}</TableCell>
-                      <TableCell className="text-center font-medium">
-                        {vendedor.siglas.POS.total}
-                      </TableCell>
-                      <TableCell className="text-center text-green-600 font-medium">
-                        {vendedor.siglas.POS.adimplentes}
-                      </TableCell>
-                      <TableCell className="text-center text-amber-600 font-medium">
-                        {vendedor.siglas.POS.inadimplentes}
-                      </TableCell>
-                      <TableCell className="text-center text-red-600 font-medium">
-                        {vendedor.siglas.POS.cancelados}
-                      </TableCell>
-                      <TableCell className={`text-center font-bold ${getPercentualColor(vendedor.siglas.POS.percentual_adimplencia)}`}>
-                        {vendedor.siglas.POS.percentual_adimplencia.toFixed(2)}%
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
-                      Nenhum dado de vendedor disponível para POS
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+          {/* Container para os cartões lado a lado */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
+            {/* Cartão para POS */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">
+                  Permanencia Individual - POS {calcularMesesReferencia()}
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Análise de status de clientes por vendedor para serviços POS
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-3">
+                  {totaisPorSigla.POS.total > 0 && (
+                  <div className="mb-4 p-3 bg-slate-50 rounded-lg border-l-4 border-slate-300">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-slate-700">Permanência Geral:</span>
+                        <div className="flex items-center space-x-2">
+                          <span className={`text-2xl font-bold ${getPercentualColor(totaisPorSigla.POS.percentual_adimplencia)}`}>
+                            {totaisPorSigla.POS.percentual_adimplencia.toFixed(2)}%
+                          </span>
+                          <span className="text-sm text-slate-500 font-medium">
+                            ({totaisPorSigla.POS.adimplentes}/{totaisPorSigla.POS.total})
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-gray-50">
+                        <TableHead className="font-semibold text-xs py-2 px-2">ID Vendedor</TableHead>
+                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Total</TableHead>
+                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Adimplentes</TableHead>
+                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Inadimplentes</TableHead>
+                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Cancelados</TableHead>
+                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">% Adimplência</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {vendedoresPorSigla.length > 0 ? (
+                        vendedoresPorSigla.map((vendedor, index) => (
+                          <TableRow key={`pos-${index}`} className="hover:bg-gray-50">
+                            <TableCell className="font-medium text-xs py-1 px-2 min-w-[160px]">
+                              <div className="whitespace-nowrap">
+                                {vendedor.id_vendedor} - {vendedor.nome_vendedor}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center font-medium text-xs py-1 px-1">
+                              {vendedor.siglas.POS.total}
+                            </TableCell>
+                            <TableCell className="text-center text-green-600 font-medium text-xs py-1 px-1">
+                              {vendedor.siglas.POS.adimplentes}
+                            </TableCell>
+                            <TableCell className="text-center text-amber-600 font-medium text-xs py-1 px-1">
+                              {vendedor.siglas.POS.inadimplentes}
+                            </TableCell>
+                            <TableCell className="text-center text-red-600 font-medium text-xs py-1 px-1">
+                              {vendedor.siglas.POS.cancelados}
+                            </TableCell>
+                            <TableCell className={`text-center font-bold text-xs py-1 px-1 ${getPercentualColor(vendedor.siglas.POS.percentual_adimplencia)}`}>
+                              {vendedor.siglas.POS.percentual_adimplencia.toFixed(2)}%
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-4 text-muted-foreground text-xs">
+                            Nenhum dado de vendedor disponível para POS
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      
+                      {/* Linha de total para POS */}
+                      {vendedoresPorSigla.length > 0 && totaisPorSigla.POS.total > 0 && (
+                        <TableRow className="bg-slate-100 border-t-2 border-slate-300 font-bold">
+                          <TableCell className="font-bold text-xs py-2 px-2">
+                            TOTAL GERAL
+                          </TableCell>
+                          <TableCell className="text-center font-bold text-xs py-2 px-1">
+                            {totaisPorSigla.POS.total}
+                          </TableCell>
+                          <TableCell className="text-center text-green-600 font-bold text-xs py-2 px-1">
+                            {totaisPorSigla.POS.adimplentes}
+                          </TableCell>
+                          <TableCell className="text-center text-amber-600 font-bold text-xs py-2 px-1">
+                            {totaisPorSigla.POS.inadimplentes}
+                          </TableCell>
+                          <TableCell className="text-center text-red-600 font-bold text-xs py-2 px-1">
+                            {totaisPorSigla.POS.cancelados}
+                          </TableCell>
+                          <TableCell className={`text-center font-bold text-xs py-2 px-1 ${getPercentualColor(totaisPorSigla.POS.percentual_adimplencia)}`}>
+                            {totaisPorSigla.POS.percentual_adimplencia.toFixed(2)}%
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
 
-      {/* Cartão para BL-DGO */}
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Desempenho FIBRA
-          </CardTitle>
-          <CardDescription>
-            Análise de status de clientes por vendedor para serviços FIBRA
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID Vendedor</TableHead>
-                  <TableHead className="text-center">Total</TableHead>
-                  <TableHead className="text-center">Adimplentes</TableHead>
-                  <TableHead className="text-center">Inadimplentes</TableHead>
-                  <TableHead className="text-center">Cancelados</TableHead>
-                  <TableHead className="text-center">% Adimplência</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {vendedoresPorSigla.length > 0 ? (
-                  vendedoresPorSigla.map((vendedor, index) => (
-                    <TableRow key={`bldgo-${index}`}>
-                      <TableCell className="font-medium">{vendedor.id_vendedor} - {vendedor.nome_vendedor}</TableCell>
-                      <TableCell className="text-center font-medium">
-                        {vendedor.siglas["BL-DGO"].total}
-                      </TableCell>
-                      <TableCell className="text-center text-green-600 font-medium">
-                        {vendedor.siglas["BL-DGO"].adimplentes}
-                      </TableCell>
-                      <TableCell className="text-center text-amber-600 font-medium">
-                        {vendedor.siglas["BL-DGO"].inadimplentes}
-                      </TableCell>
-                      <TableCell className="text-center text-red-600 font-medium">
-                        {vendedor.siglas["BL-DGO"].cancelados}
-                      </TableCell>
-                      <TableCell className={`text-center font-bold ${getPercentualColor(vendedor.siglas["BL-DGO"].percentual_adimplencia)}`}>
-                        {vendedor.siglas["BL-DGO"].percentual_adimplencia.toFixed(2)}%
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
-                      Nenhum dado de vendedor disponível para FIBRA
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+            {/* Cartão para BL-DGO */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">
+                  Permanencia Individual - FIBRA {calcularMesesReferencia()}
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Análise de status de clientes por vendedor para serviços FIBRA
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-3">
+                  {totaisPorSigla["BL-DGO"].total > 0 && (
+                  <div className="mb-4 p-3 bg-slate-50 rounded-lg border-l-4 border-slate-300">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-slate-700">Permanência Geral:</span>
+                        <div className="flex items-center space-x-2">
+                          <span className={`text-2xl font-bold ${getPercentualColor(totaisPorSigla["BL-DGO"].percentual_adimplencia)}`}>
+                            {totaisPorSigla["BL-DGO"].percentual_adimplencia.toFixed(2)}%
+                          </span>
+                          <span className="text-sm text-slate-500 font-medium">
+                            ({totaisPorSigla["BL-DGO"].adimplentes}/{totaisPorSigla["BL-DGO"].total})
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-gray-50">
+                        <TableHead className="font-semibold text-xs py-2 px-2">ID Vendedor</TableHead>
+                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Total</TableHead>
+                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Adimplentes</TableHead>
+                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Inadimplentes</TableHead>
+                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Cancelados</TableHead>
+                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">% Adimplência</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {vendedoresPorSigla.length > 0 ? (
+                        vendedoresPorSigla.map((vendedor, index) => (
+                          <TableRow key={`bldgo-${index}`} className="hover:bg-gray-50">
+                            <TableCell className="font-medium text-xs py-1 px-2 min-w-[160px]">
+                              <div className="whitespace-nowrap">
+                                {vendedor.id_vendedor} - {vendedor.nome_vendedor}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center font-medium text-xs py-1 px-1">
+                              {vendedor.siglas["BL-DGO"].total}
+                            </TableCell>
+                            <TableCell className="text-center text-green-600 font-medium text-xs py-1 px-1">
+                              {vendedor.siglas["BL-DGO"].adimplentes}
+                            </TableCell>
+                            <TableCell className="text-center text-amber-600 font-medium text-xs py-1 px-1">
+                              {vendedor.siglas["BL-DGO"].inadimplentes}
+                            </TableCell>
+                            <TableCell className="text-center text-red-600 font-medium text-xs py-1 px-1">
+                              {vendedor.siglas["BL-DGO"].cancelados}
+                            </TableCell>
+                            <TableCell className={`text-center font-bold text-xs py-1 px-1 ${getPercentualColor(vendedor.siglas["BL-DGO"].percentual_adimplencia)}`}>
+                              {vendedor.siglas["BL-DGO"].percentual_adimplencia.toFixed(2)}%
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-4 text-muted-foreground text-xs">
+                            Nenhum dado de vendedor disponível para FIBRA
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      
+                      {/* Linha de total para FIBRA */}
+                      {vendedoresPorSigla.length > 0 && totaisPorSigla["BL-DGO"].total > 0 && (
+                        <TableRow className="bg-slate-100 border-t-2 border-slate-300 font-bold">
+                          <TableCell className="font-bold text-xs py-2 px-2">
+                            TOTAL GERAL
+                          </TableCell>
+                          <TableCell className="text-center font-bold text-xs py-2 px-1">
+                            {totaisPorSigla["BL-DGO"].total}
+                          </TableCell>
+                          <TableCell className="text-center text-green-600 font-bold text-xs py-2 px-1">
+                            {totaisPorSigla["BL-DGO"].adimplentes}
+                          </TableCell>
+                          <TableCell className="text-center text-amber-600 font-bold text-xs py-2 px-1">
+                            {totaisPorSigla["BL-DGO"].inadimplentes}
+                          </TableCell>
+                          <TableCell className="text-center text-red-600 font-bold text-xs py-2 px-1">
+                            {totaisPorSigla["BL-DGO"].cancelados}
+                          </TableCell>
+                          <TableCell className={`text-center font-bold text-xs py-2 px-1 ${getPercentualColor(totaisPorSigla["BL-DGO"].percentual_adimplencia)}`}>
+                            {totaisPorSigla["BL-DGO"].percentual_adimplencia.toFixed(2)}%
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        </CardContent>
-      </Card>
+
+          {/* Gráficos de Permanência - Layout Lado a Lado (1:1) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Gráfico de Evolução da Permanência */}
+          <PermanenciaTrendChart
+            filtroMesPermanencia={filtroMesPermanencia}
+            filtroAnoPermanencia={filtroAnoPermanencia}
+            vendasFiltradas={vendasFiltradas}
+              chartHeight={400}
+              containerMaxWidth="none"
+            />
+
+            {/* Gráfico de Evolução da Permanência por Vendedor */}
+            <VendedorPermanenciaTrendChart
+              filtroMesPermanencia={filtroMesPermanencia}
+              filtroAnoPermanencia={filtroAnoPermanencia}
+              vendasFiltradas={vendasFiltradas}
+              chartHeight={400}
+              containerMaxWidth="none"
+          />
+          </div>
       
         </>
       ) : (
@@ -6963,6 +9633,899 @@ function VendedorTabContent() {
       {vendas.length === 0 && (
         <div className="mt-4 text-center text-sm text-muted-foreground">
           Importe arquivos de Vendas e Primeiro Pagamento para visualizar os dados por vendedor.
+        </div>
+      )}
+    </>
+  );
+}
+
+// Componente para o conteúdo da subguia Desempenho
+function VendedorDesempenhoContent() {
+  const dataContext = useData();
+  const { vendas, vendasMeta, mapearCategoriaVenda } = dataContext;
+
+  // Estados para filtros de Mês e Ano de Habilitação
+  const [filtroMesHabilitacao, setFiltroMesHabilitacao] = useState<string[]>([]);
+  const [filtroAnoHabilitacao, setFiltroAnoHabilitacao] = useState<string[]>([]);
+
+  // Função para extrair mês da data de habilitação
+  const extrairMesHabilitacao = useCallback((dataHabilitacao: string): string => {
+    const data = new Date(dataHabilitacao);
+    const meses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return meses[data.getMonth()];
+  }, []);
+
+  // Função para extrair ano da data de habilitação
+  const extrairAnoHabilitacao = useCallback((dataHabilitacao: string): number => {
+    const data = new Date(dataHabilitacao);
+    return data.getFullYear();
+  }, []);
+
+  // Função para extrair mês das vendas meta
+  const extrairMesVendaMeta = useCallback((mes: number): string => {
+    const meses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return meses[mes - 1]; // mes é 1-12, array é 0-11
+  }, []);
+
+  // Filtrar vendas baseado nos filtros de mês e ano de habilitação
+  const vendasFiltradas = useMemo(() => {
+    return vendas.filter(venda => {
+      if (!venda.data_habilitacao) return false;
+
+      // Extrair mês e ano de habilitação para esta venda
+      const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
+      const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
+
+      // Verificar se está nos filtros selecionados
+      const mesMatch = filtroMesHabilitacao.length === 0 || filtroMesHabilitacao.includes(mesHabilitacao);
+      const anoMatch = filtroAnoHabilitacao.length === 0 || filtroAnoHabilitacao.includes(anoHabilitacao.toString());
+
+      return mesMatch && anoMatch;
+    });
+  }, [vendas, filtroMesHabilitacao, filtroAnoHabilitacao, extrairMesHabilitacao, extrairAnoHabilitacao]);
+
+  // Filtrar vendas meta baseado nos filtros de mês e ano 
+  const vendasMetaFiltradas = useMemo(() => {
+    return vendasMeta.filter(vendaMeta => {
+      // Extrair mês e ano da venda meta
+      const mesVendaMeta = extrairMesVendaMeta(vendaMeta.mes);
+      const anoVendaMeta = vendaMeta.ano;
+
+      // Verificar se está nos filtros selecionados
+      const mesMatch = filtroMesHabilitacao.length === 0 || filtroMesHabilitacao.includes(mesVendaMeta);
+      const anoMatch = filtroAnoHabilitacao.length === 0 || filtroAnoHabilitacao.includes(anoVendaMeta.toString());
+
+      return mesMatch && anoMatch;
+    });
+  }, [vendasMeta, filtroMesHabilitacao, filtroAnoHabilitacao, extrairMesVendaMeta]);
+
+  // Obter meses únicos (vendas + vendas meta)
+  const mesesHabilitacaoUnicos = useMemo(() => {
+    const valores = new Set<string>();
+    
+    // Adicionar meses das vendas (data_habilitacao)
+    vendas.forEach(venda => {
+      if (venda.data_habilitacao) {
+        const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
+        valores.add(mesHabilitacao);
+      }
+    });
+    
+    // Adicionar meses das vendas meta (campo mes)
+    vendasMeta.forEach(vendaMeta => {
+      const mesVendaMeta = extrairMesVendaMeta(vendaMeta.mes);
+      valores.add(mesVendaMeta);
+    });
+    
+    // Ordenar por ordem natural dos meses
+    const ordenMeses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return ordenMeses.filter(mes => valores.has(mes));
+  }, [vendas, vendasMeta, extrairMesHabilitacao, extrairMesVendaMeta]);
+
+  // Obter anos únicos (vendas + vendas meta)
+  const anosHabilitacaoUnicos = useMemo(() => {
+    const valores = new Set<number>();
+    
+    // Adicionar anos das vendas (data_habilitacao)
+    vendas.forEach(venda => {
+      if (venda.data_habilitacao) {
+        const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
+        valores.add(anoHabilitacao);
+      }
+    });
+    
+    // Adicionar anos das vendas meta (campo ano)
+    vendasMeta.forEach(vendaMeta => {
+      valores.add(vendaMeta.ano);
+    });
+    
+    return Array.from(valores).sort((a, b) => a - b);
+  }, [vendas, vendasMeta, extrairAnoHabilitacao]);
+
+  // Opções para os filtros de Mês e Ano de Habilitação
+  const mesOptions = useMemo(() => mesesHabilitacaoUnicos.map(mes => ({
+    label: mes,
+    value: mes
+  })), [mesesHabilitacaoUnicos]);
+
+  const anoOptions = useMemo(() => anosHabilitacaoUnicos.map(ano => ({
+    label: ano.toString(),
+    value: ano.toString()
+  })), [anosHabilitacaoUnicos]);
+
+  // Função para calcular meses de referência baseado nos filtros
+  const calcularMesesReferencia = useCallback(() => {
+    if (filtroMesHabilitacao.length === 0 || filtroAnoHabilitacao.length === 0) {
+      return '';
+    }
+
+    const referencias = [];
+    for (const mes of filtroMesHabilitacao) {
+      for (const ano of filtroAnoHabilitacao) {
+        referencias.push(`${mes}/${ano}`);
+      }
+    }
+
+    if (referencias.length === 1) {
+      return `Ref. Habilitação: ${referencias[0]}`;
+    } else if (referencias.length <= 3) {
+      return `Ref. Habilitação: ${referencias.join(', ')}`;
+    } else {
+      return `Ref. Habilitação: ${referencias.slice(0, 2).join(', ')} e mais ${referencias.length - 2}`;
+    }
+  }, [filtroMesHabilitacao, filtroAnoHabilitacao]);
+
+  // Função para mapear categoria para os tipos do quadro
+  const mapearTipoParaQuadro = useCallback((categoria: string): string => {
+    switch (categoria) {
+      case 'pos_pago':
+        return 'POS';
+      case 'flex_conforto':
+        return 'PRE';
+      case 'nova_parabolica':
+        return 'NP';
+      case 'fibra':
+        return 'FIBRA';
+      case 'sky_mais':
+        return 'SKY+';
+      case 'seguros_pos':
+        return 'POS'; // Seguros POS somam com POS
+      case 'seguros_fibra':
+        return 'FIBRA'; // Seguros FIBRA somam com FIBRA
+      default:
+        return 'OUTROS';
+    }
+  }, []);
+
+  // Calcular ticket médio por vendedor (combinando vendas permanência + vendas meta)
+  const calcularTicketMedioVendedor = useMemo(() => {
+    if (vendasFiltradas.length === 0 && vendasMetaFiltradas.length === 0) return [];
+
+    // Mapear vendas por vendedor
+    const vendedoresMap = new Map<string, {
+      id_vendedor: string;
+      nome_vendedor: string;
+      valores: {
+        total: number;
+        POS: number;
+        PRE: number;
+        NP: number;
+        FIBRA: number;
+        'SKY+': number;
+      };
+    }>();
+
+    // Helper para adicionar vendedor ao map
+    const adicionarVendedor = (id: string, nome?: string) => {
+      if (!vendedoresMap.has(id)) {
+        vendedoresMap.set(id, {
+          id_vendedor: id,
+          nome_vendedor: nome || id,
+          valores: {
+            total: 0,
+            POS: 0,
+            PRE: 0,
+            NP: 0,
+            FIBRA: 0,
+            'SKY+': 0
+          }
+        });
+      }
+    };
+
+    // Processar vendas de permanência (meses anteriores) - usar dados filtrados
+    vendasFiltradas.forEach(venda => {
+      const id = venda.id_vendedor;
+      const valor = venda.valor || 0;
+      const categoria = mapearCategoriaVenda(venda);
+      const tipo = mapearTipoParaQuadro(categoria);
+
+      // Usar o nome do proprietário como fallback ou apenas o ID
+      const nomeVendedor = venda.nome_proprietario && venda.nome_proprietario !== id 
+        ? venda.nome_proprietario 
+        : id;
+
+      adicionarVendedor(id, nomeVendedor);
+
+      const vendedorData = vendedoresMap.get(id)!;
+      vendedorData.valores.total += valor;
+      
+      // Adicionar ao tipo específico
+      if (tipo === 'POS' || tipo === 'PRE' || tipo === 'NP' || tipo === 'FIBRA' || tipo === 'SKY+') {
+        vendedorData.valores[tipo as keyof typeof vendedorData.valores] += valor;
+      }
+    });
+
+    // Processar vendas meta (mês atual) - usar dados filtrados
+    vendasMetaFiltradas.forEach(vendaMeta => {
+      const id = vendaMeta.vendedor;
+      const valor = vendaMeta.valor || 0;
+      const categoria = mapearCategoriaVenda(vendaMeta);
+      const tipo = mapearTipoParaQuadro(categoria);
+
+      // Tentar buscar o nome nas vendas existentes ou usar o ID
+      const vendaExistente = vendas.find(v => v.id_vendedor === id);
+      const nomeVendedor = vendaExistente?.nome_proprietario && vendaExistente.nome_proprietario !== id 
+        ? vendaExistente.nome_proprietario 
+        : id;
+
+      adicionarVendedor(id, nomeVendedor);
+
+      const vendedorData = vendedoresMap.get(id)!;
+      vendedorData.valores.total += valor;
+      
+      // Adicionar ao tipo específico
+      if (tipo === 'POS' || tipo === 'PRE' || tipo === 'NP' || tipo === 'FIBRA' || tipo === 'SKY+') {
+        vendedorData.valores[tipo as keyof typeof vendedorData.valores] += valor;
+      }
+    });
+
+    // Retornar ordenado por valor total (maior para menor)
+    return Array.from(vendedoresMap.values()).sort((a, b) => 
+      b.valores.total - a.valores.total
+    );
+  }, [vendasFiltradas, vendasMetaFiltradas, vendas, mapearCategoriaVenda, mapearTipoParaQuadro]);
+
+  // Calcular totais gerais
+  const totaisGerais = useMemo(() => {
+    return calcularTicketMedioVendedor.reduce((totais, vendedor) => ({
+      total: totais.total + vendedor.valores.total,
+      POS: totais.POS + vendedor.valores.POS,
+      PRE: totais.PRE + vendedor.valores.PRE,
+      NP: totais.NP + vendedor.valores.NP,
+      FIBRA: totais.FIBRA + vendedor.valores.FIBRA,
+      'SKY+': totais['SKY+'] + vendedor.valores['SKY+']
+    }), {
+      total: 0,
+      POS: 0,
+      PRE: 0,
+      NP: 0,
+      FIBRA: 0,
+      'SKY+': 0
+    });
+  }, [calcularTicketMedioVendedor]);
+
+  // Calcular quantidade de vendas por vendedor (combinando vendas permanência + vendas meta)
+  const calcularQuantidadeVendasVendedor = useMemo(() => {
+    if (vendasFiltradas.length === 0 && vendasMetaFiltradas.length === 0) return [];
+
+    // Mapear vendas por vendedor (contagem)
+    const vendedoresMap = new Map<string, {
+      id_vendedor: string;
+      nome_vendedor: string;
+      quantidades: {
+        total: number;
+        POS: number;
+        PRE: number;
+        NP: number;
+        FIBRA: number;
+        'SKY+': number;
+        // --- PRODUTOS DIFERENCIAIS ---
+        'CARTAO_CREDITO': number;
+        'DIGITAL_PEC_PIX': number;
+        'S_COBRANCA': number;
+        'SEGURO_POS': number;
+        'SEGURO_FIBRA': number;
+      };
+    }>();
+
+    // Helper para adicionar vendedor ao map
+    const adicionarVendedor = (id: string, nome?: string) => {
+      if (!vendedoresMap.has(id)) {
+        vendedoresMap.set(id, {
+          id_vendedor: id,
+          nome_vendedor: nome || id,
+          quantidades: {
+            total: 0,
+            POS: 0,
+            PRE: 0,
+            NP: 0,
+            FIBRA: 0,
+            'SKY+': 0,
+            // --- PRODUTOS DIFERENCIAIS ---
+            'CARTAO_CREDITO': 0,
+            'DIGITAL_PEC_PIX': 0,
+            'S_COBRANCA': 0,
+            'SEGURO_POS': 0,
+            'SEGURO_FIBRA': 0
+          }
+        });
+      }
+    };
+
+    // Helper para verificar produtos secundários
+    const verificarProdutosSecundarios = (produtosSecundarios: string | undefined, formaPagamento?: string) => {
+      const produtosUpper = (produtosSecundarios || '').toUpperCase();
+      const pagamentoUpper = (formaPagamento || '').toUpperCase();
+      
+      return {
+        temCartaoCredito: pagamentoUpper.includes('CARTÃO DE CRÉDITO') || pagamentoUpper.includes('CARTAO DE CREDITO'),
+        // Digital/PEC/PIX: verificar no campo forma_pagamento por "DIGITAL", "LINHA DIGITÁVEL", "PEC" ou "PIX"
+        temDigitalPecPix: pagamentoUpper.includes('DIGITAL') || 
+                         pagamentoUpper.includes('LINHA DIGITÁVEL') || 
+                         pagamentoUpper.includes('LINHA DIGITAVEL') ||
+                         pagamentoUpper.includes('PEC') || 
+                         pagamentoUpper.includes('PIX'),
+        // S Cobrança: verificar no campo forma_pagamento por "NÃO HÁ COBRANÇA"
+        temSCobranca: pagamentoUpper.includes('NÃO HÁ COBRANÇA') || 
+                     pagamentoUpper.includes('NAO HA COBRANCA') || 
+                     pagamentoUpper.includes('SEM COBRANÇA') ||
+                     pagamentoUpper.includes('SEM COBRANCA'),
+        // Seguros: verificar no campo produtos_secundarios
+        temSeguroPOS: produtosUpper.includes('FATURA PROTEGIDA') || produtosUpper.includes('SEGURO'),
+        temSeguroFibra: produtosUpper.includes('FATURA PROTEGIDA') || produtosUpper.includes('SEGURO')
+      };
+    };
+
+    // Processar vendas de permanência (meses anteriores) - contagem - usar dados filtrados
+    vendasFiltradas.forEach(venda => {
+      const id = venda.id_vendedor;
+      const categoria = mapearCategoriaVenda(venda);
+      const tipo = mapearTipoParaQuadro(categoria);
+
+      // Usar o nome do proprietário como fallback ou apenas o ID
+      const nomeVendedor = venda.nome_proprietario && venda.nome_proprietario !== id 
+        ? venda.nome_proprietario 
+        : id;
+
+      adicionarVendedor(id, nomeVendedor);
+
+      const vendedorData = vendedoresMap.get(id)!;
+      vendedorData.quantidades.total += 1; // Contar +1 venda
+      
+      // Adicionar ao tipo específico
+      if (tipo === 'POS' || tipo === 'PRE' || tipo === 'NP' || tipo === 'FIBRA' || tipo === 'SKY+') {
+        vendedorData.quantidades[tipo as keyof typeof vendedorData.quantidades] += 1;
+      }
+
+      // Verificar produtos diferenciais nas vendas de permanência (agora também contém esses campos)
+      if (venda.produtos_secundarios || venda.forma_pagamento) {
+        const produtosDiferenciais = verificarProdutosSecundarios(venda.produtos_secundarios, venda.forma_pagamento);
+        
+        if (produtosDiferenciais.temCartaoCredito) {
+          vendedorData.quantidades.CARTAO_CREDITO += 1;
+        }
+        
+        if (produtosDiferenciais.temDigitalPecPix) {
+          vendedorData.quantidades.DIGITAL_PEC_PIX += 1;
+        }
+        
+        if (produtosDiferenciais.temSCobranca) {
+          vendedorData.quantidades.S_COBRANCA += 1;
+        }
+        
+        // Para seguros, verificar também a categoria base
+        if (produtosDiferenciais.temSeguroPOS && categoria === 'pos_pago') {
+          vendedorData.quantidades.SEGURO_POS += 1;
+        }
+        
+        if (produtosDiferenciais.temSeguroFibra && categoria === 'fibra') {
+          vendedorData.quantidades.SEGURO_FIBRA += 1;
+        }
+      }
+    });
+
+    // Processar vendas meta (mês atual) - contagem - usar dados filtrados
+    vendasMetaFiltradas.forEach(vendaMeta => {
+      const id = vendaMeta.vendedor;
+      const categoria = mapearCategoriaVenda(vendaMeta);
+      const tipo = mapearTipoParaQuadro(categoria);
+
+      // Tentar buscar o nome nas vendas existentes ou usar o ID
+      const vendaExistente = vendas.find(v => v.id_vendedor === id);
+      const nomeVendedor = vendaExistente?.nome_proprietario && vendaExistente.nome_proprietario !== id 
+        ? vendaExistente.nome_proprietario 
+        : id;
+
+      adicionarVendedor(id, nomeVendedor);
+
+      const vendedorData = vendedoresMap.get(id)!;
+      vendedorData.quantidades.total += 1; // Contar +1 venda
+      
+      // Adicionar ao tipo específico
+      if (tipo === 'POS' || tipo === 'PRE' || tipo === 'NP' || tipo === 'FIBRA' || tipo === 'SKY+') {
+        vendedorData.quantidades[tipo as keyof typeof vendedorData.quantidades] += 1;
+      }
+
+      // Verificar produtos diferenciais nas vendas meta usando produtos_secundarios e forma_pagamento
+      const produtosDiferenciais = verificarProdutosSecundarios(vendaMeta.produtos_secundarios, vendaMeta.forma_pagamento);
+      
+      if (produtosDiferenciais.temCartaoCredito) {
+        vendedorData.quantidades.CARTAO_CREDITO += 1;
+      }
+      
+      if (produtosDiferenciais.temDigitalPecPix) {
+        vendedorData.quantidades.DIGITAL_PEC_PIX += 1;
+      }
+      
+      if (produtosDiferenciais.temSCobranca) {
+        vendedorData.quantidades.S_COBRANCA += 1;
+      }
+      
+      // Para seguros, verificar também a categoria base
+      if (produtosDiferenciais.temSeguroPOS && categoria === 'pos_pago') {
+        vendedorData.quantidades.SEGURO_POS += 1;
+      }
+      
+      if (produtosDiferenciais.temSeguroFibra && categoria === 'fibra') {
+        vendedorData.quantidades.SEGURO_FIBRA += 1;
+      }
+    });
+
+    // Retornar ordenado por quantidade total (maior para menor)
+    return Array.from(vendedoresMap.values()).sort((a, b) => 
+      b.quantidades.total - a.quantidades.total
+    );
+  }, [vendasFiltradas, vendasMetaFiltradas, vendas, mapearCategoriaVenda, mapearTipoParaQuadro]);
+
+  // Calcular totais gerais de quantidade
+  const totaisGeraisQuantidade = useMemo(() => {
+    return calcularQuantidadeVendasVendedor.reduce((totais, vendedor) => ({
+      total: totais.total + vendedor.quantidades.total,
+      POS: totais.POS + vendedor.quantidades.POS,
+      PRE: totais.PRE + vendedor.quantidades.PRE,
+      NP: totais.NP + vendedor.quantidades.NP,
+      FIBRA: totais.FIBRA + vendedor.quantidades.FIBRA,
+      'SKY+': totais['SKY+'] + vendedor.quantidades['SKY+'],
+      // --- PRODUTOS DIFERENCIAIS ---
+      'CARTAO_CREDITO': totais['CARTAO_CREDITO'] + vendedor.quantidades.CARTAO_CREDITO,
+      'DIGITAL_PEC_PIX': totais['DIGITAL_PEC_PIX'] + vendedor.quantidades.DIGITAL_PEC_PIX,
+      'S_COBRANCA': totais['S_COBRANCA'] + vendedor.quantidades.S_COBRANCA,
+      'SEGURO_POS': totais['SEGURO_POS'] + vendedor.quantidades.SEGURO_POS,
+      'SEGURO_FIBRA': totais['SEGURO_FIBRA'] + vendedor.quantidades.SEGURO_FIBRA
+    }), {
+      total: 0,
+      POS: 0,
+      PRE: 0,
+      NP: 0,
+      FIBRA: 0,
+      'SKY+': 0,
+      // --- PRODUTOS DIFERENCIAIS ---
+      'CARTAO_CREDITO': 0,
+      'DIGITAL_PEC_PIX': 0,
+      'S_COBRANCA': 0,
+      'SEGURO_POS': 0,
+      'SEGURO_FIBRA': 0
+    });
+  }, [calcularQuantidadeVendasVendedor]);
+
+  return (
+    <>
+      {/* Filtros de Mês e Ano de Habilitação */}
+      <div className="mb-6">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Filtros de Habilitação</CardTitle>
+            <CardDescription>
+              Filtre por período de habilitação das vendas
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-4 items-end">
+              <div>
+                <Label htmlFor="filtro-mes-habilitacao" className="text-xs">Mês de Habilitação</Label>
+                <MultiSelect 
+                  options={mesOptions} 
+                  selected={filtroMesHabilitacao}
+                  onChange={(values) => setFiltroMesHabilitacao(values)}
+                  placeholder="Selecione meses"
+                  className="w-full text-xs min-w-[200px]"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="filtro-ano-habilitacao" className="text-xs">Ano de Habilitação</Label>
+                <MultiSelect 
+                  options={anoOptions} 
+                  selected={filtroAnoHabilitacao}
+                  onChange={(values) => setFiltroAnoHabilitacao(values)}
+                  placeholder="Selecione anos"
+                  className="w-full text-xs min-w-[150px]"
+                />
+              </div>
+
+              <div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setFiltroMesHabilitacao([]);
+                    setFiltroAnoHabilitacao([]);
+                  }}
+                  disabled={filtroMesHabilitacao.length === 0 && filtroAnoHabilitacao.length === 0}
+                  className="h-10 px-3"
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  Limpar Filtros
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Mostrar quadros apenas quando filtros estiverem selecionados */}
+      {(filtroMesHabilitacao.length > 0 && filtroAnoHabilitacao.length > 0) ? (
+        <div className="space-y-6">
+          {/* Layout reorganizado: Quadros em colunas com gráficos abaixo */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Coluna 1: Ticket Médio + Evolução por Período */}
+          <div className="space-y-6">
+          {/* Quadro Ticket Médio por Vendedor */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <DollarSign className="h-4 w-4 text-green-600" />
+                Ticket Médio por Vendedor {calcularMesesReferencia() && `(${calcularMesesReferencia()})`}
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Valores combinados (permanência + meta atual)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-3">
+              {vendas.length === 0 && vendasMeta.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground text-sm">
+                  Importe dados de vendas para visualizar.
+                </div>
+              ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-50">
+                      <TableHead className="font-semibold text-xs py-2 px-2">VENDEDOR</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">Total</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">POS</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">PRE</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">NP</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">FIBRA</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">SKY+</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {calcularTicketMedioVendedor.map((vendedor) => (
+                      <TableRow key={vendedor.id_vendedor} className="hover:bg-gray-50">
+                        <TableCell className="font-medium text-xs py-1 px-2 min-w-[160px]">
+                          <div className="whitespace-nowrap">
+                            {vendedor.id_vendedor}
+                            {vendedor.nome_vendedor !== vendedor.id_vendedor && (
+                              <span className="text-gray-500 ml-1">
+                                - {vendedor.nome_vendedor}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-xs py-1 px-1">
+                          {vendedor.valores.total.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                          })}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1">
+                          {vendedor.valores.POS > 0 ? vendedor.valores.POS.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                          }) : 'R$ 0'}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1">
+                          {vendedor.valores.PRE > 0 ? vendedor.valores.PRE.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                          }) : 'R$ 0'}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1">
+                          {vendedor.valores.NP > 0 ? vendedor.valores.NP.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                          }) : 'R$ 0'}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1">
+                          {vendedor.valores.FIBRA > 0 ? vendedor.valores.FIBRA.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                          }) : 'R$ 0'}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1">
+                          {vendedor.valores['SKY+'] > 0 ? vendedor.valores['SKY+'].toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                          }) : 'R$ 0'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                  <TableFooter>
+                    <TableRow className="bg-purple-50 border-t-2 border-purple-200">
+                      <TableCell className="font-bold text-purple-800 text-xs py-1 px-2">
+                        TOTAL GERAL
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                        {totaisGerais.total.toLocaleString('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL',
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0
+                        })}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                        {totaisGerais.POS.toLocaleString('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL',
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0
+                        })}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                        {totaisGerais.PRE.toLocaleString('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL',
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0
+                        })}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                        {totaisGerais.NP.toLocaleString('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL',
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0
+                        })}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                        {totaisGerais.FIBRA.toLocaleString('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL',
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0
+                        })}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                        {totaisGerais['SKY+'].toLocaleString('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL',
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0
+                        })}
+                      </TableCell>
+                    </TableRow>
+                  </TableFooter>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+          {/* Gráfico Evolução do Desempenho por Período */}
+          <DesempenhoTrendChart
+            filtroMesHabilitacao={filtroMesHabilitacao}
+            filtroAnoHabilitacao={filtroAnoHabilitacao}
+            vendasFiltradas={vendasFiltradas}
+            vendasMetaFiltradas={vendasMetaFiltradas}
+            chartHeight={400}
+            containerMaxWidth="none"
+          />
+
+          {/* Gráfico Evolução do Desempenho por Período por Vendedor */}
+          <VendedorDesempenhoPerPeriodoTrendChart
+            filtroMesHabilitacao={filtroMesHabilitacao}
+            filtroAnoHabilitacao={filtroAnoHabilitacao}
+            vendasFiltradas={vendasFiltradas}
+            vendasMetaFiltradas={vendasMetaFiltradas}
+            chartHeight={400}
+            containerMaxWidth="none"
+          />
+        </div>
+
+        {/* Coluna 2: Quantidade de Vendas + Evolução por Categoria */}
+        <div className="space-y-6">
+        {/* Quadro Quantidade de Vendas por Vendedor */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <BarChart2 className="h-4 w-4 text-blue-600" />
+              Quantidade de Vendas por Vendedor {calcularMesesReferencia() && `(${calcularMesesReferencia()})`}
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Quantidades combinadas (permanência + meta atual)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-3">
+            {vendas.length === 0 && vendasMeta.length === 0 ? (
+              <div className="text-center py-6 text-muted-foreground text-sm">
+                Importe dados de vendas para visualizar.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-50">
+                      <TableHead className="font-semibold text-xs py-2 px-2">VENDEDOR</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">Total</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">POS</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">PRE</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">NP</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">FIBRA</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">SKY+</TableHead>
+                      {/* DIVISÓRIA - PRODUTOS DIFERENCIAIS */}
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right bg-orange-100 border-l-2 border-orange-300">Cartão</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right bg-orange-100">Digital</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right bg-orange-100">S/Cobr</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right bg-orange-100">Seg.POS</TableHead>
+                      <TableHead className="font-semibold text-xs py-2 px-1 text-right bg-orange-100">Seg.FIB</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {calcularQuantidadeVendasVendedor.map((vendedor) => (
+                      <TableRow key={`qtd-${vendedor.id_vendedor}`} className="hover:bg-gray-50">
+                        <TableCell className="font-medium text-xs py-1 px-2 min-w-[160px]">
+                          <div className="whitespace-nowrap">
+                            {vendedor.id_vendedor}
+                            {vendedor.nome_vendedor !== vendedor.id_vendedor && (
+                              <span className="text-gray-500 ml-1">
+                                - {vendedor.nome_vendedor}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-xs py-1 px-1">
+                          {vendedor.quantidades.total}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1">
+                          {vendedor.quantidades.POS || 0}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1">
+                          {vendedor.quantidades.PRE || 0}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1">
+                          {vendedor.quantidades.NP || 0}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1">
+                          {vendedor.quantidades.FIBRA || 0}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1">
+                          {vendedor.quantidades['SKY+'] || 0}
+                        </TableCell>
+                        {/* PRODUTOS DIFERENCIAIS */}
+                        <TableCell className="text-right text-xs py-1 px-1 bg-orange-50 border-l-2 border-orange-300">
+                          {vendedor.quantidades.CARTAO_CREDITO || 0}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1 bg-orange-50">
+                          {vendedor.quantidades.DIGITAL_PEC_PIX || 0}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1 bg-orange-50">
+                          {vendedor.quantidades.S_COBRANCA || 0}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1 bg-orange-50">
+                          {vendedor.quantidades.SEGURO_POS || 0}
+                        </TableCell>
+                        <TableCell className="text-right text-xs py-1 px-1 bg-orange-50">
+                          {vendedor.quantidades.SEGURO_FIBRA || 0}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                  <TableFooter>
+                    <TableRow className="bg-blue-50 border-t-2 border-blue-200">
+                      <TableCell className="font-bold text-blue-800 text-xs py-1 px-2">
+                        TOTAL GERAL
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                        {totaisGeraisQuantidade.total}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                        {totaisGeraisQuantidade.POS}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                        {totaisGeraisQuantidade.PRE}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                        {totaisGeraisQuantidade.NP}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                        {totaisGeraisQuantidade.FIBRA}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                        {totaisGeraisQuantidade['SKY+']}
+                      </TableCell>
+                      {/* TOTAIS PRODUTOS DIFERENCIAIS */}
+                      <TableCell className="text-right font-bold text-orange-700 text-xs py-1 px-1 bg-orange-100 border-l-2 border-orange-300">
+                        {totaisGeraisQuantidade.CARTAO_CREDITO}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-orange-700 text-xs py-1 px-1 bg-orange-100">
+                        {totaisGeraisQuantidade.DIGITAL_PEC_PIX}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-orange-700 text-xs py-1 px-1 bg-orange-100">
+                        {totaisGeraisQuantidade.S_COBRANCA}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-orange-700 text-xs py-1 px-1 bg-orange-100">
+                        {totaisGeraisQuantidade.SEGURO_POS}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-orange-700 text-xs py-1 px-1 bg-orange-100">
+                        {totaisGeraisQuantidade.SEGURO_FIBRA}
+                      </TableCell>
+                    </TableRow>
+                  </TableFooter>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+          {/* Gráfico Evolução do Desempenho por Categoria */}
+          <VendedorDesempenhoTrendChart
+          filtroMesHabilitacao={filtroMesHabilitacao}
+          filtroAnoHabilitacao={filtroAnoHabilitacao}
+          vendasFiltradas={vendasFiltradas}
+          vendasMetaFiltradas={vendasMetaFiltradas}
+            chartHeight={400}
+            containerMaxWidth="none"
+          />
+
+          {/* Gráfico Evolução do Desempenho por Categoria por Vendedor */}
+          <VendedorDesempenhoCategoriaTrendChart
+            filtroMesHabilitacao={filtroMesHabilitacao}
+            filtroAnoHabilitacao={filtroAnoHabilitacao}
+            vendasFiltradas={vendasFiltradas}
+            vendasMetaFiltradas={vendasMetaFiltradas}
+            chartHeight={400}
+            containerMaxWidth="none"
+          />
+        </div>
+      </div>
+      </div>
+      ) : (
+        <div className="text-center py-8">
+          <Card>
+            <CardContent className="p-6">
+              <div className="text-muted-foreground">
+                <Filter className="mx-auto h-12 w-12 mb-4 opacity-50" />
+                <h3 className="text-lg font-medium mb-2">Selecione os Filtros</h3>
+                <p className="text-sm">
+                  Para visualizar os dados de desempenho, selecione pelo menos um mês e um ano de habilitação nos filtros acima.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </>

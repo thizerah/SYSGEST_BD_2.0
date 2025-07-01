@@ -200,8 +200,12 @@ export function ajustarTempoAtendimento(
   // Subtrair horas para cada dia que deve ser desconsiderado
   const tempoAjustado = Math.max(0, tempoAtendimentoHoras - horasParaDescontar);
   
-  // Registrar o ajuste para depuração (se necessário)
-  if (horasParaDescontar > 0) {
+  // Sistema de logs condicionais
+  const isDevelopment = typeof process !== 'undefined' && process.env?.NODE_ENV === 'development';
+  const isVerboseDebug = isDevelopment && typeof localStorage !== 'undefined' && localStorage.getItem('sysgest_debug_verbose') === 'true';
+  
+  // Registrar o ajuste para depuração (apenas em modo verbose)
+  if (horasParaDescontar > 0 && isVerboseDebug) {
     console.log(`[DEBUG] Cálculo de Feriados/Domingos - Tipo: ${tipoAtendimento}`);
     console.log(`[DEBUG] Data Criação: ${dataInicio.toLocaleString()}, Data Finalização: ${dataFim.toLocaleString()}`);
     
