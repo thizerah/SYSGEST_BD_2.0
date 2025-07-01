@@ -1,141 +1,215 @@
-# Welcome to your Lovable project
+# 📊 SysGest BD Projeto 2.0
 
-## Project info
+Sistema de Gestão de Métricas e Insights - Progressive Web App (PWA) para análise de desempenho de ordens de serviço.
 
-**URL**: https://lovable.dev/projects/6b2d88a0-6b9b-4756-bd50-821fd9985174
+## 🚀 Funcionalidades
 
-## Configuração do Supabase
+### 📈 Dashboard Principal
+- **Métricas de Tempo**: Análise de tempo de atendimento por tipo de serviço
+- **Reaberturas**: Monitoramento de taxas de reabertura e análise por técnico
+- **Permanência**: Acompanhamento de permanência de clientes por período
+- **Metas**: Gestão e acompanhamento de metas de vendas
+- **Indicadores**: Visão geral de performance e KPIs
 
-Esta aplicação usa o Supabase para autenticação. Siga estas etapas para configurar:
+### 🎯 Funcionalidades Avançadas
+- **PWA (Progressive Web App)**: Instalável em dispositivos móveis e desktop
+- **Design Responsivo**: Interface adaptada para todos os tamanhos de tela
+- **Importação de Dados**: Suporte a arquivos Excel/CSV
+- **Gráficos Interativos**: Visualizações dinâmicas com Recharts
+- **Gestão de Usuários**: Sistema de autenticação e níveis de acesso
+- **Monitoramento de Storage**: Controle de uso de armazenamento local
 
-1. Crie uma conta no [Supabase](https://supabase.com) e inicie um novo projeto
-2. No Dashboard do seu projeto Supabase, vá para Configurações > API para obter:
-   - URL do projeto
-   - Chave anônima (pública)
-3. No Dashboard do seu projeto Supabase, vá para SQL Editor e execute o seguinte SQL para criar a tabela de usuários:
+### 📱 Compatibilidade Mobile
+- Menu hamburguer para navegação em dispositivos móveis
+- Tabelas responsivas com scroll horizontal
+- Componentes otimizados para toque
+- Suporte a gestos nativos
 
-```sql
--- Criar tabela personalizada para armazenar dados adicionais dos usuários
-CREATE TABLE IF NOT EXISTS public.users (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  username TEXT NOT NULL UNIQUE,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  role TEXT NOT NULL DEFAULT 'user',
-  empresa TEXT NOT NULL DEFAULT 'SysGest Insight',
-  data_adesao TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  acesso_liberado BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+## 🛠️ Tecnologias Utilizadas
 
--- Segurança com Row Level Security
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+### Frontend
+- **React 18** - Biblioteca principal
+- **TypeScript** - Tipagem estática
+- **Vite** - Build tool e dev server
+- **Tailwind CSS** - Framework de CSS utilitário
+- **Shadcn/ui** - Componentes de interface
 
--- Política para permitir usuários verem seus próprios dados
-CREATE POLICY "Usuários podem ver seus próprios dados" ON public.users
-  FOR SELECT USING (auth.uid() = id);
+### PWA & Performance
+- **Vite PWA Plugin** - Service Worker e manifest
+- **Workbox** - Estratégias de cache
+- **React Query** - Gerenciamento de estado servidor
 
--- Política para permitir admins verem todos os dados
-CREATE POLICY "Admins podem ver todos os dados" ON public.users
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'admin'
-    )
-  );
+### Gráficos & Visualização
+- **Recharts** - Biblioteca de gráficos
+- **Lucide React** - Ícones
+- **Date-fns** - Manipulação de datas
 
--- Política para permitir inserção ao registrar
-CREATE POLICY "Permitir inserção durante registro" ON public.users
-  FOR INSERT WITH CHECK (auth.uid() = id);
+### Backend & Dados
+- **Supabase** - Backend as a Service
+- **XLSX** - Processamento de planilhas
+- **Zod** - Validação de schemas
 
--- Política para permitir usuários atualizarem seus próprios dados
-CREATE POLICY "Usuários podem atualizar seus próprios dados" ON public.users
-  FOR UPDATE USING (auth.uid() = id);
+## 🚀 Como Executar
 
--- Política para permitir admins atualizarem todos os dados
-CREATE POLICY "Admins podem atualizar todos os dados" ON public.users
-  FOR UPDATE USING (
-    EXISTS (
-      SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'admin'
-    )
-  );
-```
+### Pré-requisitos
+- Node.js 18+ 
+- npm ou yarn
 
-4. Crie um arquivo `.env` na raiz do projeto com as informações do Supabase:
-```
-VITE_SUPABASE_URL=https://sua-url-do-supabase.supabase.co
-VITE_SUPABASE_ANON_KEY=sua-chave-anonima-do-supabase
-```
+### Instalação
+```bash
+# Clone o repositório
+git clone https://github.com/thizerah/SYSGEST_BD_2.0.git
 
-5. No Dashboard do Supabase, vá para Authentication > Settings para configurar:
-   - Desabilite "Email confirmation" se desejar login sem confirmação
-   - Personalize os templates de email para o Magic Link
+# Entre no diretório
+cd SYSGEST_BD_2.0
 
-## How can I edit this code?
+# Instale as dependências
+npm install
 
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/6b2d88a0-6b9b-4756-bd50-821fd9985174) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Execute em modo desenvolvimento
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+### Build para Produção
+```bash
+# Gerar build de produção
+npm run build
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+# Visualizar build localmente
+npm run preview
+```
 
-**Use GitHub Codespaces**
+## 📱 Instalação como PWA
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Desktop (Chrome/Edge)
+1. Acesse o site no navegador
+2. Clique no ícone de instalação na barra de endereços
+3. Confirme a instalação
 
-## What technologies are used for this project?
+### Mobile (Android/iOS)
+1. Abra o site no navegador móvel
+2. Toque em "Adicionar à tela inicial" (Android) ou "Adicionar à Tela de Início" (iOS)
+3. Confirme a instalação
 
-This project is built with:
+## 🏗️ Estrutura do Projeto
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-- Supabase (Autenticação, PostgreSQL)
+```
+src/
+├── components/          # Componentes React
+│   ├── auth/           # Componentes de autenticação
+│   ├── dashboard/      # Componentes do dashboard
+│   └── ui/             # Componentes base (shadcn/ui)
+├── context/            # Contextos React
+├── hooks/              # Hooks customizados
+├── lib/                # Utilitários e configurações
+├── pages/              # Páginas principais
+├── types/              # Definições TypeScript
+└── utils/              # Funções utilitárias
+```
 
-## How can I deploy this project?
+## 🎨 Design System
 
-Simply open [Lovable](https://lovable.dev/projects/6b2d88a0-6b9b-4756-bd50-821fd9985174) and click on Share -> Publish.
+### Cores Principais
+- **Azul SysGest**: `#1e40af`
+- **Teal**: `#0d9488`
+- **Amarelo**: `#fbbf24`
 
-## Can I connect a custom domain to my Lovable project?
+### Breakpoints Responsivos
+- **Mobile**: < 768px
+- **Tablet**: 768px - 1024px
+- **Desktop**: > 1024px
 
-Yes, you can!
+## 📊 Funcionalidades por Aba
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+### ⏱️ Tempos
+- Análise de tempo de atendimento por tipo de serviço
+- Metas de performance por categoria
+- Indicadores de serviços dentro/fora da meta
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+### 🔄 Reaberturas
+- Taxa de reabertura por técnico
+- Análise por tipo de serviço original
+- Motivos de reabertura mais frequentes
+
+### 📈 Permanência
+- Acompanhamento de permanência por vendedor
+- Análise por tipo de produto (TV/Fibra)
+- Tendências mensais
+
+### 🎯 Metas
+- Definição e acompanhamento de metas
+- Comparação com performance real
+- Projeções baseadas em tendências
+
+### 👥 Técnicos
+- Performance individual por técnico
+- Distribuição de chamados
+- Análise de produtividade
+
+### 💰 Vendedor
+- Performance de vendas por vendedor
+- Análise por produto e região
+- Ranking de desempenho
+
+### 📋 Indicadores
+- Visão geral de KPIs
+- Dashboards executivos
+- Alertas de performance
+
+## 🔧 Configuração
+
+### Variáveis de Ambiente
+Crie um arquivo `.env` na raiz do projeto:
+
+```env
+VITE_SUPABASE_URL=sua_url_supabase
+VITE_SUPABASE_ANON_KEY=sua_chave_anonima
+```
+
+### PWA Icons
+Para funcionar como PWA, adicione os ícones na pasta `public/`:
+- `pwa-192x192.png`
+- `pwa-512x512.png`
+- `apple-touch-icon.png`
+- `favicon.ico`
+
+Consulte o arquivo `PWA_ICONS_GUIDE.md` para instruções detalhadas.
+
+## 🤝 Contribuição
+
+1. Fork o projeto
+2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
+3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
+4. Push para a branch (`git push origin feature/AmazingFeature`)
+5. Abra um Pull Request
+
+## 📄 Licença
+
+Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para mais detalhes.
+
+## 👨‍💻 Autor
+
+**Thiago Nascimento**
+- GitHub: [@thizerah](https://github.com/thizerah)
+- Email: [seu-email@exemplo.com]
+
+## 🙏 Agradecimentos
+
+- [Shadcn/ui](https://ui.shadcn.com/) pelos componentes de interface
+- [Tailwind CSS](https://tailwindcss.com/) pelo framework CSS
+- [Recharts](https://recharts.org/) pelas visualizações de dados
+- [Supabase](https://supabase.com/) pelo backend
+
+---
+
+⭐ Se este projeto te ajudou, considere dar uma estrela!
+
+## 📞 Suporte
+
+Para suporte técnico ou dúvidas:
+- Abra uma [issue](https://github.com/thizerah/SYSGEST_BD_2.0/issues)
+- Entre em contato via email
+
+---
+
+*Desenvolvido com ❤️ para otimizar a gestão de ordens de serviço*
