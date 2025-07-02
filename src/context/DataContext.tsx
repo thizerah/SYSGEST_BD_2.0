@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { 
   ServiceOrder, User, SERVICE_TIME_GOALS, VALID_STATUS, ReopeningPair,
   Venda, PrimeiroPagamento, PermanenciaMetrics, VendedorMetrics,
@@ -16,6 +16,8 @@ import {
   standardizeServiceCategory
 } from "./DataUtils";
 import { ajustarTempoAtendimento } from '../utils/holidays';
+import { supabase } from '../lib/supabase';
+import { useAuth } from './useAuth';
 
 // Sistema de logs otimizado
 const isDevelopment = process.env.NODE_ENV === 'development';
@@ -54,6 +56,9 @@ interface DataContextType {
   importBaseData: (baseData: BaseData[], append?: boolean) => ImportResult;
   clearData: () => void;
   loading: boolean;
+  isLoadingFromSupabase: boolean;
+  loadFromSupabaseIfEmpty: () => Promise<void>;
+  clearLocalStorageAfterMigration: () => void;
   calculateTimeMetrics: (filteredOrders?: ServiceOrder[]) => {
     ordersWithinGoal: number;
     ordersOutsideGoal: number;
@@ -115,6 +120,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [vendasMeta, setVendasMeta] = useState<VendaMeta[]>([]);
   const [baseData, setBaseData] = useState<BaseData[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isLoadingFromSupabase, setIsLoadingFromSupabase] = useState(false);
+  
+  // Hook de autenticação
+  const { user } = useAuth();
 
   // Funções auxiliares para localStorage
   const saveToLocalStorage = (key: string, data: unknown[]) => {
@@ -140,26 +149,157 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return [];
   };
 
-  // Carregar dados do localStorage ao inicializar
-  useEffect(() => {
-    infoLog('[PERSISTÊNCIA] Carregando dados do localStorage...');
+  // Função para carregar dados do Supabase
+  const loadFromSupabaseIfEmpty = useCallback(async () => {
+    if (!user) {
+      infoLog('[SUPABASE] Usuário não autenticado, pulando carregamento');
+      return;
+    }
+
+    setIsLoadingFromSupabase(true);
+    infoLog('[SUPABASE] Iniciando carregamento automático do Supabase...');
     
-    const loadedServiceOrders = loadFromLocalStorage<ServiceOrder>(STORAGE_KEYS.SERVICE_ORDERS);
-    const loadedVendas = loadFromLocalStorage<Venda>(STORAGE_KEYS.VENDAS);
-    const loadedPagamentos = loadFromLocalStorage<PrimeiroPagamento>(STORAGE_KEYS.PAGAMENTOS);
-    const loadedMetas = loadFromLocalStorage<Meta>(STORAGE_KEYS.METAS);
-    const loadedVendasMeta = loadFromLocalStorage<VendaMeta>(STORAGE_KEYS.VENDAS_META);
-    const loadedBaseData = loadFromLocalStorage<BaseData>(STORAGE_KEYS.BASE_DATA);
+    try {
+      // Carregar todos os tipos de dados em paralelo
+      const [
+        serviceOrdersResponse,
+        vendasResponse,
+        pagamentosResponse,
+        metasResponse,
+        vendasMetaResponse,
+        baseDataResponse
+      ] = await Promise.all([
+        supabase.from('service_orders').select('*').eq('user_id', user.id),
+        supabase.from('vendas').select('*').eq('user_id', user.id),
+        supabase.from('pagamentos').select('*').eq('user_id', user.id),
+        supabase.from('metas').select('*').eq('user_id', user.id),
+        supabase.from('vendas_meta').select('*').eq('user_id', user.id),
+        supabase.from('base_data').select('*').eq('user_id', user.id)
+      ]);
 
-    if (loadedServiceOrders.length > 0) setServiceOrders(loadedServiceOrders);
-    if (loadedVendas.length > 0) setVendas(loadedVendas);
-    if (loadedPagamentos.length > 0) setPrimeirosPagamentos(loadedPagamentos);
-    if (loadedMetas.length > 0) setMetas(loadedMetas);
-    if (loadedVendasMeta.length > 0) setVendasMeta(loadedVendasMeta);
-    if (loadedBaseData.length > 0) setBaseData(loadedBaseData);
+      // Verificar erros
+      const responses = [
+        { name: 'service_orders', response: serviceOrdersResponse },
+        { name: 'vendas', response: vendasResponse },
+        { name: 'pagamentos', response: pagamentosResponse },
+        { name: 'metas', response: metasResponse },
+        { name: 'vendas_meta', response: vendasMetaResponse },
+        { name: 'base_data', response: baseDataResponse }
+      ];
 
-    infoLog('[PERSISTÊNCIA] Carregamento concluído');
-  }, []); // Array vazio pois STORAGE_KEYS são constantes e loadFromLocalStorage não muda
+      for (const { name, response } of responses) {
+        if (response.error) {
+          console.error(`[SUPABASE] Erro ao carregar ${name}:`, response.error);
+          throw response.error;
+        }
+      }
+
+      // Atualizar estados com dados do Supabase
+      const loadedServiceOrders = serviceOrdersResponse.data || [];
+      const loadedVendas = vendasResponse.data || [];
+      const loadedPagamentos = pagamentosResponse.data || [];
+      const loadedMetas = metasResponse.data || [];
+      const loadedVendasMeta = vendasMetaResponse.data || [];
+      const loadedBaseData = baseDataResponse.data || [];
+
+      if (loadedServiceOrders.length > 0) {
+        setServiceOrders(loadedServiceOrders);
+        saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, loadedServiceOrders);
+      }
+      
+      if (loadedVendas.length > 0) {
+        setVendas(loadedVendas);
+        saveToLocalStorage(STORAGE_KEYS.VENDAS, loadedVendas);
+      }
+      
+      if (loadedPagamentos.length > 0) {
+        setPrimeirosPagamentos(loadedPagamentos);
+        saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, loadedPagamentos);
+      }
+      
+      if (loadedMetas.length > 0) {
+        setMetas(loadedMetas);
+        saveToLocalStorage(STORAGE_KEYS.METAS, loadedMetas);
+      }
+      
+      if (loadedVendasMeta.length > 0) {
+        setVendasMeta(loadedVendasMeta);
+        saveToLocalStorage(STORAGE_KEYS.VENDAS_META, loadedVendasMeta);
+      }
+      
+      if (loadedBaseData.length > 0) {
+        setBaseData(loadedBaseData);
+        saveToLocalStorage(STORAGE_KEYS.BASE_DATA, loadedBaseData);
+      }
+
+      infoLog('[SUPABASE] Carregamento e sincronização concluída');
+      setIsLoadingFromSupabase(false);
+      
+    } catch (error) {
+      console.error('[SUPABASE] Erro ao carregar dados:', error);
+      setIsLoadingFromSupabase(false);
+    }
+  }, [user]);
+
+  // Função para limpar localStorage após migração bem-sucedida
+  const clearLocalStorageAfterMigration = useCallback(() => {
+    infoLog('[MIGRAÇÃO] Limpando dados do localStorage após migração...');
+    
+    // Limpar dados do localStorage
+    localStorage.removeItem(STORAGE_KEYS.SERVICE_ORDERS);
+    localStorage.removeItem(STORAGE_KEYS.VENDAS);
+    localStorage.removeItem(STORAGE_KEYS.PAGAMENTOS);
+    localStorage.removeItem(STORAGE_KEYS.METAS);
+    localStorage.removeItem(STORAGE_KEYS.VENDAS_META);
+    localStorage.removeItem(STORAGE_KEYS.BASE_DATA);
+    
+    // Recarregar dados do Supabase
+    loadFromSupabaseIfEmpty();
+    
+    infoLog('[MIGRAÇÃO] localStorage limpo. Recarregando dados do Supabase.');
+  }, [loadFromSupabaseIfEmpty]);
+
+  // Carregar dados na inicialização: localStorage primeiro, depois Supabase se vazio
+  useEffect(() => {
+    const initializeData = async () => {
+      infoLog('[PERSISTÊNCIA] Inicializando carregamento de dados...');
+      
+      // Primeiro, tentar carregar do localStorage
+      const loadedServiceOrders = loadFromLocalStorage<ServiceOrder>(STORAGE_KEYS.SERVICE_ORDERS);
+      const loadedVendas = loadFromLocalStorage<Venda>(STORAGE_KEYS.VENDAS);
+      const loadedPagamentos = loadFromLocalStorage<PrimeiroPagamento>(STORAGE_KEYS.PAGAMENTOS);
+      const loadedMetas = loadFromLocalStorage<Meta>(STORAGE_KEYS.METAS);
+      const loadedVendasMeta = loadFromLocalStorage<VendaMeta>(STORAGE_KEYS.VENDAS_META);
+      const loadedBaseData = loadFromLocalStorage<BaseData>(STORAGE_KEYS.BASE_DATA);
+
+      // Verificar se há dados no localStorage
+      const hasLocalData = loadedServiceOrders.length > 0 || 
+                          loadedVendas.length > 0 || 
+                          loadedPagamentos.length > 0 || 
+                          loadedMetas.length > 0 || 
+                          loadedVendasMeta.length > 0 || 
+                          loadedBaseData.length > 0;
+
+      if (hasLocalData) {
+        // Carregar dados do localStorage
+        infoLog('[PERSISTÊNCIA] Dados encontrados no localStorage');
+        if (loadedServiceOrders.length > 0) setServiceOrders(loadedServiceOrders);
+        if (loadedVendas.length > 0) setVendas(loadedVendas);
+        if (loadedPagamentos.length > 0) setPrimeirosPagamentos(loadedPagamentos);
+        if (loadedMetas.length > 0) setMetas(loadedMetas);
+        if (loadedVendasMeta.length > 0) setVendasMeta(loadedVendasMeta);
+        if (loadedBaseData.length > 0) setBaseData(loadedBaseData);
+        
+        infoLog('[PERSISTÊNCIA] Dados do localStorage carregados');
+      } else {
+        // localStorage vazio, carregar do Supabase
+        infoLog('[PERSISTÊNCIA] localStorage vazio, carregando do Supabase...');
+        await loadFromSupabaseIfEmpty();
+      }
+    };
+
+    initializeData();
+  }, [loadFromSupabaseIfEmpty]); // Adicionado 'loadFromSupabaseIfEmpty'
 
   const importServiceOrders = (orders: ServiceOrder[], append: boolean = false): ImportResult => {
     setLoading(true);
@@ -1649,7 +1789,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       importVendasMeta,
       importBaseData,
       clearData, 
-      loading, 
+      loading,
+      isLoadingFromSupabase,
+      loadFromSupabaseIfEmpty,
+      clearLocalStorageAfterMigration,
       calculateTimeMetrics,
       calculateReopeningMetrics,
       getReopeningPairs,

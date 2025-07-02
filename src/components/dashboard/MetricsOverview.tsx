@@ -5554,12 +5554,14 @@ function UserManagement({
           </CardTitle>
           <CardDescription>
             Gerencie os usuários que podem acessar o sistema.
-            {user?.empresa && (
-              <Badge variant="outline" className="ml-2 mt-1">
+          </CardDescription>
+          {user?.empresa && (
+            <div className="mt-2">
+              <Badge variant="outline">
                 Empresa: {user.empresa}
               </Badge>
-            )}
-          </CardDescription>
+            </div>
+          )}
           <div className="flex justify-end">
             <Button 
               variant="outline" 

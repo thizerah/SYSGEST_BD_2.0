@@ -6,6 +6,16 @@ import { LocalStorageMonitor } from "./LocalStorageMonitor";
 import { StorageCleaner } from "./StorageCleaner";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useState } from "react";
+import { DataMigrationPanel } from './DataMigrationPanel';
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogTrigger 
+} from '@/components/ui/dialog';
+import { CloudDownload } from 'lucide-react';
 
 export function DashboardHeader() {
   const { user, logout } = useAuth();
@@ -88,6 +98,29 @@ export function DashboardHeader() {
           >
             Sair
           </Button>
+
+          {/* Botão de Migração para Supabase */}
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="text-white hover:bg-sysgest-teal border border-white/20 hover:border-sysgest-teal"
+              >
+                <CloudDownload className="h-4 w-4 mr-2" />
+                <span className="hidden md:block">Migrar para Nuvem</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-4xl">
+              <DialogHeader>
+                <DialogTitle>Migração de Dados para a Nuvem</DialogTitle>
+                <DialogDescription>
+                  Transfira seus dados do localStorage para o Supabase de forma segura
+                </DialogDescription>
+              </DialogHeader>
+              <DataMigrationPanel />
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </header>
