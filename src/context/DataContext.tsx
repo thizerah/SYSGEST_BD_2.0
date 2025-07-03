@@ -59,6 +59,9 @@ interface DataContextType {
   isLoadingFromSupabase: boolean;
   loadFromSupabaseIfEmpty: () => Promise<void>;
   clearLocalStorageAfterMigration: () => void;
+  isSupabaseOnlyMode: () => boolean;
+  enableSupabaseOnlyMode: () => void;
+  disableSupabaseOnlyMode: () => void;
   calculateTimeMetrics: (filteredOrders?: ServiceOrder[]) => {
     ordersWithinGoal: number;
     ordersOutsideGoal: number;
@@ -109,7 +112,9 @@ const STORAGE_KEYS = {
   PAGAMENTOS: 'sysgest_pagamentos',
   METAS: 'sysgest_metas',
   VENDAS_META: 'sysgest_vendas_meta',
-  BASE_DATA: 'sysgest_base_data'
+  BASE_DATA: 'sysgest_base_data',
+  // Chave para controlar o modo de operação
+  SUPABASE_ONLY_MODE: 'sysgest_supabase_only_mode'
 } as const;
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -125,15 +130,42 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Hook de autenticação
   const { user } = useAuth();
 
+  // Funções para gerenciar modo de operação
+  const isSupabaseOnlyMode = (): boolean => {
+    // Modo Supabase-only é o padrão - só desativa se explicitamente configurado como 'false'
+    const modeValue = localStorage.getItem(STORAGE_KEYS.SUPABASE_ONLY_MODE);
+    return modeValue !== 'false'; // Retorna true por padrão, false apenas se explicitamente definido
+  };
+
+  const enableSupabaseOnlyMode = () => {
+    localStorage.removeItem(STORAGE_KEYS.SUPABASE_ONLY_MODE); // Remove a chave para usar o padrão (true)
+    infoLog('[MODO] Modo Supabase-Only ativado - localStorage não será mais usado para dados');
+  };
+
+  const disableSupabaseOnlyMode = () => {
+    localStorage.setItem(STORAGE_KEYS.SUPABASE_ONLY_MODE, 'false');
+    infoLog('[MODO] Modo Supabase-Only desativado - localStorage voltará a ser usado');
+  };
+
   // Funções auxiliares para localStorage
-  const saveToLocalStorage = (key: string, data: unknown[]) => {
+  const saveToLocalStorage = useCallback((key: string, data: unknown[], forceImport: boolean = false) => {
+    // Se estiver no modo Supabase-only, não salvar no localStorage
+    // EXCETO se for uma importação forçada (forceImport = true)
+    const supabaseOnlyMode = isSupabaseOnlyMode();
+    infoLog(`[PERSISTÊNCIA] Verificando modo para ${key}: Supabase-Only = ${supabaseOnlyMode}, forceImport = ${forceImport}`);
+    
+    if (supabaseOnlyMode && !forceImport) {
+      infoLog(`[PERSISTÊNCIA] Modo Supabase-Only ativo - não salvando ${key} no localStorage`);
+      return;
+    }
+    
     try {
       localStorage.setItem(key, JSON.stringify(data));
       infoLog(`[PERSISTÊNCIA] Dados salvos no localStorage: ${key} (${data.length} registros)`);
     } catch (error) {
       console.error(`[PERSISTÊNCIA] Erro ao salvar ${key}:`, error);
     }
-  };
+  }, []);
 
   const loadFromLocalStorage = <T,>(key: string): T[] => {
     try {
@@ -149,6 +181,52 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return [];
   };
 
+  // Função auxiliar para paginação automática
+  const loadAllDataWithPagination = useCallback(async <T,>(
+    tableName: string, 
+    pageSize: number = 1000
+  ): Promise<T[]> => {
+    if (!user) {
+      throw new Error('Usuário não autenticado');
+    }
+
+    let allData: T[] = [];
+    let currentPage = 0;
+    let hasMoreData = true;
+
+    infoLog(`[PAGINAÇÃO] Iniciando carregamento paginado de ${tableName}...`);
+
+    while (hasMoreData) {
+      const startRange = currentPage * pageSize;
+      const endRange = startRange + pageSize - 1;
+
+      debugLog(`[PAGINAÇÃO] ${tableName}: Carregando página ${currentPage + 1} (registros ${startRange}-${endRange})`);
+
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .eq('user_id', user.id)
+        .range(startRange, endRange);
+
+      if (error) {
+        console.error(`[PAGINAÇÃO] Erro ao carregar ${tableName} página ${currentPage + 1}:`, error);
+        throw error;
+      }
+
+      const pageData = data || [];
+      allData = [...allData, ...pageData];
+
+      // Se recebemos menos dados que o pageSize, chegamos ao fim
+      hasMoreData = pageData.length === pageSize;
+      currentPage++;
+
+      debugLog(`[PAGINAÇÃO] ${tableName}: Página ${currentPage} carregada com ${pageData.length} registros. Total: ${allData.length}`);
+    }
+
+    infoLog(`[PAGINAÇÃO] ${tableName}: Carregamento concluído. Total de registros: ${allData.length}`);
+    return allData as T[];
+  }, [user]);
+
   // Função para carregar dados do Supabase
   const loadFromSupabaseIfEmpty = useCallback(async () => {
     if (!user) {
@@ -157,79 +235,72 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     setIsLoadingFromSupabase(true);
-    infoLog('[SUPABASE] Iniciando carregamento automático do Supabase...');
+    infoLog('[SUPABASE] Iniciando carregamento automático do Supabase com paginação...');
     
     try {
-      // Carregar todos os tipos de dados em paralelo
+      // Carregar todos os tipos de dados em paralelo com paginação automática
       const [
-        serviceOrdersResponse,
-        vendasResponse,
-        pagamentosResponse,
-        metasResponse,
-        vendasMetaResponse,
-        baseDataResponse
+        loadedServiceOrders,
+        loadedVendas,
+        loadedPagamentos,
+        loadedMetas,
+        loadedVendasMeta,
+        loadedBaseData
       ] = await Promise.all([
-        supabase.from('service_orders').select('*').eq('user_id', user.id),
-        supabase.from('vendas').select('*').eq('user_id', user.id),
-        supabase.from('pagamentos').select('*').eq('user_id', user.id),
-        supabase.from('metas').select('*').eq('user_id', user.id),
-        supabase.from('vendas_meta').select('*').eq('user_id', user.id),
-        supabase.from('base_data').select('*').eq('user_id', user.id)
+        loadAllDataWithPagination<ServiceOrder>('service_orders'),
+        loadAllDataWithPagination<Venda>('vendas'),
+        loadAllDataWithPagination<PrimeiroPagamento>('pagamentos'),
+        loadAllDataWithPagination<Meta>('metas'),
+        loadAllDataWithPagination<VendaMeta>('vendas_meta'),
+        loadAllDataWithPagination<BaseData>('base_data')
       ]);
-
-      // Verificar erros
-      const responses = [
-        { name: 'service_orders', response: serviceOrdersResponse },
-        { name: 'vendas', response: vendasResponse },
-        { name: 'pagamentos', response: pagamentosResponse },
-        { name: 'metas', response: metasResponse },
-        { name: 'vendas_meta', response: vendasMetaResponse },
-        { name: 'base_data', response: baseDataResponse }
-      ];
-
-      for (const { name, response } of responses) {
-        if (response.error) {
-          console.error(`[SUPABASE] Erro ao carregar ${name}:`, response.error);
-          throw response.error;
-        }
-      }
-
-      // Atualizar estados com dados do Supabase
-      const loadedServiceOrders = serviceOrdersResponse.data || [];
-      const loadedVendas = vendasResponse.data || [];
-      const loadedPagamentos = pagamentosResponse.data || [];
-      const loadedMetas = metasResponse.data || [];
-      const loadedVendasMeta = vendasMetaResponse.data || [];
-      const loadedBaseData = baseDataResponse.data || [];
 
       if (loadedServiceOrders.length > 0) {
         setServiceOrders(loadedServiceOrders);
-        saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, loadedServiceOrders);
+        // Salvar no localStorage apenas se não estiver no modo Supabase-only
+        if (!isSupabaseOnlyMode()) {
+          saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, loadedServiceOrders);
+        }
       }
       
       if (loadedVendas.length > 0) {
         setVendas(loadedVendas);
-        saveToLocalStorage(STORAGE_KEYS.VENDAS, loadedVendas);
+        // Salvar no localStorage apenas se não estiver no modo Supabase-only
+        if (!isSupabaseOnlyMode()) {
+          saveToLocalStorage(STORAGE_KEYS.VENDAS, loadedVendas);
+        }
       }
       
       if (loadedPagamentos.length > 0) {
         setPrimeirosPagamentos(loadedPagamentos);
-        saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, loadedPagamentos);
+        // Salvar no localStorage apenas se não estiver no modo Supabase-only
+        if (!isSupabaseOnlyMode()) {
+          saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, loadedPagamentos);
+        }
       }
       
       if (loadedMetas.length > 0) {
         setMetas(loadedMetas);
-        saveToLocalStorage(STORAGE_KEYS.METAS, loadedMetas);
+        // Salvar no localStorage apenas se não estiver no modo Supabase-only
+        if (!isSupabaseOnlyMode()) {
+          saveToLocalStorage(STORAGE_KEYS.METAS, loadedMetas);
+        }
       }
       
       if (loadedVendasMeta.length > 0) {
         setVendasMeta(loadedVendasMeta);
-        saveToLocalStorage(STORAGE_KEYS.VENDAS_META, loadedVendasMeta);
+        // Salvar no localStorage apenas se não estiver no modo Supabase-only
+        if (!isSupabaseOnlyMode()) {
+          saveToLocalStorage(STORAGE_KEYS.VENDAS_META, loadedVendasMeta);
+        }
       }
       
       if (loadedBaseData.length > 0) {
         setBaseData(loadedBaseData);
-        saveToLocalStorage(STORAGE_KEYS.BASE_DATA, loadedBaseData);
+        // Salvar no localStorage apenas se não estiver no modo Supabase-only
+        if (!isSupabaseOnlyMode()) {
+          saveToLocalStorage(STORAGE_KEYS.BASE_DATA, loadedBaseData);
+        }
       }
 
       infoLog('[SUPABASE] Carregamento e sincronização concluída');
@@ -239,7 +310,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('[SUPABASE] Erro ao carregar dados:', error);
       setIsLoadingFromSupabase(false);
     }
-  }, [user]);
+  }, [user, loadAllDataWithPagination, saveToLocalStorage]);
 
   // Função para limpar localStorage após migração bem-sucedida
   const clearLocalStorageAfterMigration = useCallback(() => {
@@ -253,18 +324,50 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem(STORAGE_KEYS.VENDAS_META);
     localStorage.removeItem(STORAGE_KEYS.BASE_DATA);
     
+    // Modo Supabase-Only já é o padrão, não precisa ativar explicitamente
+    infoLog('[MIGRAÇÃO] localStorage limpo. Sistema já trabalha em modo Supabase-Only por padrão.');
+    
     // Recarregar dados do Supabase
     loadFromSupabaseIfEmpty();
-    
-    infoLog('[MIGRAÇÃO] localStorage limpo. Recarregando dados do Supabase.');
   }, [loadFromSupabaseIfEmpty]);
 
-  // Carregar dados na inicialização: localStorage primeiro, depois Supabase se vazio
+  // Carregar dados na inicialização: verificar modo de operação
   useEffect(() => {
     const initializeData = async () => {
       infoLog('[PERSISTÊNCIA] Inicializando carregamento de dados...');
       
-      // Primeiro, tentar carregar do localStorage
+      // Verificar se está no modo Supabase-Only
+      const supabaseOnlyMode = isSupabaseOnlyMode();
+      const modeValue = localStorage.getItem(STORAGE_KEYS.SUPABASE_ONLY_MODE);
+      infoLog(`[PERSISTÊNCIA] Verificando modo: localStorage value = "${modeValue}", isSupabaseOnlyMode() = ${supabaseOnlyMode}`);
+      
+      if (supabaseOnlyMode) {
+        infoLog('[PERSISTÊNCIA] Modo Supabase-Only ativo - carregando apenas do Supabase...');
+        
+        // Limpar dados antigos do localStorage se ainda existirem
+        const hasOldData = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS) || 
+                          localStorage.getItem(STORAGE_KEYS.VENDAS) || 
+                          localStorage.getItem(STORAGE_KEYS.PAGAMENTOS) || 
+                          localStorage.getItem(STORAGE_KEYS.METAS) || 
+                          localStorage.getItem(STORAGE_KEYS.VENDAS_META) || 
+                          localStorage.getItem(STORAGE_KEYS.BASE_DATA);
+        
+        if (hasOldData) {
+          infoLog('[PERSISTÊNCIA] Removendo dados antigos do localStorage...');
+          localStorage.removeItem(STORAGE_KEYS.SERVICE_ORDERS);
+          localStorage.removeItem(STORAGE_KEYS.VENDAS);
+          localStorage.removeItem(STORAGE_KEYS.PAGAMENTOS);
+          localStorage.removeItem(STORAGE_KEYS.METAS);
+          localStorage.removeItem(STORAGE_KEYS.VENDAS_META);
+          localStorage.removeItem(STORAGE_KEYS.BASE_DATA);
+        }
+        
+        await loadFromSupabaseIfEmpty();
+        return;
+      }
+      
+      // Modo localStorage (apenas se explicitamente desativado)
+      infoLog('[PERSISTÊNCIA] Modo localStorage ativo - carregando do localStorage primeiro...');
       const loadedServiceOrders = loadFromLocalStorage<ServiceOrder>(STORAGE_KEYS.SERVICE_ORDERS);
       const loadedVendas = loadFromLocalStorage<Venda>(STORAGE_KEYS.VENDAS);
       const loadedPagamentos = loadFromLocalStorage<PrimeiroPagamento>(STORAGE_KEYS.PAGAMENTOS);
@@ -301,8 +404,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initializeData();
   }, [loadFromSupabaseIfEmpty]); // Adicionado 'loadFromSupabaseIfEmpty'
 
+
+
   const importServiceOrders = (orders: ServiceOrder[], append: boolean = false): ImportResult => {
     setLoading(true);
+    
+    // No modo Supabase-only, se não temos dados em memória, carregar do Supabase primeiro
+    if (isSupabaseOnlyMode() && append && serviceOrders.length === 0) {
+      infoLog('[IMPORTAÇÃO] Modo Supabase-only: Carregando dados existentes para verificar duplicatas...');
+      // Carregar dados do Supabase de forma síncrona usando os dados já carregados
+      // Isso será feito na inicialização, então aqui vamos apenas processar com os dados disponíveis
+    }
     
     // Pré-processamento para casos cancelados: usar data de criação como finalização se necessário
     const preparedOrders = orders.map(order => {
@@ -422,23 +534,30 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let duplicatesIgnored = 0;
     
     if (append) {
-      // Se append for true, verificar duplicidades antes de adicionar
+            // Se append for true, verificar duplicidades antes de adicionar
       const existingOrderIds = new Set(serviceOrders.map(order => order.codigo_os));
       const newOrdersFiltered = processedOrders.filter(order => !existingOrderIds.has(order.codigo_os));
+      duplicatesIgnored = processedOrders.length - newOrdersFiltered.length;
       
       if (newOrdersFiltered.length > 0) {
         const finalOrders = [...serviceOrders, ...newOrdersFiltered];
         setServiceOrders(finalOrders);
         newRecords = newOrdersFiltered.length;
-        duplicatesIgnored = processedOrders.length - newOrdersFiltered.length;
         infoLog(`Adicionadas ${newOrdersFiltered.length} novas ordens de serviço (${duplicatesIgnored} duplicadas ignoradas)`);
         
-        // Salvar no localStorage
-        saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, finalOrders);
+        // No modo Supabase-only, salvar apenas os novos registros no localStorage para revisão
+        if (isSupabaseOnlyMode()) {
+          // Carregar dados existentes do localStorage (se houver) para manter histórico de importações
+          const existingLocalData = loadFromLocalStorage<ServiceOrder>(STORAGE_KEYS.SERVICE_ORDERS);
+          const combinedLocalData = [...existingLocalData, ...newOrdersFiltered];
+          saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, combinedLocalData, true);
+          infoLog(`[MODO SUPABASE-ONLY] Salvos ${newOrdersFiltered.length} novos registros no localStorage para revisão (total local: ${combinedLocalData.length})`);
+        } else {
+          saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, finalOrders, true);
+        }
       } else {
         newRecords = 0;
-        duplicatesIgnored = processedOrders.length;
-        infoLog(`Nenhuma nova ordem de serviço para adicionar (${processedOrders.length} duplicadas ignoradas)`);
+        infoLog(`Nenhuma nova ordem de serviço para adicionar (${duplicatesIgnored} duplicadas ignoradas)`);
       }
     } else {
       // Substituir completamente
@@ -447,8 +566,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       duplicatesIgnored = 0;
       infoLog(`Importadas ${processedOrders.length} ordens de serviço válidas de um total de ${orders.length}`);
       
-      // Salvar no localStorage
-      saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, processedOrders);
+      // Salvar no localStorage (forçar salvamento para importações)
+      saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, processedOrders, true);
     }
     
     setLoading(false);
@@ -491,16 +610,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       duplicatesIgnored = processedVendas.length - novaVendasFiltradas.length;
               infoLog(`Adicionadas ${novaVendasFiltradas.length} novas vendas (${duplicatesIgnored} duplicadas ignoradas)`);
       
-      // Salvar no localStorage
-      saveToLocalStorage(STORAGE_KEYS.VENDAS, finalVendas);
+      // No modo Supabase-only, salvar apenas os novos registros no localStorage para revisão
+        if (isSupabaseOnlyMode()) {
+          const existingLocalData = loadFromLocalStorage<Venda>(STORAGE_KEYS.VENDAS);
+          const combinedLocalData = [...existingLocalData, ...novaVendasFiltradas];
+          saveToLocalStorage(STORAGE_KEYS.VENDAS, combinedLocalData, true);
+          infoLog(`[MODO SUPABASE-ONLY] Salvos ${novaVendasFiltradas.length} novos registros no localStorage para revisão (total local: ${combinedLocalData.length})`);
+        } else {
+          saveToLocalStorage(STORAGE_KEYS.VENDAS, finalVendas, true);
+        }
     } else {
       setVendas(processedVendas);
       newRecords = processedVendas.length;
       duplicatesIgnored = 0;
       infoLog(`Importadas ${processedVendas.length} vendas`);
       
-      // Salvar no localStorage
-      saveToLocalStorage(STORAGE_KEYS.VENDAS, processedVendas);
+      // Salvar no localStorage (forçar salvamento para importações)
+      saveToLocalStorage(STORAGE_KEYS.VENDAS, processedVendas, true);
     }
     
     setLoading(false);
@@ -565,8 +691,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setPrimeirosPagamentos(pagamentosAtualizados);
       
-      // Salvar no localStorage
-      saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, pagamentosAtualizados);
+      // No modo Supabase-only, salvar apenas os novos registros no localStorage para revisão
+      if (isSupabaseOnlyMode()) {
+        const existingLocalData = loadFromLocalStorage<PrimeiroPagamento>(STORAGE_KEYS.PAGAMENTOS);
+        // Para pagamentos, como há lógica de substituição, vamos salvar apenas os novos/atualizados
+        const novosOuAtualizados = pagamentosAtualizados.filter(p => 
+          !primeirosPagamentos.some(existing => existing.proposta === p.proposta)
+        );
+        const combinedLocalData = [...existingLocalData, ...novosOuAtualizados];
+        saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, combinedLocalData, true);
+        infoLog(`[MODO SUPABASE-ONLY] Salvos ${novosOuAtualizados.length} novos/atualizados no localStorage para revisão (total local: ${combinedLocalData.length})`);
+      } else {
+        saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, pagamentosAtualizados, true);
+      }
       
       infoLog(`Processados ${pagamentos.length} pagamentos. Resultado final: ${pagamentosAtualizados.length} registros.`);
       
@@ -582,7 +719,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPrimeirosPagamentos(pagamentos);
       
       // Salvar no localStorage
-      saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, pagamentos);
+      saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, pagamentos, true);
       
       infoLog(`Importados ${pagamentos.length} pagamentos`);
       
@@ -629,8 +766,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         infoLog(`Importadas ${novasMetas.length} metas`);
       }
       
-      // Salvar no localStorage
-      saveToLocalStorage(STORAGE_KEYS.METAS, finalMetas);
+      // No modo Supabase-only, salvar apenas os novos registros no localStorage para revisão
+      if (isSupabaseOnlyMode() && append && newRecords > 0) {
+        const existingLocalData = loadFromLocalStorage<Meta>(STORAGE_KEYS.METAS);
+        const newMetasFiltered = finalMetas.filter(m => !metas.some(existing => existing.mes === m.mes && existing.ano === m.ano));
+        const combinedLocalData = [...existingLocalData, ...newMetasFiltered];
+        saveToLocalStorage(STORAGE_KEYS.METAS, combinedLocalData, true);
+        infoLog(`[MODO SUPABASE-ONLY] Salvos ${newMetasFiltered.length} novos registros no localStorage para revisão (total local: ${combinedLocalData.length})`);
+      } else {
+        saveToLocalStorage(STORAGE_KEYS.METAS, finalMetas, true);
+      }
       
       return {
         totalProcessed: novasMetas.length,
@@ -682,8 +827,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         infoLog(`Importadas ${novasVendasMeta.length} vendas de meta`);
       }
       
-      // Salvar no localStorage
-      saveToLocalStorage(STORAGE_KEYS.VENDAS_META, finalVendasMeta);
+      // No modo Supabase-only, salvar apenas os novos registros no localStorage para revisão
+      if (isSupabaseOnlyMode() && append && newRecords > 0) {
+        const existingLocalData = loadFromLocalStorage<VendaMeta>(STORAGE_KEYS.VENDAS_META);
+        const newVendasFiltered = finalVendasMeta.filter(v => !vendasMeta.some(existing => existing.numero_proposta === v.numero_proposta));
+        const combinedLocalData = [...existingLocalData, ...newVendasFiltered];
+        saveToLocalStorage(STORAGE_KEYS.VENDAS_META, combinedLocalData, true);
+        infoLog(`[MODO SUPABASE-ONLY] Salvos ${newVendasFiltered.length} novos registros no localStorage para revisão (total local: ${combinedLocalData.length})`);
+      } else {
+        saveToLocalStorage(STORAGE_KEYS.VENDAS_META, finalVendasMeta, true);
+      }
       
       return {
         totalProcessed: novasVendasMeta.length,
@@ -716,7 +869,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (newBaseDataFiltered.length > 0) {
         const finalBaseData = [...baseData, ...newBaseDataFiltered];
         setBaseData(finalBaseData);
-        saveToLocalStorage(STORAGE_KEYS.BASE_DATA, finalBaseData);
+        
+        // No modo Supabase-only, salvar apenas os novos registros no localStorage para revisão
+        if (isSupabaseOnlyMode()) {
+          const existingLocalData = loadFromLocalStorage<BaseData>(STORAGE_KEYS.BASE_DATA);
+          const combinedLocalData = [...existingLocalData, ...newBaseDataFiltered];
+          saveToLocalStorage(STORAGE_KEYS.BASE_DATA, combinedLocalData, true);
+          infoLog(`[MODO SUPABASE-ONLY] Salvos ${newBaseDataFiltered.length} novos registros no localStorage para revisão (total local: ${combinedLocalData.length})`);
+        } else {
+          saveToLocalStorage(STORAGE_KEYS.BASE_DATA, finalBaseData, true);
+        }
+        
         newRecords = newBaseDataFiltered.length;
         duplicatesIgnored = novoBaseData.length - newBaseDataFiltered.length;
         infoLog(`Adicionadas ${newBaseDataFiltered.length} novas informações base (${duplicatesIgnored} duplicadas ignoradas)`);
@@ -732,8 +895,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       duplicatesIgnored = 0;
       infoLog(`Importadas ${novoBaseData.length} informações base`);
       
-      // Salvar no localStorage
-      saveToLocalStorage(STORAGE_KEYS.BASE_DATA, novoBaseData);
+      // Salvar no localStorage (forçar salvamento para importações)
+      saveToLocalStorage(STORAGE_KEYS.BASE_DATA, novoBaseData, true);
     }
     
     setLoading(false);
@@ -1793,6 +1956,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isLoadingFromSupabase,
       loadFromSupabaseIfEmpty,
       clearLocalStorageAfterMigration,
+      isSupabaseOnlyMode,
+      enableSupabaseOnlyMode,
+      disableSupabaseOnlyMode,
       calculateTimeMetrics,
       calculateReopeningMetrics,
       getReopeningPairs,

@@ -358,7 +358,7 @@ function MetasTabContent() {
   return (
     <>
       {/* Controles de filtro */}
-      <Card>
+      <Card className="w-full">
         <CardHeader>
           <CardTitle className="flex items-center">
             <Target className="mr-2 h-5 w-5" />
@@ -369,14 +369,14 @@ function MetasTabContent() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4 items-end">
-            <div>
+          <div className="flex flex-col sm:flex-row gap-4 sm:items-end w-full">
+            <div className="flex-1">
               <Label htmlFor="mes-select">Mês</Label>
               <Select
                 value={selectedMonth?.toString() || ""}
                 onValueChange={(value) => setSelectedMonth(parseInt(value))}
               >
-                <SelectTrigger className="w-[150px]">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Selecione o mês" />
                 </SelectTrigger>
                 <SelectContent>
@@ -396,13 +396,13 @@ function MetasTabContent() {
               </Select>
             </div>
             
-            <div>
+            <div className="flex-1">
               <Label htmlFor="ano-select">Ano</Label>
               <Select
                 value={selectedYear?.toString() || ""}
                 onValueChange={(value) => setSelectedYear(parseInt(value))}
               >
-                <SelectTrigger className="w-[120px]">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Ano" />
                 </SelectTrigger>
                 <SelectContent>
@@ -422,23 +422,23 @@ function MetasTabContent() {
               </Select>
             </div>
             
-            <div>
+            <div className="flex-none">
               <Button
                 variant="outline"
                 onClick={clearFilters}
-                className="flex items-center gap-2"
+                className="w-full flex items-center justify-center gap-2"
               >
                 <RefreshCcw className="h-4 w-4" />
                 Limpar Filtros
               </Button>
             </div>
-            
-            {availablePeriods.length > 0 && (
-              <div className="text-sm text-muted-foreground">
-                <p>{availablePeriods.length} período(s) com dados disponíveis</p>
-              </div>
-            )}
           </div>
+          
+          {availablePeriods.length > 0 && (
+            <div className="mt-3 text-sm text-muted-foreground">
+              <p>{availablePeriods.length} período(s) com dados disponíveis</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

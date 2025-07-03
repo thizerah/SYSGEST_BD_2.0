@@ -13,12 +13,15 @@ import {
   AlertTriangle, 
   Info,
   Loader2,
-  Trash2
+  Trash2,
+  Cloud,
+  HardDrive,
+  RotateCcw
 } from 'lucide-react';
 
 export function DataMigrationPanel() {
   const { migrateFromLocalStorage, syncing } = useSupabaseData();
-  const { clearLocalStorageAfterMigration } = useData();
+  const { clearLocalStorageAfterMigration, isSupabaseOnlyMode, disableSupabaseOnlyMode } = useData();
   const { toast } = useToast();
   const [migrationResult, setMigrationResult] = useState<{
     success: boolean;
@@ -91,7 +94,16 @@ export function DataMigrationPanel() {
     setMigrationResult(null);
     toast({
       title: "🧹 LocalStorage Limpo",
-      description: "Dados locais removidos. Carregando dados do Supabase...",
+      description: "Dados locais removidos. Sistema agora trabalha apenas com Supabase.",
+      variant: "default"
+    });
+  };
+
+  const handleEnableLocalStorage = () => {
+    disableSupabaseOnlyMode();
+    toast({
+      title: "🔄 Modo LocalStorage Ativado",
+      description: "Sistema voltará a usar localStorage para novos dados importados.",
       variant: "default"
     });
   };
@@ -99,6 +111,56 @@ export function DataMigrationPanel() {
   return (
     <Card className="w-full max-w-2xl mx-auto">
       <CardContent className="space-y-6 pt-6">
+        {/* Status do modo de operação */}
+        <div>
+          <h3 className="text-sm font-medium mb-3 flex items-center space-x-2">
+            {isSupabaseOnlyMode() ? (
+              <>
+                <Cloud className="h-4 w-4 text-blue-600" />
+                <span>Modo: Apenas Supabase (Nuvem)</span>
+              </>
+            ) : (
+              <>
+                <HardDrive className="h-4 w-4 text-gray-600" />
+                <span>Modo: LocalStorage + Supabase</span>
+              </>
+            )}
+          </h3>
+          
+          <Alert className={isSupabaseOnlyMode() ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50'}>
+            {isSupabaseOnlyMode() ? (
+              <>
+                <Cloud className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-800">
+                  <strong>Sistema em modo nuvem:</strong> Dados são carregados diretamente do Supabase. 
+                  Importações são salvas temporariamente no localStorage para revisão antes da migração.
+                </AlertDescription>
+              </>
+            ) : (
+              <>
+                <HardDrive className="h-4 w-4 text-gray-600" />
+                <AlertDescription className="text-gray-800">
+                  <strong>Sistema em modo híbrido:</strong> Dados podem ser importados para localStorage 
+                  e depois migrados para Supabase.
+                </AlertDescription>
+              </>
+            )}
+          </Alert>
+
+          {/* Botão para alternar modo */}
+          {isSupabaseOnlyMode() && (
+            <Button 
+              onClick={handleEnableLocalStorage}
+              variant="outline"
+              size="sm"
+              className="mt-3"
+            >
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Voltar ao Modo LocalStorage
+            </Button>
+          )}
+        </div>
+
         {/* Status dos dados no localStorage */}
         <div>
           <h3 className="text-sm font-medium mb-3 flex items-center space-x-2">
@@ -198,10 +260,11 @@ export function DataMigrationPanel() {
 
         {/* Instruções */}
         <div className="text-xs text-gray-500 space-y-1">
-          <p>• A migração é segura e não afeta os dados originais no localStorage</p>
-          <p>• Após migração bem-sucedida, use o botão "Limpar" para remover dados locais</p>
-          <p>• Todos os dados migrados ficam associados à sua conta de usuário</p>
-          <p>• Depois da limpeza, os dados serão carregados automaticamente do Supabase</p>
+          <p>• <strong>Fluxo de importação:</strong> Importe → Revise → Migre → Sistema limpa automaticamente</p>
+          <p>• <strong>Importação:</strong> Dados novos são salvos temporariamente no localStorage para revisão</p>
+          <p>• <strong>Migração:</strong> Envia apenas registros novos para o Supabase (ignora duplicatas)</p>
+          <p>• <strong>Limpeza automática:</strong> Após migração, localStorage é limpo automaticamente</p>
+          <p>• <strong>Performance:</strong> Sistema carrega dados sempre do Supabase para melhor performance</p>
         </div>
       </CardContent>
     </Card>
