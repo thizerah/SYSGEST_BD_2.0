@@ -5,12 +5,12 @@
 
 import React from 'react';
 import { Repeat, AlertCircle, TrendingDown } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-import { MetricCard, ProgressBar, MultiProgressBar } from '@/components/common';
-import { FilterControls } from './shared/FilterControls';
-import { NoDataMessage } from './shared/NoDataMessage';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../../src/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../src/components/ui/select";
+import { Label } from "../../src/components/ui/label";
+// import { MetricCard, ProgressBar, MultiProgressBar } from '../../src/components/common'; // Componentes não existem no projeto principal
+// import { FilterControls } from './shared/FilterControls'; // Componente não existe na estrutura etapa9.1
+// import { NoDataMessage } from './shared/NoDataMessage'; // Componente não existe na estrutura etapa9.1
 
 interface DashboardState {
   selectedMonth: string | null;
@@ -73,43 +73,45 @@ export function ReopeningMetricsTab({ dashboard }: ReopeningMetricsTabProps) {
 
   return (
     <>
-      <FilterControls dashboard={dashboard} activeTab={dashboard.activeTab} />
+      {/* <FilterControls dashboard={dashboard} activeTab={dashboard.activeTab} /> */}
       
       {!dashboard.showData ? (
-        <NoDataMessage />
+        <div className="text-center text-muted-foreground py-8">
+          Nenhum dado disponível para exibir
+        </div>
       ) : (
         <>
           {/* Cards de Resumo */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <MetricCard
-              title="Total de Reaberturas"
-              value={dashboard.reopeningMetrics.reopenedOrders}
-              subtitle="Ordens reabertas no período"
-              icon={Repeat}
-              variant="warning"
-            />
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">Total de Reaberturas</CardTitle>
+                <CardDescription>{dashboard.reopeningMetrics.reopenedOrders}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground">Ordens reabertas no período</p>
+              </CardContent>
+            </Card>
             
-            <MetricCard
-              title="Taxa de Reabertura"
-              value={`${dashboard.reopeningMetrics.reopeningRate.toFixed(2)}%`}
-              subtitle="Percentual de reaberturas"
-              icon={AlertCircle}
-              variant={dashboard.reopeningMetrics.reopeningRate > 10 ? "danger" : 
-                      dashboard.reopeningMetrics.reopeningRate > 5 ? "warning" : "success"}
-              progress={{
-                value: Math.min(dashboard.reopeningMetrics.reopeningRate, 20),
-                max: 20,
-                showBar: true
-              }}
-            />
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">Taxa de Reabertura</CardTitle>
+                <CardDescription>{dashboard.reopeningMetrics.reopeningRate.toFixed(2)}%</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground">Percentual de reaberturas</p>
+              </CardContent>
+            </Card>
             
-            <MetricCard
-              title="Tempo Médio Entre OS"
-              value={`${dashboard.reopeningMetrics.averageTimeBetween.toFixed(1)}h`}
-              subtitle="Tempo até reabertura"
-              icon={TrendingDown}
-              variant="info"
-            />
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">Tempo Médio Entre OS</CardTitle>
+                <CardDescription>{dashboard.reopeningMetrics.averageTimeBetween.toFixed(1)}h</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground">Tempo até reabertura</p>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Filtro de Tipo de Serviço Original */}
@@ -159,12 +161,14 @@ export function ReopeningMetricsTab({ dashboard }: ReopeningMetricsTabProps) {
               </CardHeader>
               <CardContent>
                 {techniciansData.length > 0 ? (
-                  <MultiProgressBar
-                    items={techniciansData}
-                    showValues={true}
-                    showPercentages={false}
-                    size="md"
-                  />
+                  <div className="space-y-3">
+                    {techniciansData.map((item, index) => (
+                      <div key={index} className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{item.label}</span>
+                        <span className="text-sm text-muted-foreground">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <div className="text-center text-muted-foreground py-4">
                     Nenhuma reabertura encontrada no período
@@ -188,12 +192,14 @@ export function ReopeningMetricsTab({ dashboard }: ReopeningMetricsTabProps) {
               </CardHeader>
               <CardContent>
                 {citiesData.length > 0 ? (
-                  <MultiProgressBar
-                    items={citiesData}
-                    showValues={true}
-                    showPercentages={false}
-                    size="md"
-                  />
+                  <div className="space-y-3">
+                    {citiesData.map((item, index) => (
+                      <div key={index} className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{item.label}</span>
+                        <span className="text-sm text-muted-foreground">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <div className="text-center text-muted-foreground py-4">
                     Nenhuma reabertura encontrada no período
@@ -228,15 +234,17 @@ export function ReopeningMetricsTab({ dashboard }: ReopeningMetricsTabProps) {
                         : "success";
                     
                     return (
-                      <ProgressBar
-                        key={type}
-                        label={type}
-                        value={data.reopeningRate}
-                        max={20}
-                        variant={variant}
-                        showPercentage={true}
-                        subtitle={`${data.reopenings} reaberturas de ${data.totalOriginals} serviços originais`}
-                      />
+                      <div key={type} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">{type}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {data.reopenings} reaberturas de {data.totalOriginals} serviços originais
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-medium text-sm">{data.reopeningRate.toFixed(2)}%</div>
+                        </div>
+                      </div>
                     );
                   })}
                 

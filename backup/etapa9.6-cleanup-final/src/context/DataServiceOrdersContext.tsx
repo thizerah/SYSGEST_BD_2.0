@@ -4,8 +4,8 @@
  */
 
 import React, { createContext, useState, useMemo } from 'react';
-import { ServiceOrder, ReopeningPair } from '@/types';
-import { TimeMetrics, ReopeningMetrics } from '@/types/dataContextTypes';
+import { ServiceOrder, ReopeningPair } from '../types';
+import { TimeMetrics, ReopeningMetrics } from '../types/dataContextTypes';
 import { 
   VALID_SUBTYPES, 
   ALL_VALID_SUBTYPES,
@@ -15,8 +15,8 @@ import {
   getServiceGoalBySubtype,
   standardizeServiceCategory
 } from "./DataUtils";
-import { VALID_STATUS, ORIGINAL_SERVICE_TYPES } from '@/constants/serviceTypes';
-import { ajustarTempoAtendimento } from '@/utils/holidays';
+import { VALID_STATUS, ORIGINAL_SERVICE_TYPES } from '../constants/serviceTypes';
+import { ajustarTempoAtendimento } from '../utils/holidays';
 
 interface DataServiceOrdersContextType {
   // Estados
@@ -318,8 +318,8 @@ export const DataServiceOrdersProvider: React.FC<{ children: React.ReactNode }> 
       totalTimeBetween += pair.timeBetween;
       
       const technicianName = pair.reopeningOrder.nome_tecnico || "Técnico não informado";
-      const reopeningType = pair.reopeningServiceCategory;
-      const originalType = pair.originalServiceCategory;
+      const reopeningType = pair.reopeningServiceCategory || "Tipo não especificado";
+      const originalType = pair.originalServiceCategory || "Tipo não especificado";
       
       // Contagem por técnico
       reopeningsByTechnician[technicianName] = (reopeningsByTechnician[technicianName] || 0) + 1;

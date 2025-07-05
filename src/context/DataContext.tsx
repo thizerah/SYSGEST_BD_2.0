@@ -99,6 +99,7 @@ interface DataContextType {
   calculateVendedorMetrics: () => VendedorMetrics[];
   calculateMetaMetrics: (mes?: number, ano?: number) => MetaMetrics | null;
   mapearCategoriaVenda: (venda: Venda | VendaMeta) => string;
+  calculateThreeMonthAverage: (currentMonth: number, currentYear: number) => Record<string, number>;
   technicians: string[];
   vendedores: string[];
 }
@@ -1004,6 +1005,76 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       averageTime: parseFloat(averageTime.toFixed(2)),
       servicesByType
     };
+  };
+
+  // Função para calcular média dos últimos 3 meses de reaberturas por tipo
+  const calculateThreeMonthAverage = (currentMonth: number, currentYear: number): Record<string, number> => {
+    const averagesByType: Record<string, number> = {};
+    
+    // Gerar os 3 meses anteriores ao mês atual
+    const monthsToAnalyze = [];
+    for (let i = 1; i <= 3; i++) {
+      let month = currentMonth - i;
+      let year = currentYear;
+      
+      if (month <= 0) {
+        month = 12 + month;
+        year = year - 1;
+      }
+      
+      monthsToAnalyze.push({ month, year });
+    }
+    
+    // Calcular reaberturas para cada mês
+    const monthlyReopenings: Record<string, number[]> = {};
+    
+    monthsToAnalyze.forEach(({ month, year }) => {
+      // Filtrar OSs para o mês específico
+      const monthStart = new Date(year, month - 1, 1);
+      const monthEnd = new Date(year, month, 0);
+      
+      const monthlyReopeningPairs = getReopeningPairs(serviceOrders).filter(pair => {
+        const reopeningDate = new Date(pair.reopeningOrder.data_criacao);
+        return reopeningDate >= monthStart && reopeningDate <= monthEnd;
+      });
+      
+      // Contar reaberturas por tipo original
+      monthlyReopeningPairs.forEach(pair => {
+        const originalType = pair.originalOrder.subtipo_servico || "Desconhecido";
+        if (!monthlyReopenings[originalType]) {
+          monthlyReopenings[originalType] = [];
+        }
+        monthlyReopenings[originalType].push(1);
+      });
+    });
+    
+    // Calcular média para cada tipo
+    Object.keys(monthlyReopenings).forEach(type => {
+      const monthlyData = monthlyReopenings[type];
+      
+      // Criar array com 3 posições (uma para cada mês)
+      const threeMonthsData = [0, 0, 0];
+      
+      // Distribuir os dados pelos meses
+      monthsToAnalyze.forEach((monthInfo, index) => {
+        const monthStart = new Date(monthInfo.year, monthInfo.month - 1, 1);
+        const monthEnd = new Date(monthInfo.year, monthInfo.month, 0);
+        
+        const monthReopenings = getReopeningPairs(serviceOrders).filter(pair => {
+          const reopeningDate = new Date(pair.reopeningOrder.data_criacao);
+          return reopeningDate >= monthStart && reopeningDate <= monthEnd && 
+                 (pair.originalOrder.subtipo_servico || "Desconhecido") === type;
+        }).length;
+        
+        threeMonthsData[index] = monthReopenings;
+      });
+      
+      // Calcular média dos 3 meses
+      const total = threeMonthsData.reduce((sum, count) => sum + count, 0);
+      averagesByType[type] = Math.round(total / 3); // Arredondar para número inteiro
+    });
+    
+    return averagesByType;
   };
 
   const calculateReopeningMetrics = (filteredOrders?: ServiceOrder[]) => {
@@ -1966,6 +2037,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       calculateVendedorMetrics,
       calculateMetaMetrics,
       mapearCategoriaVenda,
+      calculateThreeMonthAverage,
       technicians,
       vendedores
     }}>

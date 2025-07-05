@@ -186,7 +186,7 @@ function MetasTabContent() {
         },
         produtos: ['PÓS-PAGO', 'FLEX/CONFORTO', 'NOVA PARABÓLICA']
       },
-      'INTERNET/STREAMING': {
+      'OUT': {
         mesAtual: {
           meta: 0,
           vendas: 0,
@@ -199,7 +199,7 @@ function MetasTabContent() {
         },
         produtos: ['FIBRA', 'SKY MAIS']
       },
-      'SEGUROS': {
+      'SEG': {
         mesAtual: {
           meta: 0,
           vendas: 0,
@@ -667,7 +667,7 @@ function MetasTabContent() {
                       formaNormalizada = 'SEM COBRANÇA';
                     } else if (formaNormalizada.includes('DINHEIRO') || formaNormalizada.includes('ESPÉCIE')) {
                       formaNormalizada = 'DINHEIRO';
-                    } else if (formaNormalizada === 'NÃO INFORMADO' || formaNormalizada === '' || formaNormalizada === 'NULL') {
+                    } else if (formaNormalizada.includes('NÃO INFORMADO') || formaNormalizada.includes('') || formaNormalizada.includes('NULL')) {
                       formaNormalizada = 'NÃO INFORMADO';
                     }
                     
@@ -1045,6 +1045,16 @@ function MetasTabContent() {
                     return diasUteis;
                   };
 
+                  // Função para mapear nomes de categorias para exibição
+                  const mapearNomeCategoria = (categoria: string): string => {
+                    switch (categoria) {
+                      case 'FLEX/CONFORTO':
+                        return 'PRÉ-PAGO';
+                      default:
+                        return categoria;
+                    }
+                  };
+
                   const renderCategoria = (categoria: typeof metaMetrics.categorias[0], isSubcategory = false) => {
                     const saldo = categoria.vendas_realizadas - categoria.meta_definida;
                     const saldoPositivo = saldo >= 0;
@@ -1103,7 +1113,7 @@ function MetasTabContent() {
                       <div className={`grid grid-cols-9 gap-3 py-3 px-3 rounded-lg ${isSubcategory ? 'bg-gray-50/80 ml-4 border-l-4 border-blue-200' : 'bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow'}`}>
                         <div className="flex items-center text-left">
                           <span className={`font-medium ${isSubcategory ? 'text-xs text-gray-700' : 'text-sm'}`}>
-                            {categoria.categoria}
+                            {mapearNomeCategoria(categoria.categoria)}
                           </span>
                         </div>
                         
@@ -1350,8 +1360,8 @@ function MetasTabContent() {
 
                       {/* Grupos */}
                       {renderGrupo("PAY TV", categoriasPorGrupo.payTV, "bg-gradient-to-r from-blue-600 to-blue-700")}
-                      {renderGrupo("INTERNET/STREAMING", categoriasPorGrupo.internetStreaming, "bg-gradient-to-r from-blue-600 to-blue-700")}
-                      {renderGrupo("SEGUROS", categoriasPorGrupo.seguros, "bg-gradient-to-r from-blue-600 to-blue-700")}
+                      {renderGrupo("OUT", categoriasPorGrupo.internetStreaming, "bg-gradient-to-r from-blue-600 to-blue-700")}
+                      {renderGrupo("SEG", categoriasPorGrupo.seguros, "bg-gradient-to-r from-blue-600 to-blue-700")}
                     </>
                   );
                 })()}
@@ -1366,7 +1376,7 @@ function MetasTabContent() {
 
 export function MetricsOverview() {
   const data = useData();
-  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs, vendas, baseData } = data;
+  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs, vendas, baseData, calculateThreeMonthAverage } = data;
   const { user } = useAuth();
   const { getSetting, updateSetting } = useSystemSettings();
 
@@ -2239,6 +2249,18 @@ export function MetricsOverview() {
     };
   }, [getFilteredReopeningPairs, filteredServiceOrders, selectedMonth, selectedYear, originalServiceTypeFilter]);
   
+  // Calcular média dos últimos 3 meses para cada tipo de serviço
+  const threeMonthAverages = useMemo(() => {
+    if (!showData || !selectedMonth || !selectedYear) {
+      return {};
+    }
+    
+    const currentMonth = parseInt(selectedMonth);
+    const currentYear = parseInt(selectedYear);
+    
+    return calculateThreeMonthAverage(currentMonth, currentYear);
+  }, [calculateThreeMonthAverage, selectedMonth, selectedYear, showData]);
+  
   // Extrair tipos de serviço únicos das ordens originais para o filtro
   const uniqueOriginalServiceTypes = useMemo(() => {
     if (!showData || !getReopeningPairs().length) {
@@ -2928,10 +2950,11 @@ export function MetricsOverview() {
                 <Table className="w-full table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="text-sm font-medium w-[35%] px-2">Tipo da OS Original</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">Serviços</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">Reab.</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">% Reabertura</TableHead>
+                      <TableHead className="text-sm font-medium w-[30%] px-2">Tipo da OS Original</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[12%] px-2">Serviços</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[12%] px-2">Reab.</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[12%] px-2">M3M</TableHead>
+                      <TableHead className="text-center text-sm font-medium w-[14%] px-2">% Reabertura</TableHead>
                       <TableHead className="text-center text-sm font-medium w-[20%] px-2">Serv. p/ Meta</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -2981,6 +3004,19 @@ export function MetricsOverview() {
                             <TableCell className="text-center text-sm px-2">{data.totalOriginals}</TableCell>
                             <TableCell className="text-center text-sm px-2">{data.reopenings}</TableCell>
                             <TableCell className="text-center text-sm px-2">
+                              {threeMonthAverages[type] !== undefined ? (
+                                <span className={`font-medium ${
+                                  data.reopenings < threeMonthAverages[type] ? 'text-green-600' :
+                                  data.reopenings > threeMonthAverages[type] ? 'text-red-600' : 
+                                  'text-yellow-600'
+                                }`}>
+                                  {threeMonthAverages[type]}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center text-sm px-2">
                               <span className={`font-bold ${getReopeningColorByServiceType(type, (data.reopenings / data.totalOriginals * 100))}`}>
                                 {(data.reopenings / data.totalOriginals * 100).toFixed(2)}%
                               </span>
@@ -3004,7 +3040,7 @@ export function MetricsOverview() {
                     
                     {Object.keys(getReopeningMetrics.reopeningsByOriginalType).length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-4 text-muted-foreground text-sm px-2">
+                        <TableCell colSpan={6} className="text-center py-4 text-muted-foreground text-sm px-2">
                           Nenhuma reabertura encontrada no período selecionado
                         </TableCell>
                       </TableRow>
@@ -3013,6 +3049,7 @@ export function MetricsOverview() {
                 </Table>
                 <div className="mt-3 text-sm text-muted-foreground italic space-y-1">
                   <p><strong>Nota:</strong> Na coluna "Serviços" são contabilizadas todas as ordens que foram <strong>criadas OU finalizadas</strong> no mês selecionado.</p>
+                  <p><strong>M3M (Média 3 Meses):</strong> Representa a <strong>média de reaberturas dos últimos 3 meses anteriores</strong> ao mês selecionado. Cores: <span className="text-green-600 font-medium">Verde</span> = mês atual abaixo da média, <span className="text-yellow-600 font-medium">Amarelo</span> = igual à média, <span className="text-red-600 font-medium">Vermelho</span> = acima da média.</p>
                   <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">X reab. disp.</span> = dentro da meta com X reaberturas ainda disponíveis, <span className="text-amber-600 font-medium">0 reab. disp.</span> = no limite exato da meta (ponto de atenção), <span className="text-red-600 font-medium">+X serviços (Y total)</span> = fora da meta, precisa de X serviços adicionais (chegando a Y serviços no total) para voltar à faixa verde.</p>
                 </div>
               </div>
@@ -5347,7 +5384,7 @@ function MessageConfiguration({
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Preview da mensagem atual */}
-                    <div className="bg-yellow-400 text-sysgest-blue px-4 py-2 rounded-lg">
+                    <div className="bg-[#fff3cd] text-[#856404] px-4 py-2 rounded-lg border-b border-[#ffeeba]">
               <span className="text-sm font-medium">{currentMessage}</span>
         </div>
 

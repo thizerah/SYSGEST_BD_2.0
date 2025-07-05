@@ -110,13 +110,95 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Ajuste global de fontes para mobile */
+  @media (max-width: 430px) {
+    html {
+      font-size: 12px; /* Reduz ainda mais o tamanho base da fonte */
+    }
+
+    h1 {
+      @apply text-lg;
+    }
+
+    h2 {
+      @apply text-base;
+    }
+
+    h3 {
+      @apply text-sm;
+    }
+
+    p, span, div {
+      @apply text-xs;
+    }
+
+    .text-xs {
+      font-size: 0.6rem;
+    }
+
+    .text-sm {
+      font-size: 0.7rem;
+    }
+
+    .text-base {
+      font-size: 0.8rem;
+    }
+
+    .text-lg {
+      font-size: 0.9rem;
+    }
+
+    .text-xl {
+      font-size: 1rem;
+    }
+
+    /* Reduz espaçamentos */
+    .p-2 {
+      padding: 0.4rem;
+    }
+
+    .p-3 {
+      padding: 0.6rem;
+    }
+
+    .p-4 {
+      padding: 0.8rem;
+    }
+
+    /* Reduz margens */
+    .m-2 {
+      margin: 0.4rem;
+    }
+
+    .m-3 {
+      margin: 0.6rem;
+    }
+
+    .m-4 {
+      margin: 0.8rem;
+    }
+
+    /* Ajusta gaps */
+    .gap-2 {
+      gap: 0.4rem;
+    }
+
+    .gap-3 {
+      gap: 0.6rem;
+    }
+
+    .gap-4 {
+      gap: 0.8rem;
+    }
+  }
 }
 
 /* Estilos para PWA e responsividade */
 @layer utilities {
   /* Suporte a telas pequenas */
   .container-fluid {
-    @apply w-full px-2 sm:px-4 md:px-6 lg:px-8;
+    @apply w-full px-1 sm:px-2 md:px-4 lg:px-6;
   }
   
   /* Scroll horizontal para tabelas */
@@ -132,22 +214,48 @@
   
   /* Suporte a toque */
   .touch-friendly {
-    @apply min-h-[44px] min-w-[44px];
+    @apply min-h-[36px] min-w-[36px];
   }
   
   /* Layout responsivo para cards */
   .responsive-grid {
-    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4;
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-4;
   }
   
   /* Texto responsivo */
   .text-responsive {
-    @apply text-sm sm:text-base;
+    @apply text-[0.65rem] sm:text-xs md:text-sm;
   }
   
   /* Espaçamento responsivo */
   .spacing-responsive {
-    @apply p-2 sm:p-4 md:p-6;
+    @apply p-1 sm:p-2 md:p-4;
+  }
+
+  /* Classes específicas para mobile */
+  .mobile-text-compact {
+    @apply text-[0.65rem] leading-tight;
+  }
+
+  .mobile-heading {
+    @apply text-sm font-semibold;
+  }
+
+  .mobile-subheading {
+    @apply text-xs font-medium;
+  }
+
+  /* Classes ultra compactas para mobile */
+  .mobile-text-ultra-compact {
+    @apply text-[0.6rem] leading-tight;
+  }
+
+  .mobile-heading-compact {
+    @apply text-xs font-semibold leading-snug;
+  }
+
+  .mobile-spacing-compact {
+    @apply p-1 space-y-1;
   }
 }
 
@@ -166,17 +274,27 @@
 @media (max-width: 768px) {
   /* Reduzir espaçamentos em telas pequenas */
   .card {
-    @apply rounded-lg;
+    @apply rounded-lg p-2;
   }
   
   /* Melhorar legibilidade de texto */
   .table-cell-mobile {
-    @apply text-xs leading-tight;
+    @apply text-[0.65rem] leading-tight;
   }
   
   /* Botões mais amigáveis ao toque */
   .btn-mobile {
-    @apply min-h-[44px] px-4 py-2;
+    @apply min-h-[32px] px-2 py-1 text-xs;
+  }
+
+  /* Ajustes de espaçamento */
+  .spacing-mobile {
+    @apply p-1 space-y-1;
+  }
+
+  /* Ajustes de margens */
+  .margin-mobile {
+    @apply mx-1 my-0.5;
   }
 }
 
@@ -203,7 +321,14 @@
   color: var(--sysgest-teal);
 }
 
-/* Animações suaves */
+.bg-sysgest-yellow {
+  background-color: var(--sysgest-yellow);
+}
+
+.text-sysgest-yellow {
+  color: var(--sysgest-yellow);
+}
+
 .transition-smooth {
-  transition: all 0.2s ease-in-out;
+  @apply transition-all duration-300 ease-in-out;
 }
