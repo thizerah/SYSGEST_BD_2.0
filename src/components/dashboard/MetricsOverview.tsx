@@ -2679,7 +2679,7 @@ export function MetricsOverview() {
                                        <div className="font-semibold text-xs">{item.currentMonth}</div>
                                      </div>
                                      <div className="col-span-1">
-                                       <div className="text-gray-400 text-xs">Anterior</div>
+                                       <div className="text-gray-400 text-xs">M.A.</div>
                                        <div className="font-semibold text-xs">{item.previousMonth}</div>
                                      </div>
                                      <div className="col-span-3">
@@ -2696,7 +2696,7 @@ export function MetricsOverview() {
 
                                      {/* Seção Média 3 Meses */}
                                      <div className="col-span-2">
-                                       <div className="text-gray-400 text-xs">Média 3 meses</div>
+                                       <div className="text-gray-400 text-xs">M3M</div>
                                        <div className="font-semibold text-xs">{averageThreeMonths}</div>
                                      </div>
                                      <div className="col-span-4">
@@ -2751,7 +2751,7 @@ export function MetricsOverview() {
                                        <div className="font-semibold text-xs">{item.currentMonth}</div>
                                      </div>
                                      <div className="col-span-1">
-                                       <div className="text-gray-400 text-xs">Anterior</div>
+                                       <div className="text-gray-400 text-xs">M.A.</div>
                                        <div className="font-semibold text-xs">{item.previousMonth}</div>
                                      </div>
                                      <div className="col-span-3">
@@ -2768,7 +2768,7 @@ export function MetricsOverview() {
 
                                      {/* Seção Média 3 Meses */}
                                      <div className="col-span-2">
-                                       <div className="text-gray-400 text-xs">Média 3 meses</div>
+                                       <div className="text-gray-400 text-xs">M3M</div>
                                        <div className="font-semibold text-xs">{averageThreeMonths}</div>
                                      </div>
                                      <div className="col-span-4">
@@ -7247,10 +7247,11 @@ function ImportData() {
             dataHabilitacao = dataHabilitacaoRaw;
           }
           
-          // Extrair mês e ano da data de habilitação
-          const dataObj = new Date(dataHabilitacao);
-          mes = dataObj.getMonth() + 1;
-          ano = dataObj.getFullYear();
+          // Extrair mês e ano da data de habilitação - MÉTODO CORRIGIDO
+          // Não usar new Date(string) para evitar problemas de timezone
+          const [anoStr, mesStr, diaStr] = dataHabilitacao.split('-');
+          ano = parseInt(anoStr);
+          mes = parseInt(mesStr); // Já vem correto (1-12)
         }
         
         // Debug do campo ProdutosSecundarios
@@ -7270,7 +7271,7 @@ function ImportData() {
           forma_pagamento: String(formaPagamentoRaw || ''),
           mes: mes,
           ano: ano
-        };
+                };
         
         processedVendasMeta.push(vendaMeta);
         
