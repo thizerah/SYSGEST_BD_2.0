@@ -97,7 +97,7 @@ interface DataContextType {
   getReopeningPairs: (filteredOrders?: ServiceOrder[]) => ReopeningPair[];
   calculatePermanenciaMetrics: () => PermanenciaMetrics;
   calculateVendedorMetrics: () => VendedorMetrics[];
-  calculateMetaMetrics: (mes?: number, ano?: number) => MetaMetrics | null;
+  calculateMetaMetrics: (mes?: number, ano?: number, dataLimite?: Date) => MetaMetrics | null;
   mapearCategoriaVenda: (venda: Venda | VendaMeta) => string;
   calculateThreeMonthAverage: (currentMonth: number, currentYear: number) => Record<string, number>;
   technicians: string[];
@@ -1763,7 +1763,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Função para calcular métricas de metas
-  const calculateMetaMetrics = (mes?: number, ano?: number): MetaMetrics | null => {
+  const calculateMetaMetrics = (mes?: number, ano?: number, dataLimite?: Date): MetaMetrics | null => {
     const mesAtual = mes || new Date().getMonth() + 1;
     const anoAtual = ano || new Date().getFullYear();
     
@@ -1784,10 +1784,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const vendasNormaisDoMes = vendas.filter(venda => {
       if (!venda.data_habilitacao) return false;
       const dataVenda = new Date(venda.data_habilitacao);
-      return dataVenda.getMonth() + 1 === mesAtual && dataVenda.getFullYear() === anoAtual;
+      const mesVenda = dataVenda.getMonth() + 1;
+      const anoVenda = dataVenda.getFullYear();
+      
+      // Verificar se é do mês/ano correto
+      if (mesVenda !== mesAtual || anoVenda !== anoAtual) return false;
+      
+      // Se há data limite, verificar se a venda está dentro do período
+      if (dataLimite) {
+        const dataLimiteNormalizada = new Date(dataLimite);
+        dataLimiteNormalizada.setHours(23, 59, 59, 999);
+        return dataVenda <= dataLimiteNormalizada;
+      }
+      
+      return true;
     });
     
-    const vendasMetaDoMes = vendasMeta.filter(venda => venda.mes === mesAtual && venda.ano === anoAtual);
+    const vendasMetaDoMes = vendasMeta.filter(venda => {
+      if (venda.mes !== mesAtual || venda.ano !== anoAtual) return false;
+      
+      // Se há data limite, verificar se a venda está dentro do período
+      if (dataLimite && venda.data_venda) {
+        const dataVenda = new Date(venda.data_venda);
+        const dataLimiteNormalizada = new Date(dataLimite);
+        dataLimiteNormalizada.setHours(23, 59, 59, 999);
+        return dataVenda <= dataLimiteNormalizada;
+      }
+      
+      return true;
+    });
     
     debugLog(`[METAS VENDAS] Normais: ${vendasNormaisDoMes.length}, Meta: ${vendasMetaDoMes.length}`);
     
@@ -1953,7 +1978,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let diasDecorridos: number;
     let diasRestantes: number;
     
-    if (isCurrentMonth) {
+    if (isCurrentMonth && !dataLimite) {
       // Mês atual: usar data atual
       const primeiroDiaMes = new Date(anoAtual, mesAtual - 1, 1);
       const ontem = new Date(hoje);
@@ -1965,6 +1990,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Log resumido dos dias úteis
       debugLog(`[METAS DIAS] ${mesAtual}/${anoAtual}: ${diasDecorridos} decorridos, ${diasRestantes} restantes`);
+    } else if (dataLimite) {
+      // Data limite especificada: usar período até a data limite
+      const primeiroDiaMes = new Date(anoAtual, mesAtual - 1, 1);
+      const dataLimiteNormalizada = new Date(dataLimite);
+      dataLimiteNormalizada.setHours(23, 59, 59, 999);
+      
+      diasDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, dataLimiteNormalizada));
+      diasRestantes = 0; // Não há dias restantes quando há data limite
+      
+      // Log resumido dos dias úteis
+      debugLog(`[METAS DIAS] ${mesAtual}/${anoAtual} até ${dataLimite.toLocaleDateString()}: ${diasDecorridos} decorridos`);
     } else {
       // Mês passado: usar o mês completo
       const primeiroDiaMes = new Date(anoAtual, mesAtual - 1, 1);

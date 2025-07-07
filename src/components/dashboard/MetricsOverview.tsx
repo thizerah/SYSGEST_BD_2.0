@@ -153,11 +153,16 @@ function MetasTabContent() {
     return { diasDecorridos: Math.max(1, diasDecorridos), diasRestantes: Math.max(0, diasRestantes), diasTotais: diasDecorridos + diasRestantes };
   };
 
-  // Função para calcular tendência de meta por categorias (comparar com mês anterior)
+  // Função para calcular tendência de meta por categorias (comparar períodos equivalentes)
   const calcularTendenciaMeta = () => {
     if (!selectedMonth || !selectedYear) return null;
     
-    const metaAtual = calculateMetaMetrics(selectedMonth, selectedYear);
+    const hoje = new Date();
+    const isCurrentMonth = selectedYear === hoje.getFullYear() && selectedMonth === hoje.getMonth() + 1;
+    
+    // Para o mês atual, usar até ontem para evitar dados parciais do dia atual
+    const dataLimiteAtual = isCurrentMonth ? new Date(hoje.getTime() - 24 * 60 * 60 * 1000) : undefined;
+    const metaAtual = calculateMetaMetrics(selectedMonth, selectedYear, dataLimiteAtual);
     if (!metaAtual) return null;
     
     // Calcular mês anterior
@@ -168,7 +173,15 @@ function MetasTabContent() {
       anoAnterior = selectedYear - 1;
     }
     
-    const metaAnterior = calculateMetaMetrics(mesAnterior, anoAnterior);
+    // Para garantir comparação justa, usar a mesma data limite no mês anterior
+    // Se é mês atual, limitar o mês anterior ao mesmo dia do mês
+    let dataLimiteAnterior: Date | undefined;
+    if (isCurrentMonth) {
+      const diaAtual = dataLimiteAtual ? dataLimiteAtual.getDate() : hoje.getDate() - 1;
+      dataLimiteAnterior = new Date(anoAnterior, mesAnterior - 1, diaAtual);
+    }
+    
+    const metaAnterior = calculateMetaMetrics(mesAnterior, anoAnterior, dataLimiteAnterior);
     if (!metaAnterior) return null;
     
     // Agrupar produtos nas categorias específicas
@@ -498,7 +511,7 @@ function MetasTabContent() {
                     Tendência de Meta
                   </CardTitle>
                   <CardDescription className="text-sm">
-                    Comparação com o mês anterior
+                    Comparação entre períodos equivalentes
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-3 pt-0">
@@ -934,7 +947,7 @@ function MetasTabContent() {
                          nova_parabolica: dados.nova_parabolica,
                          fibra: dados.fibra,
                          sky_mais: dados.sky_mais,
-                         percentual: (dados.total / calculateMetaMetrics(selectedMonth || 0, selectedYear || 0)?.total_vendas || 0) * 100
+                         percentual: (dados.total / (metaMetrics?.total_vendas || 1)) * 100
                        }))
                        .sort((a, b) => b.total - a.total)
                        .slice(0, 10); // Top 10
