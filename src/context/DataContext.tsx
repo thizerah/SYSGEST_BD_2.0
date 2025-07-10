@@ -38,6 +38,7 @@ const infoLog = (message: string, data?: unknown) => {
 interface ImportResult {
   totalProcessed: number;
   newRecords: number;
+  updatedRecords: number;
   duplicatesIgnored: number;
 }
 
@@ -576,6 +577,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {
       totalProcessed: orders.length,
       newRecords,
+      updatedRecords: 0,
       duplicatesIgnored
     };
   };
@@ -635,6 +637,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {
       totalProcessed: novasVendas.length,
       newRecords,
+      updatedRecords: 0,
       duplicatesIgnored
     };
   };
@@ -687,18 +690,46 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Converter o map de volta para um array
       const pagamentosAtualizados = Array.from(propostaMap.values());
-      const novosRegistros = pagamentosAtualizados.length - primeirosPagamentos.length;
-      const duplicatasIgnoradas = pagamentos.length - novosRegistros;
+      
+      // Calcular novos e atualizados separadamente
+      let novosRegistros = 0;
+      let registrosAtualizados = 0;
+      
+      pagamentosAtualizados.forEach(pagamento => {
+        const existingInState = primeirosPagamentos.find(existing => existing.proposta === pagamento.proposta);
+        
+        if (!existingInState) {
+          // Novo registro
+          novosRegistros++;
+        } else {
+          // Verificar se foi atualizado (data mais recente)
+          if (new Date(pagamento.data_importacao) > new Date(existingInState.data_importacao)) {
+            registrosAtualizados++;
+          }
+        }
+      });
+      
+      const duplicatasIgnoradas = pagamentos.length - novosRegistros - registrosAtualizados;
       
       setPrimeirosPagamentos(pagamentosAtualizados);
       
       // No modo Supabase-only, salvar apenas os novos registros no localStorage para revisão
       if (isSupabaseOnlyMode()) {
         const existingLocalData = loadFromLocalStorage<PrimeiroPagamento>(STORAGE_KEYS.PAGAMENTOS);
-        // Para pagamentos, como há lógica de substituição, vamos salvar apenas os novos/atualizados
-        const novosOuAtualizados = pagamentosAtualizados.filter(p => 
-          !primeirosPagamentos.some(existing => existing.proposta === p.proposta)
-        );
+        
+        // Para pagamentos, precisamos salvar tanto registros novos quanto atualizados
+        const novosOuAtualizados = pagamentosAtualizados.filter(p => {
+          const existingInState = primeirosPagamentos.find(existing => existing.proposta === p.proposta);
+          
+          // Se não existe no estado atual, é novo
+          if (!existingInState) {
+            return true;
+          }
+          
+          // Se existe no estado atual, verificar se foi atualizado (data mais recente)
+          return new Date(p.data_importacao) > new Date(existingInState.data_importacao);
+        });
+        
         const combinedLocalData = [...existingLocalData, ...novosOuAtualizados];
         saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, combinedLocalData, true);
         infoLog(`[MODO SUPABASE-ONLY] Salvos ${novosOuAtualizados.length} novos/atualizados no localStorage para revisão (total local: ${combinedLocalData.length})`);
@@ -713,6 +744,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return {
         totalProcessed: pagamentos.length,
         newRecords: Math.max(0, novosRegistros),
+        updatedRecords: Math.max(0, registrosAtualizados),
         duplicatesIgnored: Math.max(0, duplicatasIgnoradas)
       };
     } else {
@@ -729,6 +761,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return {
         totalProcessed: pagamentos.length,
         newRecords: pagamentos.length,
+        updatedRecords: 0,
         duplicatesIgnored: 0
       };
     }
@@ -781,6 +814,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return {
         totalProcessed: novasMetas.length,
         newRecords,
+        updatedRecords: 0,
         duplicatesIgnored
       };
     } catch (error) {
@@ -788,6 +822,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return {
         totalProcessed: novasMetas.length,
         newRecords: 0,
+        updatedRecords: 0,
         duplicatesIgnored: novasMetas.length
       };
     } finally {
@@ -842,6 +877,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return {
         totalProcessed: novasVendasMeta.length,
         newRecords,
+        updatedRecords: 0,
         duplicatesIgnored
       };
     } catch (error) {
@@ -849,6 +885,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return {
         totalProcessed: novasVendasMeta.length,
         newRecords: 0,
+        updatedRecords: 0,
         duplicatesIgnored: novasVendasMeta.length
       };
     } finally {
@@ -905,6 +942,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {
       totalProcessed: novoBaseData.length,
       newRecords,
+      updatedRecords: 0,
       duplicatesIgnored
     };
   };

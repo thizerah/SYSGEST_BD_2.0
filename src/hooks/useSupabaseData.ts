@@ -13,6 +13,7 @@ import {
 interface ImportResult {
   totalProcessed: number;
   newRecords: number;
+  updatedRecords: number;
   duplicatesIgnored: number;
 }
 
@@ -203,26 +204,67 @@ export function useSupabaseData() {
       }
 
       case 'pagamentos': {
-        // Para pagamentos, manter sempre o mais recente por proposta
-        const existingByProposta = new Map(
-          (existingData || []).map((item: Record<string, unknown>) => [
-            item.proposta, 
-            new Date(item.data_passo_cobranca as string || 0)
-          ])
-        );
-
-        dataToInsert = newData.filter((item: Record<string, unknown>) => {
-          const proposta = item.proposta;
-          const newDate = new Date(item.data_passo_cobranca as string || 0);
-          const existingDate = existingByProposta.get(proposta);
-          
-          if (!existingDate || newDate > existingDate) {
-            existingByProposta.set(proposta, newDate);
-            return true;
-          }
-          return false;
+        // Para pagamentos, manter sempre o mais recente por proposta baseado na data_importacao
+        // Primeiro, criar um mapa com todos os dados existentes no Supabase
+        const existingByProposta = new Map<string, {
+          data: Record<string, unknown>;
+          dataImportacao: Date;
+        }>();
+        
+        (existingData || []).forEach((item: Record<string, unknown>) => {
+          const proposta = item.proposta as string;
+          const dataImportacao = new Date(item.data_importacao as string || 0);
+          existingByProposta.set(proposta, {
+            data: item,
+            dataImportacao
+          });
         });
-        duplicatesIgnored = newData.length - dataToInsert.length;
+
+        // Processar os novos dados e determinar quais devem ser mantidos
+        const registrosParaInserir: Record<string, unknown>[] = [];
+        const propostasParaAtualizar: string[] = [];
+        
+        newData.forEach((item: Record<string, unknown>) => {
+          const proposta = item.proposta as string;
+          const novaDataImportacao = new Date(item.data_importacao as string || 0);
+          
+          if (existingByProposta.has(proposta)) {
+            const existingItem = existingByProposta.get(proposta)!;
+            
+            // Substituir apenas se o novo registro for mais recente
+            if (novaDataImportacao > existingItem.dataImportacao) {
+              registrosParaInserir.push(item);
+              propostasParaAtualizar.push(proposta);
+              console.log(`[PAGAMENTO MIGRAÇÃO] Atualizado proposta ${proposta} (${existingItem.dataImportacao.toISOString()} -> ${novaDataImportacao.toISOString()})`);
+            } else {
+              console.log(`[PAGAMENTO MIGRAÇÃO] Ignorado proposta ${proposta} (registro mais antigo: ${novaDataImportacao.toISOString()} vs ${existingItem.dataImportacao.toISOString()})`);
+            }
+          } else {
+            // Proposta não existia, adicionar
+            registrosParaInserir.push(item);
+            console.log(`[PAGAMENTO MIGRAÇÃO] Adicionado novo pagamento para proposta ${proposta}`);
+          }
+        });
+        
+        // Se há registros para atualizar, deletar os existentes primeiro
+        if (propostasParaAtualizar.length > 0) {
+          console.log(`[PAGAMENTO MIGRAÇÃO] Deletando ${propostasParaAtualizar.length} propostas existentes que serão atualizadas`);
+          
+          // Deletar registros existentes que serão atualizados de forma síncrona
+          const { error: deleteError } = await supabase
+            .from(tableName)
+            .delete()
+            .eq('user_id', user.id)
+            .in('proposta', propostasParaAtualizar);
+          
+          if (deleteError) {
+            console.error('[PAGAMENTO MIGRAÇÃO] Erro ao deletar registros para atualização:', deleteError);
+            throw deleteError;
+          }
+        }
+        
+        dataToInsert = registrosParaInserir;
+        duplicatesIgnored = newData.length - registrosParaInserir.length;
         break;
       }
 
@@ -373,7 +415,7 @@ export function useSupabaseData() {
       setState(prev => ({ ...prev, syncing: true }));
 
       if (data.length === 0) {
-        return { totalProcessed: 0, newRecords: 0, duplicatesIgnored: 0 };
+        return { totalProcessed: 0, newRecords: 0, updatedRecords: 0, duplicatesIgnored: 0 };
       }
 
       console.log(`[IMPORTAÇÃO] ${tableName}: Processando ${data.length} registros (append: ${append})`);
@@ -403,6 +445,7 @@ export function useSupabaseData() {
         result = {
           totalProcessed: data.length,
           newRecords: dataToInsert.length,
+          updatedRecords: 0,
           duplicatesIgnored
         };
       } else {
@@ -432,6 +475,7 @@ export function useSupabaseData() {
         result = {
           totalProcessed: data.length,
           newRecords: data.length,
+          updatedRecords: 0,
           duplicatesIgnored: 0
         };
       }

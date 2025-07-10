@@ -6476,11 +6476,27 @@ function ImportData() {
               const processedPagamentos = processPagamentos(data as Record<string, unknown>[], toast);
               const result = importPrimeirosPagamentos(processedPagamentos, true);
               
+              const buildDescription = () => {
+                const messages = [];
+                
+                if (result.newRecords > 0) {
+                  messages.push(`Foram adicionados ${result.newRecords} novos registros`);
+                }
+                
+                if (result.updatedRecords > 0) {
+                  messages.push(`Foram atualizados ${result.updatedRecords} registros`);
+                }
+                
+                if (messages.length === 0) {
+                  return "Nenhum registro novo ou atualizado foi encontrado.";
+                }
+                
+                return messages.join(" • ");
+              };
+
               toast({
                 title: "Importação concluída",
-                description: result.newRecords > 0
-                  ? `Foram adicionados ${result.newRecords} primeiros pagamentos novos.`
-                  : "Nenhum novo primeiro pagamento foi adicionado (todos já existiam)."
+                description: buildDescription()
               });
             }
             

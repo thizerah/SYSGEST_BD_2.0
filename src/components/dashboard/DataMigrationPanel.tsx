@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { useSupabaseData } from '@/hooks/useSupabaseData';
 import useData from '@/context/useData';
+import { PrimeiroPagamento } from '@/types';
 import { 
   CloudDownload, 
   Database, 
@@ -20,13 +21,24 @@ import {
 } from 'lucide-react';
 
 export function DataMigrationPanel() {
-  const { migrateFromLocalStorage, syncing } = useSupabaseData();
+  console.log('=== PAINEL DE MIGRAÇÃO RENDERIZADO ===');
+  
+  const { migrateFromLocalStorage, syncing, pagamentos: supabasePagamentos } = useSupabaseData();
   const { clearLocalStorageAfterMigration, isSupabaseOnlyMode, disableSupabaseOnlyMode } = useData();
   const { toast } = useToast();
   const [migrationResult, setMigrationResult] = useState<{
     success: boolean;
     message: string;
   } | null>(null);
+  const [hasPotentialUpdates, setHasPotentialUpdates] = useState(false);
+  
+  // Log básico para verificar se há dados de pagamentos
+  const pagamentosLocal = localStorage.getItem('sysgest_pagamentos');
+  console.log('Pagamentos localStorage:', pagamentosLocal ? 'TEM DADOS' : 'VAZIO');
+  console.log('📄 Conteúdo localStorage:', pagamentosLocal);
+  console.log('Pagamentos Supabase:', supabasePagamentos?.length || 0);
+  console.log('🔧 Modo Supabase-only:', isSupabaseOnlyMode());
+  console.log('hasPotentialUpdates:', hasPotentialUpdates);
 
   // Verificar se existem dados no localStorage
   const checkLocalStorageData = () => {
@@ -43,23 +55,111 @@ export function DataMigrationPanel() {
 
     Object.entries(STORAGE_KEYS).forEach(([name, key]) => {
       const data = localStorage.getItem(key);
+      console.log(`🔍 Verificando ${name} (${key}):`, data ? `TEM DADOS (${data.length} chars)` : 'VAZIO');
       if (data) {
         try {
           const parsed = JSON.parse(data);
+          console.log(`🔍 ${name} parsed:`, Array.isArray(parsed) ? `Array com ${parsed.length} items` : typeof parsed);
           if (Array.isArray(parsed) && parsed.length > 0) {
             dataFound.push({ name, count: parsed.length });
+            console.log(`✅ ${name} adicionado ao dataFound: ${parsed.length} registros`);
           }
         } catch (error) {
-          console.error(`Erro ao parsear ${key}:`, error);
+          console.error(`❌ Erro ao parsear ${key}:`, error);
         }
       }
     });
 
+    console.log('📋 dataFound final:', dataFound);
     return dataFound;
   };
 
+  // Verificar se há potenciais atualizações nos pagamentos
+  const checkPotentialPagamentosUpdates = useCallback(async () => {
+    try {
+      console.log('🔍 [INICIO] checkPotentialPagamentosUpdates executado');
+      
+      const localPagamentos = localStorage.getItem('sysgest_pagamentos');
+      if (!localPagamentos) {
+        console.log('❌ Nenhum dado no localStorage');
+        return false;
+      }
+
+      const parsedLocalPagamentos: PrimeiroPagamento[] = JSON.parse(localPagamentos);
+      console.log('📦 Dados locais:', parsedLocalPagamentos.length, 'registros');
+      
+      if (parsedLocalPagamentos.length === 0) {
+        console.log('❌ Array vazio no localStorage');
+        return false;
+      }
+
+      // Verificar se há registros no localStorage que podem atualizar os do Supabase
+      const supabasePagamentosMap = new Map<string, Date>();
+      console.log('📦 Dados Supabase:', supabasePagamentos.length, 'registros');
+      
+      supabasePagamentos.forEach(pagamento => {
+        supabasePagamentosMap.set(
+          pagamento.proposta, 
+          new Date(pagamento.data_importacao)
+        );
+      });
+
+      // Verificar se há registros locais mais recentes que os do Supabase
+      let novosRegistros = 0;
+      let atualizacoesPossveis = 0;
+      
+      const hasUpdates = parsedLocalPagamentos.some(localPagamento => {
+        const supabaseDate = supabasePagamentosMap.get(localPagamento.proposta);
+        if (!supabaseDate) {
+          novosRegistros++;
+          return true; // Novo registro
+        }
+
+        const localDate = new Date(localPagamento.data_importacao);
+        if (localDate > supabaseDate) {
+          atualizacoesPossveis++;
+          console.log(`🔄 Atualização possível: ${localPagamento.proposta} (${localDate.toISOString()} > ${supabaseDate.toISOString()})`);
+          return true; // Registro mais recente
+        }
+        
+        return false;
+      });
+
+      console.log('🔍 Verificação de atualizações:', {
+        hasUpdates,
+        novosRegistros,
+        atualizacoesPossveis,
+        totalLocal: parsedLocalPagamentos.length,
+        totalSupabase: supabasePagamentos.length
+      });
+
+      return hasUpdates;
+    } catch (error) {
+      console.error('❌ Erro ao verificar potenciais atualizações de pagamentos:', error);
+      return false;
+    }
+  }, [supabasePagamentos]);
+
+  // Verificar potenciais atualizações quando os dados do Supabase mudarem
+  useEffect(() => {
+    const checkUpdates = async () => {
+      const hasUpdates = await checkPotentialPagamentosUpdates();
+      console.log('🔄 useEffect executado - hasPotentialUpdates:', hasUpdates);
+      setHasPotentialUpdates(hasUpdates);
+    };
+
+    checkUpdates();
+  }, [checkPotentialPagamentosUpdates]);
+
   const localStorageData = checkLocalStorageData();
   const hasLocalData = localStorageData.length > 0;
+  const canMigrate = hasLocalData || hasPotentialUpdates;
+  
+  console.log('🎯 Estado do botão:', { 
+    hasLocalData, 
+    hasPotentialUpdates, 
+    canMigrate
+  });
 
   const handleMigration = async () => {
     try {
@@ -185,6 +285,17 @@ export function DataMigrationPanel() {
               </AlertDescription>
             </Alert>
           )}
+
+          {/* Status especial para atualizações de pagamentos */}
+          {hasPotentialUpdates && !hasLocalData && (
+            <Alert className="mt-3 border-amber-200 bg-amber-50">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              <AlertDescription className="text-amber-800">
+                <strong>Atualizações disponíveis:</strong> Há registros de pagamentos no localStorage 
+                que podem atualizar dados existentes no Supabase (baseado na data de importação).
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
 
         {/* Informações sobre a migração */}
@@ -192,8 +303,8 @@ export function DataMigrationPanel() {
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
             <strong>Importante:</strong> A migração irá transferir todos os seus dados do navegador 
-            para o Supabase. Após a migração, seus dados ficarão seguros na nuvem e sincronizados 
-            entre dispositivos.
+            para o Supabase{hasPotentialUpdates && !hasLocalData ? ' e atualizar registros existentes com dados mais recentes' : ''}. 
+            Após a migração, seus dados ficarão seguros na nuvem e sincronizados entre dispositivos.
           </AlertDescription>
         </Alert>
 
@@ -211,7 +322,7 @@ export function DataMigrationPanel() {
 
           <Button 
             onClick={handleMigration}
-            disabled={!hasLocalData || syncing}
+            disabled={!canMigrate || syncing}
             className="w-full"
             size="lg"
           >
@@ -223,7 +334,10 @@ export function DataMigrationPanel() {
             ) : (
               <>
                 <CloudDownload className="h-4 w-4 mr-2" />
-                {hasLocalData ? 'Migrar Dados para Supabase' : 'Nenhum Dado para Migrar'}
+                {canMigrate ? 
+                  (hasLocalData ? 'Migrar Dados para Supabase' : 'Atualizar Dados no Supabase') : 
+                  'Nenhum Dado para Migrar'
+                }
               </>
             )}
           </Button>
