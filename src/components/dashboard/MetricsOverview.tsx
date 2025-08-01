@@ -85,6 +85,7 @@ import { useSystemSettings } from "@/hooks/useSystemSettings";
 import { getReopeningColorByServiceType, getTimeAttendanceColorByServiceType, getTimeAttendanceBackgroundColorByServiceType, getTimeAttendanceIndicatorColorByServiceType } from "@/utils/colorUtils";
 import { BaseMetricsSection } from "@/components/dashboard/BaseMetricsSection";
 import { useBaseMetrics } from "@/hooks/useBaseMetrics";
+import { VendasMetaCleaner } from "@/components/dashboard/VendasMetaCleaner";
 
 // Componente para o conteúdo da guia Metas
 function MetasTabContent() {
@@ -373,10 +374,13 @@ function MetasTabContent() {
       {/* Controles de filtro */}
       <Card className="w-full">
         <CardHeader>
-          <CardTitle className="flex items-center">
-            <Target className="mr-2 h-5 w-5" />
-            Acompanhamento de Metas
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center">
+              <Target className="mr-2 h-5 w-5" />
+              Acompanhamento de Metas
+            </CardTitle>
+            <VendasMetaCleaner />
+          </div>
           <CardDescription>
             Acompanhe o desempenho das vendas em relação às metas mensais definidas
           </CardDescription>
