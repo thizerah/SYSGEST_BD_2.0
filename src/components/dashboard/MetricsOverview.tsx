@@ -6760,6 +6760,8 @@ function ImportData() {
   };
   
   // Nova função para processar dados de vendas
+  // MODIFICAÇÃO: Corrigido para permitir importação de vendas com valores R$ 0,00 
+  // nos campos "Valor" e "Subtotal Adesão", seguindo a lógica do agrupamento do produto
   const processVendas = (data: Record<string, unknown>[]): Venda[] => {
     if (data.length === 0) {
       throw new Error("Nenhum dado encontrado para processamento");
@@ -6907,6 +6909,9 @@ function ImportData() {
       const produtosSecundariosColumn = findColumn("ProdutosSecundarios") || findColumn("produtos_secundarios");
       const formaPagamentoColumn = findColumn("FormaPagamento") || findColumn("forma_pagamento");
       
+      // MODIFICAÇÃO: Adicionar suporte ao campo "Subtotal Adesão" mencionado no problema
+      const subtotalAdesaoColumn = findColumn("Subtotal Adesão") || findColumn("Subtotal Adesao");
+      
       // Verificar se é produto Nova Parabólica (NP) para flexibilizar validação
       const agrupamentoValue = String(row[agrupamentoProduto] || '').toUpperCase().trim();
       const isNP = agrupamentoValue === 'NP' || agrupamentoValue.includes('NP') || agrupamentoValue.includes('NOVA PARABÓLICA');
@@ -6933,7 +6938,9 @@ function ImportData() {
         return {
           numero_proposta: numeroProposta && row[numeroProposta] ? String(row[numeroProposta]) : `NP-${vendedorId}-${timestamp}`,
           produto_principal: produtoPrincipal && row[produtoPrincipal] ? String(row[produtoPrincipal]) : "Nova Parabólica",
-          valor: valor && row[valor] ? parseValue(String(row[valor])) : 0,
+          // MODIFICAÇÃO: Considerar também o campo "Subtotal Adesão" se o valor principal for zero
+          valor: valor && row[valor] ? parseValue(String(row[valor])) : 
+                 (subtotalAdesaoColumn && row[subtotalAdesaoColumn] ? parseValue(String(row[subtotalAdesaoColumn])) : 0),
           status_proposta: statusProposta && row[statusProposta] ? String(row[statusProposta]) : "HABILITADO",
           data_habilitacao: dataHabilitacao && row[dataHabilitacao] ? formatDate(String(row[dataHabilitacao])) : currentDate
         };
@@ -6952,7 +6959,14 @@ function ImportData() {
         bairro: bairroColumn ? String(row[bairroColumn] || "") : "",
         agrupamento_produto: String(row[agrupamentoProduto]),
         produto_principal: isNP ? npDefaults!.produto_principal : String(row[produtoPrincipal]),
-        valor: isNP ? npDefaults!.valor : parseValue(String(row[valor])),
+        // MODIFICAÇÃO: Considerar também o campo "Subtotal Adesão" se o valor principal for zero
+        valor: isNP ? npDefaults!.valor : (() => {
+          const valorPrincipal = parseValue(String(row[valor] || ''));
+          if (valorPrincipal === 0 && subtotalAdesaoColumn && row[subtotalAdesaoColumn]) {
+            return parseValue(String(row[subtotalAdesaoColumn]));
+          }
+          return valorPrincipal;
+        })(),
         status_proposta: isNP ? npDefaults!.status_proposta : String(row[statusProposta]),
         data_habilitacao: isNP ? npDefaults!.data_habilitacao : formatDate(String(row[dataHabilitacao])),
         // Campos para produtos diferenciais
@@ -7179,6 +7193,8 @@ function ImportData() {
   };
 
   // Função para processar vendas de meta
+  // MODIFICAÇÃO: Corrigido para permitir importação de vendas com valores R$ 0,00 
+  // nos campos "Valor" e "Subtotal Adesão", seguindo a lógica do agrupamento do produto
   const processVendasMeta = (data: Record<string, unknown>[]): VendaMeta[] => {
     if (data.length === 0) {
       throw new Error("Nenhum dado de vendas de meta encontrado para processamento");
@@ -7218,6 +7234,8 @@ function ImportData() {
         const produtosSecundariosRaw = row["ProdutosSecundarios"];
         const cidadeRaw = row["Cidade"];
         const formaPagamentoRaw = row["FormaPagamento"];
+        // MODIFICAÇÃO: Adicionar suporte ao campo "Subtotal Adesão" mencionado no problema
+        const subtotalAdesaoRaw = row["Subtotal Adesão"] || row["Subtotal Adesao"];
         
         // Verificar se é produto Nova Parabólica (NP) para flexibilizar validação
         const agrupamentoValue = String(agrupamentoProdutoRaw || '').toUpperCase().trim();
@@ -7231,7 +7249,10 @@ function ImportData() {
           }
         } else {
           // Para outros produtos, manter validação original
-          if (!numeroPropostaRaw || !valorRaw || !dataHabilitacaoRaw || !idVendedorRaw) {
+          // MODIFICAÇÃO: Permitir valores R$ 0,00 nos campos "Valor" e "Subtotal Adesão"
+          // Validar se os campos existem mas não se são zero
+          if (!numeroPropostaRaw || (valorRaw === undefined && subtotalAdesaoRaw === undefined) || 
+              !dataHabilitacaoRaw || !idVendedorRaw) {
             console.warn(`Linha ${index + 2}: Campos obrigatórios ausentes, pulando linha`);
             return;
           }
@@ -7245,7 +7266,9 @@ function ImportData() {
           
           return {
             numero_proposta: numeroPropostaRaw ? String(numeroPropostaRaw) : `NP-META-${vendedorId}-${timestamp}`,
-            valor: valorRaw ? (typeof valorRaw === 'number' ? valorRaw : parseFloat(String(valorRaw).replace(/[R$\s.,]/g, '').replace(',', '.')) || 0) : 0,
+            // MODIFICAÇÃO: Considerar também o campo "Subtotal Adesão" se o valor principal for zero
+            valor: valorRaw ? (typeof valorRaw === 'number' ? valorRaw : parseFloat(String(valorRaw).replace(/[R$\s.,]/g, '').replace(',', '.')) || 0) : 
+                   (subtotalAdesaoRaw ? (typeof subtotalAdesaoRaw === 'number' ? subtotalAdesaoRaw : parseFloat(String(subtotalAdesaoRaw).replace(/[R$\s.,]/g, '').replace(',', '.')) || 0) : 0),
             data_habilitacao: dataHabilitacaoRaw ? (dataHabilitacaoRaw instanceof Date ? dataHabilitacaoRaw.toISOString().split('T')[0] : String(dataHabilitacaoRaw)) : currentDate.toISOString().split('T')[0],
             produto_principal: produtoPrincipalRaw ? String(produtoPrincipalRaw) : "Nova Parabólica",
             mes: currentDate.getMonth() + 1,
@@ -7267,10 +7290,20 @@ function ImportData() {
           ano = npDefaults.ano;
         } else {
           // Processar valor normalmente
+          // MODIFICAÇÃO: Considerar também o campo "Subtotal Adesão" se o valor principal for zero
           if (typeof valorRaw === 'number') {
             valor = valorRaw;
           } else if (typeof valorRaw === 'string') {
             valor = parseFloat(valorRaw.replace(/[R$\s.,]/g, '').replace(',', '.')) || 0;
+          }
+          
+          // Se o valor principal for zero, tentar usar o subtotal adesão
+          if (valor === 0 && subtotalAdesaoRaw) {
+            if (typeof subtotalAdesaoRaw === 'number') {
+              valor = subtotalAdesaoRaw;
+            } else if (typeof subtotalAdesaoRaw === 'string') {
+              valor = parseFloat(subtotalAdesaoRaw.replace(/[R$\s.,]/g, '').replace(',', '.')) || 0;
+            }
           }
           
           // Processar data normalmente
