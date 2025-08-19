@@ -897,35 +897,54 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     
     let newRecords = 0;
+    let updatedRecords = 0;
     let duplicatesIgnored = 0;
     
     if (append) {
-      // Se append for true, verificar duplicidades antes de adicionar
-      const existingBaseDataKeys = new Set(baseData.map(b => b.mes));
-      const newBaseDataFiltered = novoBaseData.filter(b => !existingBaseDataKeys.has(b.mes));
+      // NOVA LÓGICA: Considerar dados mais recentes baseado no ano
+      const baseDataMap = new Map<string, BaseData>();
       
-      if (newBaseDataFiltered.length > 0) {
-        const finalBaseData = [...baseData, ...newBaseDataFiltered];
-        setBaseData(finalBaseData);
+      // Primeiro, adicionar todos os registros existentes ao map
+      baseData.forEach(base => {
+        const key = `${base.mes}-${base.ano}`;
+        baseDataMap.set(key, base);
+      });
+      
+      // Processar novos dados BASE
+      novoBaseData.forEach(novoBase => {
+        const key = `${novoBase.mes}-${novoBase.ano}`;
         
-        // No modo Supabase-only, salvar apenas os novos registros no localStorage para revisão
-        if (isSupabaseOnlyMode()) {
-          const existingLocalData = loadFromLocalStorage<BaseData>(STORAGE_KEYS.BASE_DATA);
-          const combinedLocalData = [...existingLocalData, ...newBaseDataFiltered];
-          saveToLocalStorage(STORAGE_KEYS.BASE_DATA, combinedLocalData, true);
-          infoLog(`[MODO SUPABASE-ONLY] Salvos ${newBaseDataFiltered.length} novos registros no localStorage para revisão (total local: ${combinedLocalData.length})`);
+        if (baseDataMap.has(key)) {
+          // Registro já existe - substituir sempre (assumir que dados importados são mais recentes)
+          baseDataMap.set(key, novoBase);
+          updatedRecords++;
+          infoLog(`Atualizado BASE para ${novoBase.mes}/${novoBase.ano} (dados mais recentes)`);
         } else {
-          saveToLocalStorage(STORAGE_KEYS.BASE_DATA, finalBaseData, true);
+          // Novo registro
+          baseDataMap.set(key, novoBase);
+          newRecords++;
+          infoLog(`Adicionado novo BASE para ${novoBase.mes}/${novoBase.ano}`);
         }
-        
-        newRecords = newBaseDataFiltered.length;
-        duplicatesIgnored = novoBaseData.length - newBaseDataFiltered.length;
-        infoLog(`Adicionadas ${newBaseDataFiltered.length} novas informações base (${duplicatesIgnored} duplicadas ignoradas)`);
+      });
+      
+      // Converter o map de volta para um array
+      const baseDataAtualizados = Array.from(baseDataMap.values());
+      setBaseData(baseDataAtualizados);
+      
+      // SALVAR NO LOCALSTORAGE PARA MIGRAÇÃO MANUAL (igual outras importações)
+      if (isSupabaseOnlyMode()) {
+        // Modo Supabase-only: Salvar novos dados no localStorage para revisão e migração manual
+        const existingLocalData = loadFromLocalStorage<BaseData>(STORAGE_KEYS.BASE_DATA);
+        const combinedLocalData = [...existingLocalData, ...novoBaseData];
+        saveToLocalStorage(STORAGE_KEYS.BASE_DATA, combinedLocalData, true);
+        infoLog(`[MODO SUPABASE-ONLY] Salvos ${novoBaseData.length} registros BASE no localStorage para migração manual`);
       } else {
-        newRecords = 0;
-        duplicatesIgnored = novoBaseData.length;
-        infoLog(`Nenhuma nova informação base para adicionar (${novoBaseData.length} duplicadas ignoradas)`);
+        // Modo híbrido: Salvar no localStorage
+        saveToLocalStorage(STORAGE_KEYS.BASE_DATA, baseDataAtualizados, true);
       }
+      
+      duplicatesIgnored = 0; // Não ignoramos mais, atualizamos
+      infoLog(`BASE: ${newRecords} novos, ${updatedRecords} atualizados`);
     } else {
       // Substituir completamente
       setBaseData(novoBaseData);
@@ -942,7 +961,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {
       totalProcessed: novoBaseData.length,
       newRecords,
-      updatedRecords: 0,
+      updatedRecords,
       duplicatesIgnored
     };
   };

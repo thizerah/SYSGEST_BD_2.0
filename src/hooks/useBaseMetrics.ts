@@ -68,7 +68,7 @@ export function useBaseMetrics({ baseData, selectedMonth, selectedYear }: UseBas
       // Usar o último mês disponível nos dados
       const ultimoRegistro = dadosComMesNumero[dadosComMesNumero.length - 1];
       mesAtual = ultimoRegistro.mesNumero;
-      anoAtual = new Date().getFullYear(); // Assumir ano atual se não especificado
+      anoAtual = ultimoRegistro.ano; // CORREÇÃO: Usar o ano dos dados ao invés do ano atual
     }
 
     console.log('[useBaseMetrics] Procurando por mês:', mesAtual, 'ano:', anoAtual);

@@ -121,7 +121,7 @@ export function FileUploader() {
     try {
       const reader = new FileReader();
       
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
           setProgress(20);
           const data = e.target?.result;
@@ -187,14 +187,20 @@ export function FileUploader() {
           
           setProgress(100);
           
-          // Mensagens de duplicatas
+          // Informações detalhadas sobre a importação
           const servicosDuplicatas = servicosImportResult?.duplicatesIgnored || 0;
-          const baseDuplicatas = baseImportResult?.duplicatesIgnored || 0;
-          const totalDuplicatas = servicosDuplicatas + baseDuplicatas;
+          const servicosNovos = servicosImportResult?.newRecords || 0;
+          const servicosAtualizados = servicosImportResult?.updatedRecords || 0;
           
-          // Verificar se nenhum dado novo foi processado
-          if (processedServiceOrders === 0 && processedBaseData === 0) {
-            if (totalDuplicatas > 0) {
+          const baseNovos = baseImportResult?.newRecords || 0;
+          const baseAtualizados = baseImportResult?.updatedRecords || 0;
+          const baseDuplicatas = baseImportResult?.duplicatesIgnored || 0;
+          
+          const totalProcessados = servicosNovos + servicosAtualizados + baseNovos + baseAtualizados;
+          
+          // Verificar se nenhum dado foi processado
+          if (totalProcessados === 0) {
+            if (servicosDuplicatas > 0 || baseDuplicatas > 0) {
               // Todos os registros eram duplicatas
               toast({
                 title: "Importação concluída",
@@ -205,31 +211,43 @@ export function FileUploader() {
               throw new Error("Nenhum dado válido encontrado no arquivo");
             }
           } else {
-            // Mensagem de sucesso baseada nos dados processados
-            let successMessage = "";
-            const servicosMessage = processedServiceOrders > 0 ? 
-              `${processedServiceOrders} ${processedServiceOrders === 1 ? 'ordem de serviço' : 'ordens de serviço'}` : "";
-            const baseMessage = processedBaseData > 0 ? 
-              `${processedBaseData} ${processedBaseData === 1 ? 'registro BASE' : 'registros BASE'}` : "";
+            // Construir mensagem de sucesso detalhada
+            const mensagens = [];
             
+            // Mensagens para serviços
+            if (servicosNovos > 0) {
+              mensagens.push(`${servicosNovos} ${servicosNovos === 1 ? 'nova ordem de serviço' : 'novas ordens de serviço'}`);
+            }
+            if (servicosAtualizados > 0) {
+              mensagens.push(`${servicosAtualizados} ${servicosAtualizados === 1 ? 'ordem de serviço atualizada' : 'ordens de serviço atualizadas'}`);
+            }
+            
+            // Mensagens para BASE
+            if (baseNovos > 0) {
+              mensagens.push(`${baseNovos} ${baseNovos === 1 ? 'nova base' : 'novas bases'}`);
+            }
+            if (baseAtualizados > 0) {
+              mensagens.push(`${baseAtualizados} ${baseAtualizados === 1 ? 'base atualizada' : 'bases atualizadas'}`);
+            }
+            
+            // Informações sobre duplicatas (se houver)
             const duplicatesInfo = [];
             if (servicosDuplicatas > 0) {
               duplicatesInfo.push(`${servicosDuplicatas} ${servicosDuplicatas === 1 ? 'serviço duplicado' : 'serviços duplicados'}`);
             }
             if (baseDuplicatas > 0) {
-              duplicatesInfo.push(`${baseDuplicatas} ${baseDuplicatas === 1 ? 'registro BASE duplicado' : 'registros BASE duplicados'}`);
+              duplicatesInfo.push(`${baseDuplicatas} ${baseDuplicatas === 1 ? 'base duplicada' : 'bases duplicadas'}`);
             }
             
-            if (processedServiceOrders > 0 && processedBaseData > 0) {
-              successMessage = `${servicosMessage} e ${baseMessage} importados.`;
-            } else if (processedServiceOrders > 0) {
-              successMessage = `${servicosMessage} importadas.`;
-            } else if (processedBaseData > 0) {
-              successMessage = `${baseMessage} importados.`;
-            }
+            let successMessage = mensagens.join(', ');
             
             if (duplicatesInfo.length > 0) {
               successMessage += ` (${duplicatesInfo.join(' e ')} ignorados)`;
+            }
+            
+            // Adicionar ponto final se não houver
+            if (!successMessage.endsWith('.') && !successMessage.includes('ignorados)')) {
+              successMessage += '.';
             }
             
             toast({
@@ -427,6 +445,7 @@ export function FileUploader() {
       // Mapear campos da planilha BASE
       const baseItem: BaseData = {
         mes: String(row["MÊS"] || row["MES"] || row["Mês"] || `Mês ${index + 1}`),
+        ano: parseInt(String(row["ANO"] || row["Ano"] || new Date().getFullYear()), 10),
         base_tv: parseNumericValue(row["BASE TV"] || row["BASE_TV"] || row["base_tv"]),
         base_fibra: parseNumericValue(row["BASE FIBRA"] || row["BASE_FIBRA"] || row["base_fibra"]),
         alianca: parseNumericValue(row["ALIANCA"] || row["ALIANÇA"] || row["alianca"])

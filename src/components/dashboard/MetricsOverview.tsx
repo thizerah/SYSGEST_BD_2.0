@@ -3905,6 +3905,26 @@ export function MetricsOverview() {
                                 </div>
                               </div>
                               
+                              {/* Total: Ganho Base + Bônus Aliança */}
+                              <div className="mt-3 pt-2 border-t border-gray-200">
+                                <div className="text-sm text-gray-600 mb-1">Total (Ganho Base + Bônus)</div>
+                                <div className="text-xl font-bold text-purple-700">
+                                  {totalAtual.toLocaleString('pt-BR', { 
+                                    style: 'currency', 
+                                    currency: 'BRL' 
+                                  })}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {ganhoMonetario.toLocaleString('pt-BR', { 
+                                    style: 'currency', 
+                                    currency: 'BRL' 
+                                  })} + {bonusAlianca.toLocaleString('pt-BR', { 
+                                    style: 'currency', 
+                                    currency: 'BRL' 
+                                  })}
+                                </div>
+                              </div>
+                              
                               {/* Tendência vs Mês Anterior */}
                               {totalAnterior > 0 && (
                                 <div className="mt-3 pt-2 border-t border-gray-100">
@@ -4043,6 +4063,26 @@ export function MetricsOverview() {
                                       </div>
                                     </>
                                   )}
+                                </div>
+                              </div>
+                              
+                              {/* Total: Ganho Base + Bônus Aliança */}
+                              <div className="mt-3 pt-2 border-t border-gray-200">
+                                <div className="text-sm text-gray-600 mb-1">Total (Ganho Base + Bônus)</div>
+                                <div className="text-xl font-bold text-purple-700">
+                                  {totalAtual.toLocaleString('pt-BR', { 
+                                    style: 'currency', 
+                                    currency: 'BRL' 
+                                  })}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {ganhoMonetario.toLocaleString('pt-BR', { 
+                                    style: 'currency', 
+                                    currency: 'BRL' 
+                                  })} + {bonusAlianca.toLocaleString('pt-BR', { 
+                                    style: 'currency', 
+                                    currency: 'BRL' 
+                                  })}
                                 </div>
                               </div>
                               
@@ -6204,7 +6244,7 @@ function ImportData() {
     try {
       const reader = new FileReader();
       
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
           setProgress(50);
           
@@ -6364,6 +6404,7 @@ function ImportData() {
             
             let processedServiceOrders = 0;
             let processedBaseData = 0;
+            let processedBaseUpdated = 0;
             let totalProcessedServices = 0;
             let totalProcessedBase = 0;
             let hasValidData = false;
@@ -6400,9 +6441,10 @@ function ImportData() {
                   const processedBase = processBaseData(baseJsonData as Record<string, unknown>[]);
                   const result = importBaseData(processedBase, true);
                   processedBaseData = result.newRecords;
+                  processedBaseUpdated = result.updatedRecords || 0;
                   totalProcessedBase = result.totalProcessed;
                   hasValidData = true;
-                  console.log(`[ImportData] BASE: ${result.totalProcessed} processados, ${result.newRecords} novos, ${result.duplicatesIgnored} duplicados`);
+                  console.log(`[ImportData] BASE: ${result.totalProcessed} processados, ${result.newRecords} novos, ${result.updatedRecords || 0} atualizados, ${result.duplicatesIgnored} duplicados`);
                 } catch (baseError) {
                   console.warn("[ImportData] Erro ao processar BASE:", baseError);
                   // Continuar mesmo se houver erro no BASE
@@ -6415,8 +6457,10 @@ function ImportData() {
               throw new Error("Nenhum dado válido encontrado nas abas processadas. Verifique se as abas contêm dados ou se os campos obrigatórios estão presentes.");
             }
             
-            // Se dados foram processados mas nenhum é novo, mostrar mensagem informativa
-            if (processedServiceOrders === 0 && processedBaseData === 0 && (totalProcessedServices > 0 || totalProcessedBase > 0)) {
+            // Verificar se nenhum dado foi processado (novos ou atualizados)
+            const totalProcessados = processedServiceOrders + processedBaseData + processedBaseUpdated;
+            
+            if (totalProcessados === 0 && (totalProcessedServices > 0 || totalProcessedBase > 0)) {
               toast({
                 title: "Importação de Serviços e Base concluída!",
                 description: "Nenhum novo registro foi adicionado (todos já existiam).",
@@ -6435,15 +6479,16 @@ function ImportData() {
               detalhes.push(`${processedServiceOrders} Nova${processedServiceOrders > 1 ? 's' : ''} ordem${processedServiceOrders > 1 ? 's' : ''} de serviço`);
             }
             if (processedBaseData > 0) {
-              detalhes.push(`${processedBaseData} Novo${processedBaseData > 1 ? 's' : ''} registro${processedBaseData > 1 ? 's' : ''} BASE`);
+              detalhes.push(`${processedBaseData} Nova${processedBaseData > 1 ? 's' : ''} base${processedBaseData > 1 ? 's' : ''}`);
             }
-            
-            const totalNovos = processedServiceOrders + processedBaseData;
+            if (processedBaseUpdated > 0) {
+              detalhes.push(`${processedBaseUpdated} Base${processedBaseUpdated > 1 ? 's' : ''} atualizada${processedBaseUpdated > 1 ? 's' : ''}`);
+            }
             
             toast({
               title: "Importação de Serviços + BASE concluída",
-              description: totalNovos > 0 
-                ? `Foram adicionados:\n${detalhes.join('\n')}`
+              description: detalhes.length > 0 
+                ? `Processados:\n${detalhes.join('\n')}`
                 : "Nenhum novo registro foi adicionado (todos já existiam)."
             });
             
@@ -7351,7 +7396,7 @@ function ImportData() {
   };
 
   // Função para processar dados BASE
-  const processBaseData = (data: Record<string, unknown>[]): Array<{mes: string; base_tv: number; base_fibra: number; alianca: number}> => {
+  const processBaseData = (data: Record<string, unknown>[]): Array<{mes: string; ano: number; base_tv: number; base_fibra: number; alianca: number}> => {
     if (data.length === 0) {
       throw new Error("Nenhum dado BASE encontrado para processamento");
     }
@@ -7367,6 +7412,7 @@ function ImportData() {
       // Mapear campos da planilha BASE
       const baseItem = {
         mes: String(row["MÊS"] || row["MES"] || row["Mês"] || `Mês ${index + 1}`),
+        ano: parseInt(String(row["ANO"] || row["Ano"] || new Date().getFullYear()), 10),
         base_tv: parseNumericValue(row["BASE TV"] || row["BASE_TV"] || row["base_tv"]),
         base_fibra: parseNumericValue(row["BASE FIBRA"] || row["BASE_FIBRA"] || row["base_fibra"]),
         alianca: parseNumericValue(row["ALIANCA"] || row["ALIANÇA"] || row["alianca"])

@@ -220,6 +220,7 @@ export interface VendaMeta {
 
 export interface BaseData {
   mes: string;
+  ano: number;  // Adicionado campo ano
   base_tv: number;
   base_fibra: number;
   alianca: number;

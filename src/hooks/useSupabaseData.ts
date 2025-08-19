@@ -287,9 +287,57 @@ export function useSupabaseData() {
       }
 
       case 'base_data': {
-        const existingBaseData = new Set(existingData?.map((item: Record<string, unknown>) => item.mes) || []);
-        dataToInsert = newData.filter((item: Record<string, unknown>) => !existingBaseData.has(item.mes));
-        duplicatesIgnored = newData.length - dataToInsert.length;
+        // NOVA LÓGICA: Considerar mês+ano como chave única e permitir atualizações
+        const baseDataMap = new Map<string, Record<string, unknown>>();
+        
+        // Primeiro, mapear dados existentes por mês+ano
+        existingData?.forEach((item: Record<string, unknown>) => {
+          const key = `${item.mes}-${item.ano}`;
+          baseDataMap.set(key, item);
+        });
+        
+        const registrosParaInserir: Record<string, unknown>[] = [];
+        let registrosParaAtualizar: Record<string, unknown>[] = [];
+        
+        // Processar novos dados
+        newData.forEach((novoItem: Record<string, unknown>) => {
+          const key = `${novoItem.mes}-${novoItem.ano}`;
+          
+          if (baseDataMap.has(key)) {
+            // Registro existe - preparar para atualização
+            registrosParaAtualizar.push(novoItem);
+          } else {
+            // Novo registro
+            registrosParaInserir.push(novoItem);
+          }
+        });
+        
+        // Se há registros para atualizar, fazer update no Supabase
+        if (registrosParaAtualizar.length > 0) {
+          console.log(`[BASE_DATA] Atualizando ${registrosParaAtualizar.length} registros existentes`);
+          
+          for (const registro of registrosParaAtualizar) {
+            const { error: updateError } = await supabase
+              .from('base_data')
+              .update({
+                base_tv: registro.base_tv,
+                base_fibra: registro.base_fibra,
+                alianca: registro.alianca,
+                imported_at: new Date().toISOString()
+              })
+              .eq('user_id', user.id)
+              .eq('mes', registro.mes)
+              .eq('ano', registro.ano);
+              
+            if (updateError) {
+              console.error('Erro ao atualizar registro BASE:', updateError);
+              throw updateError;
+            }
+          }
+        }
+        
+        dataToInsert = registrosParaInserir;
+        duplicatesIgnored = 0; // Não ignoramos, atualizamos
         break;
       }
 
