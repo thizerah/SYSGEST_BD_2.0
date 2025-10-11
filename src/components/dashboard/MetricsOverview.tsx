@@ -399,7 +399,7 @@ function MetasTabContent() {
                 <SelectContent>
                   {availablePeriods.length > 0 ? (
                     // Mostrar apenas os meses que têm dados
-                    Array.from(new Set(availablePeriods.map(p => p.mes))).sort().map(mes => (
+                    Array.from(new Set(availablePeriods.map(p => p.mes))).sort((a, b) => a - b).map(mes => (
                       <SelectItem key={mes} value={mes.toString()}>
                         {new Date(0, mes - 1).toLocaleDateString('pt-BR', { month: 'long' })}
                       </SelectItem>
