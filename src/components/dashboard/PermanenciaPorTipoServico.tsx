@@ -14,18 +14,19 @@ interface PermanenciaPorTipoServicoProps {
 export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas, vendasFiltradas }: PermanenciaPorTipoServicoProps) {
   const { vendas: vendasOriginais, primeirosPagamentos } = useData();
   
-  // Obter inclusões (mesmo cálculo da tabela principal)
+  // Obter inclusões (específicas para a sigla do card)
   const obterInclusoes = () => {
     return vendasOriginais.filter(venda => {
-      // Verificar se é BL-DGO
+      // Verificar se pertence à sigla específica do card
       const agrupamento = venda.agrupamento_produto || '';
       const produto = venda.produto_principal || '';
-      const ehBLDGO = agrupamento.includes('BL-DGO') || produto.includes('BL-DGO');
+      const pertenceASigla = agrupamento.includes(sigla) || produto.includes(sigla);
       
       // Verificar se não tem pagamento correspondente
       const naoTemPagamento = !primeirosPagamentos.some(p => p.proposta === venda.numero_proposta);
       
-      return ehBLDGO && naoTemPagamento;
+      // Só incluir se for da sigla específica E não tiver pagamento
+      return pertenceASigla && naoTemPagamento;
     }).map(venda => ({
       proposta: venda.numero_proposta,
       passo: "0",
@@ -46,7 +47,7 @@ export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas, ve
     const hoje = new Date();
     const dataHab = new Date(dataHabilitacao);
     const diffTime = hoje.getTime() - dataHab.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
   };
 
   const verificarDiasDentroFaixa = (dias: number, faixa: string): boolean => {
@@ -191,7 +192,7 @@ export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas, ve
       return dentroFaixa91_120 && statusS && passoValido;
     });
 
-    // PASSO 4: Contar oportunidades por tipo
+    // Contar oportunidades por tipo
     let ouro = 0;
     let bronze = 0;
 
@@ -205,7 +206,6 @@ export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas, ve
         }
       }
     });
-
 
     return {
       ouro,

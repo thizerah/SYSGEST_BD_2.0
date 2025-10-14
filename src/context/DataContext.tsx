@@ -208,6 +208,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from(tableName)
         .select('*')
         .eq('user_id', user.id)
+        .order('id', { ascending: true }) // Garantir ordem consistente para evitar duplicatas na paginação
         .range(startRange, endRange);
 
       if (error) {
@@ -274,10 +275,38 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       if (loadedPagamentos.length > 0) {
-        setPrimeirosPagamentos(loadedPagamentos);
+        // Aplicar deduplicação: manter apenas o pagamento mais recente por proposta
+        const propostaMap = new Map<string, PrimeiroPagamento>();
+        
+        loadedPagamentos.forEach(pagamento => {
+          const propostaKey = pagamento.proposta;
+          
+          if (propostaMap.has(propostaKey)) {
+            const existingPagamento = propostaMap.get(propostaKey)!;
+            
+            // Manter apenas o registro mais recente baseado em data_importacao
+            const dataExistente = new Date(existingPagamento.data_importacao || '1900-01-01');
+            const dataAtual = new Date(pagamento.data_importacao || '1900-01-01');
+            
+            if (dataAtual > dataExistente) {
+              propostaMap.set(propostaKey, pagamento);
+            }
+          } else {
+            propostaMap.set(propostaKey, pagamento);
+          }
+        });
+        
+        const pagamentosDeduplicados = Array.from(propostaMap.values());
+        const duplicatasRemovidas = loadedPagamentos.length - pagamentosDeduplicados.length;
+        
+        if (duplicatasRemovidas > 0) {
+          infoLog(`[DEDUPLICAÇÃO] Removidas ${duplicatasRemovidas} duplicatas de pagamentos no carregamento`);
+        }
+        
+        setPrimeirosPagamentos(pagamentosDeduplicados);
         // Salvar no localStorage apenas se não estiver no modo Supabase-only
         if (!isSupabaseOnlyMode()) {
-          saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, loadedPagamentos);
+          saveToLocalStorage(STORAGE_KEYS.PAGAMENTOS, pagamentosDeduplicados);
         }
       }
       

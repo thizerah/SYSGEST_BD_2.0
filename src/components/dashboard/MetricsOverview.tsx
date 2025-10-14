@@ -31,7 +31,11 @@ import {
   ArrowDown,
   TrendingUp,
   TrendingDown,
-  DollarSign
+  DollarSign,
+  Trophy,
+  Medal,
+  List,
+  Download
 } from "lucide-react";
 import { 
   ChartContainer, 
@@ -7839,6 +7843,9 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   const [filtroMesPermanencia, setFiltroMesPermanencia] = useState<string[]>([]);
   const [filtroAnoPermanencia, setFiltroAnoPermanencia] = useState<string[]>([]);
   
+  // Estado para filtro de oportunidades OURO/BRONZE
+  const [filtroOportunidade, setFiltroOportunidade] = useState<'ouro' | 'bronze' | null>(null);
+  
   // Função para calcular o mês de permanência (data de habilitação + 4 meses)
   const calcularMesPermanencia = useCallback((dataHabilitacao: string): string => {
     const data = new Date(dataHabilitacao);
@@ -8412,6 +8419,28 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
         if (!contemTermoBusca) return false;
       }
       
+      // Verificar filtro de oportunidades OURO/BRONZE
+      if (filtroOportunidade && venda.data_habilitacao) {
+        const diasCorridos = calcularDiasCorridos(venda.data_habilitacao);
+        
+        // Critérios das oportunidades: POS + Status "S" + 91-120 dias + Passo específico
+        const ehPOS = sigla === 'POS';
+        const statusS = pagamento?.status_pacote === 'S';
+        const dentroFaixa91_120 = diasCorridos >= 91 && diasCorridos <= 120;
+        
+        // Se não atende os critérios básicos, não é oportunidade
+        if (!ehPOS || !statusS || !dentroFaixa91_120 || !pagamento) return false;
+        
+        // Verificar o tipo de oportunidade
+        if (filtroOportunidade === 'ouro') {
+          // OURO: Passos 2 e 3
+          if (!['2', '3'].includes(pagamento.passo)) return false;
+        } else if (filtroOportunidade === 'bronze') {
+          // BRONZE: Passo 4
+          if (pagamento.passo !== '4') return false;
+        }
+      }
+      
       return true;
     });
 
@@ -8444,6 +8473,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     filtroBairro, 
     filtroMesPermanencia,
     filtroAnoPermanencia,
+    filtroOportunidade,
     getSigla, 
     calcularDiasCorridos, 
     verificarDiasDentroFaixa,
@@ -8550,6 +8580,186 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     
     return 'default';
   }, []);
+
+  // Função para exportar oportunidades para CSV
+  const exportarOportunidadesCSV = useCallback(() => {
+    if (!filtroOportunidade) return;
+    
+    // Filtrar apenas as propostas que são oportunidades do tipo selecionado
+    const oportunidadesFiltradas = propostasFiltradas.filter(venda => {
+      if (!venda.data_habilitacao) return false;
+      
+      const pagamento = pagamentosPorProposta.get(venda.numero_proposta);
+      const sigla = getSigla(venda);
+      const diasCorridos = calcularDiasCorridos(venda.data_habilitacao);
+      
+      // Critérios das oportunidades
+      const ehPOS = sigla === 'POS';
+      const statusS = pagamento?.status_pacote === 'S';
+      const dentroFaixa91_120 = diasCorridos >= 91 && diasCorridos <= 120;
+      
+      if (!ehPOS || !statusS || !dentroFaixa91_120 || !pagamento) return false;
+      
+      // Verificar o tipo específico
+      if (filtroOportunidade === 'ouro') {
+        return ['2', '3'].includes(pagamento.passo);
+      } else if (filtroOportunidade === 'bronze') {
+        return pagamento.passo === '4';
+      }
+      
+      return false;
+    });
+    
+    if (oportunidadesFiltradas.length === 0) {
+      alert('Nenhuma oportunidade encontrada para exportar.');
+      return;
+    }
+    
+    // Cabeçalhos do CSV
+    const headers = [
+      'Proposta',
+      'CPF',
+      'Nome Fantasia', 
+      'Telefone',
+      'Cidade',
+      'Bairro',
+      'Sigla',
+      'Produto',
+      'Vendedor',
+      'Data Habilitação',
+      'Dias Corridos',
+      'Status',
+      'Passo',
+      'Vencimento Fatura',
+      'Data Importação',
+      'Tipo Oportunidade'
+    ];
+    
+    // Converter dados para CSV
+    const csvData = oportunidadesFiltradas.map(proposta => {
+      const pagamento = pagamentosPorProposta.get(proposta.numero_proposta);
+      const sigla = getSigla(proposta);
+      const diasCorridos = proposta.data_habilitacao ? calcularDiasCorridos(proposta.data_habilitacao) : 0;
+      
+      // Determinar tipo de oportunidade
+      let tipoOportunidade = '';
+      if (pagamento && ['2', '3'].includes(pagamento.passo)) {
+        tipoOportunidade = 'OURO';
+      } else if (pagamento && pagamento.passo === '4') {
+        tipoOportunidade = 'BRONZE';
+      }
+      
+      return [
+        proposta.numero_proposta || '',
+        proposta.cpf || '',
+        proposta.nome_fantasia || '',
+        proposta.telefone_celular || '',
+        proposta.cidade || '',
+        proposta.bairro || '',
+        sigla,
+        proposta.produto_principal || '',
+        proposta.nome_proprietario || '',
+        proposta.data_habilitacao ? formatarDataParaExibicao(proposta.data_habilitacao) : '',
+        diasCorridos.toString(),
+        pagamento?.status_pacote || '',
+        pagamento?.passo || '',
+        pagamento?.vencimento_fatura ? formatarDataParaExibicao(pagamento.vencimento_fatura) : '',
+        pagamento?.data_importacao ? formatarDataParaExibicao(pagamento.data_importacao) : '',
+        tipoOportunidade
+      ];
+    });
+    
+    // Criar conteúdo CSV
+    const csvContent = [headers, ...csvData]
+      .map(row => row.map(field => `"${field}"`).join(','))
+      .join('\n');
+    
+    // Criar e baixar arquivo
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    
+    const dataAtual = new Date().toISOString().split('T')[0];
+    const nomeArquivo = `oportunidades_${filtroOportunidade}_${dataAtual}.csv`;
+    link.setAttribute('download', nomeArquivo);
+    
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [filtroOportunidade, propostasFiltradas, pagamentosPorProposta, getSigla, calcularDiasCorridos, formatarDataParaExibicao]);
+
+
+  // Função para calcular contadores de oportunidades em tempo real
+  const contadoresOportunidades = useMemo(() => {
+    // Filtrar apenas propostas POS que atendem aos critérios básicos das oportunidades
+    const oportunidadesDisponiveis = vendas.filter(venda => {
+      if (!venda.data_habilitacao) return false;
+      
+      const agrupamento = venda.agrupamento_produto || '';
+      const produto = venda.produto_principal || '';
+      const ehPOS = agrupamento.includes('POS') || produto.includes('POS');
+      
+      if (!ehPOS) return false;
+      
+      const pagamento = pagamentosPorProposta.get(venda.numero_proposta);
+      if (!pagamento) return false;
+      
+      const diasCorridos = calcularDiasCorridos(venda.data_habilitacao);
+      const statusS = pagamento.status_pacote === 'S';
+      const dentroFaixa91_120 = diasCorridos >= 91 && diasCorridos <= 120;
+      const passoValido = ['2', '3', '4'].includes(pagamento.passo);
+      
+      return statusS && dentroFaixa91_120 && passoValido;
+    });
+    
+    // Contar por tipo de oportunidade
+    let ouro = 0;
+    let bronze = 0;
+    
+    oportunidadesDisponiveis.forEach(venda => {
+      const pagamento = pagamentosPorProposta.get(venda.numero_proposta);
+      if (pagamento) {
+        if (['2', '3'].includes(pagamento.passo)) {
+          ouro++;
+        } else if (pagamento.passo === '4') {
+          bronze++;
+        }
+      }
+    });
+    
+    return { ouro, bronze, total: ouro + bronze };
+  }, [vendas, pagamentosPorProposta, calcularDiasCorridos]);
+
+  // Contador específico para propostas filtradas na tabela
+  const contadorPropostasFiltradas = useMemo(() => {
+    if (!filtroOportunidade) return 0;
+    
+    return propostasFiltradas.filter(venda => {
+      if (!venda.data_habilitacao) return false;
+      
+      const pagamento = pagamentosPorProposta.get(venda.numero_proposta);
+      const sigla = getSigla(venda);
+      const diasCorridos = calcularDiasCorridos(venda.data_habilitacao);
+      
+      // Critérios das oportunidades
+      const ehPOS = sigla === 'POS';
+      const statusS = pagamento?.status_pacote === 'S';
+      const dentroFaixa91_120 = diasCorridos >= 91 && diasCorridos <= 120;
+      
+      if (!ehPOS || !statusS || !dentroFaixa91_120 || !pagamento) return false;
+      
+      // Verificar o tipo específico
+      if (filtroOportunidade === 'ouro') {
+        return ['2', '3'].includes(pagamento.passo);
+      } else if (filtroOportunidade === 'bronze') {
+        return pagamento.passo === '4';
+      }
+      
+      return false;
+    }).length;
+  }, [filtroOportunidade, propostasFiltradas, pagamentosPorProposta, getSigla, calcularDiasCorridos]);
 
   // Criar opções para os filtros no formato esperado pelo MultiSelect
   const siglasOptions = useMemo(() => siglas.map(sigla => ({
@@ -8817,6 +9027,113 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
             </CardDescription>
           </CardHeader>
           <CardContent>
+          {/* Filtros Rápidos de Oportunidades */}
+          <div className="mb-4 p-3 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg border border-yellow-200">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center">
+                <TrendingUp className="mr-2 h-4 w-4 text-orange-600" />
+                <span className="text-sm font-medium text-gray-700">Filtros Rápidos de Oportunidades</span>
+              </div>
+              <span className="text-xs text-gray-500">POS • Status "S" • 91-120 dias</span>
+            </div>
+            
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={filtroOportunidade === 'ouro' ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setFiltroOportunidade(filtroOportunidade === 'ouro' ? null : 'ouro');
+                  setPaginaAtual(1);
+                }}
+                className={`${
+                  filtroOportunidade === 'ouro' 
+                    ? 'bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-600' 
+                    : 'border-yellow-400 text-yellow-700 hover:bg-yellow-50'
+                }`}
+              >
+                <Trophy className="mr-1 h-3 w-3" />
+                OURO
+              </Button>
+              
+              <Button
+                variant={filtroOportunidade === 'bronze' ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setFiltroOportunidade(filtroOportunidade === 'bronze' ? null : 'bronze');
+                  setPaginaAtual(1);
+                }}
+                className={`${
+                  filtroOportunidade === 'bronze' 
+                    ? 'bg-orange-500 hover:bg-orange-600 text-white border-orange-600' 
+                    : 'border-orange-400 text-orange-700 hover:bg-orange-50'
+                }`}
+              >
+                <Medal className="mr-1 h-3 w-3" />
+                BRONZE
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFiltroOportunidade(null);
+                  setPaginaAtual(1);
+                }}
+                disabled={!filtroOportunidade}
+                className="border-gray-300 text-gray-600 hover:bg-gray-50"
+              >
+                <List className="mr-1 h-3 w-3" />
+                TODOS
+              </Button>
+              
+              {filtroOportunidade && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setFiltroOportunidade(null);
+                      setTermoBusca("");
+                      setFiltroSigla([]);
+                      setFiltroVendedor("_all");
+                      setFiltroPasso([]);
+                      setFiltroStatus([]);
+                      setFiltroDiasCorridos([]);
+                      setFiltroCidade([]);
+                      setFiltroBairro([]);
+                      setPaginaAtual(1);
+                    }}
+                    className="text-red-600 hover:bg-red-50"
+                  >
+                    <X className="mr-1 h-3 w-3" />
+                    LIMPAR TUDO
+                  </Button>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={exportarOportunidadesCSV}
+                    className="text-blue-600 border-blue-400 hover:bg-blue-50"
+                    title={`Exportar oportunidades ${filtroOportunidade.toUpperCase()} para CSV`}
+                  >
+                    <Download className="mr-1 h-3 w-3" />
+                    EXPORTAR CSV
+                  </Button>
+                </>
+              )}
+            </div>
+            
+            {filtroOportunidade && (
+              <div className="mt-2 text-xs text-gray-600 bg-white px-2 py-1 rounded border">
+                <span className="font-medium">
+                  Mostrando {contadorPropostasFiltradas} oportunidades {filtroOportunidade.toUpperCase()}
+                </span>
+                {filtroOportunidade === 'ouro' && <span className="ml-2">• Passos 2 e 3</span>}
+                {filtroOportunidade === 'bronze' && <span className="ml-2">• Passo 4</span>}
+              </div>
+            )}
+          </div>
+          
           {/* Filtros */}
           <div className="mb-4">
             <div className="flex flex-wrap gap-4">
@@ -9023,8 +9340,32 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                     const sigla = getSigla(proposta);
                     const diasCorridos = proposta.data_habilitacao ? calcularDiasCorridos(proposta.data_habilitacao) : 0;
                     
+                    // Verificar se é oportunidade OURO ou BRONZE
+                    const ehPOS = sigla === 'POS';
+                    const statusS = pagamento?.status_pacote === 'S';
+                    const dentroFaixa91_120 = diasCorridos >= 91 && diasCorridos <= 120;
+                    const ehOportunidade = ehPOS && statusS && dentroFaixa91_120 && pagamento;
+                    
+                    let tipoOportunidade = null;
+                    if (ehOportunidade) {
+                      if (['2', '3'].includes(pagamento.passo)) {
+                        tipoOportunidade = 'ouro';
+                      } else if (pagamento.passo === '4') {
+                        tipoOportunidade = 'bronze';
+                      }
+                    }
+                    
                     return (
-                      <TableRow key={index}>
+                      <TableRow 
+                        key={index}
+                        className={
+                          tipoOportunidade === 'ouro' 
+                            ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-l-4 border-yellow-400 hover:from-yellow-100 hover:to-yellow-150' 
+                            : tipoOportunidade === 'bronze'
+                            ? 'bg-gradient-to-r from-orange-50 to-orange-100 border-l-4 border-orange-400 hover:from-orange-100 hover:to-orange-150'
+                            : 'hover:bg-gray-50'
+                        }
+                      >
                         <TableCell className="text-xs p-2 font-medium">{proposta.numero_proposta}</TableCell>
                         <TableCell className="text-xs p-2">{proposta.cpf || "-"}</TableCell>
                         <TableCell className="text-xs p-2">{proposta.nome_fantasia || "-"}</TableCell>
@@ -9067,7 +9408,56 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                         <TableCell className="text-xs p-2">
                           {pagamento && pagamento.data_importacao ? formatarDataParaExibicao(pagamento.data_importacao) : '-'}
                         </TableCell>
-                                                                            <TableCell className="text-xs p-2">                            {proposta.telefone_celular ? (                              <a                                 href={gerarLinkWhatsApp(proposta.telefone_celular || "", proposta.nome_fantasia || "", proposta.produto_principal || "")}                                target="_blank"                                rel="noreferrer"                              >                                <Button                                  variant="outline"                                  size="icon"                                  className="h-6 w-6 bg-green-500 hover:bg-green-600 border-green-500 hover:border-green-600"                                  title="Enviar mensagem WhatsApp"                                >                                  <MessageCircle className="h-3 w-3 text-white" />                                </Button>                              </a>                            ) : (                              <Button                                variant="outline"                                size="icon"                                className="h-6 w-6 opacity-50 cursor-not-allowed"                                disabled                                title="Telefone não disponível"                              >                                <MessageCircle className="h-3 w-3" />                              </Button>                            )}                          </TableCell>
+                        <TableCell className="text-xs p-2">
+                          <div className="flex items-center gap-1">
+                            {proposta.telefone_celular ? (
+                              <a
+                                href={gerarLinkWhatsApp(proposta.telefone_celular || "", proposta.nome_fantasia || "", proposta.produto_principal || "")}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-6 w-6 bg-green-500 hover:bg-green-600 border-green-500 hover:border-green-600"
+                                  title="Enviar mensagem WhatsApp"
+                                >
+                                  <MessageCircle className="h-3 w-3 text-white" />
+                                </Button>
+                              </a>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-6 w-6 opacity-50 cursor-not-allowed"
+                                disabled
+                                title="Telefone não disponível"
+                              >
+                                <MessageCircle className="h-3 w-3" />
+                              </Button>
+                            )}
+                            
+                            {/* Badge de Oportunidade */}
+                            {tipoOportunidade && (
+                              <Badge
+                                variant="outline"
+                                className={`ml-1 text-xs ${
+                                  tipoOportunidade === 'ouro'
+                                    ? 'bg-yellow-100 text-yellow-800 border-yellow-400'
+                                    : 'bg-orange-100 text-orange-800 border-orange-400'
+                                }`}
+                                title={`Oportunidade ${tipoOportunidade.toUpperCase()}: ${tipoOportunidade === 'ouro' ? 'Passos 2-3' : 'Passo 4'}`}
+                              >
+                                {tipoOportunidade === 'ouro' ? (
+                                  <Trophy className="h-2 w-2 mr-1" />
+                                ) : (
+                                  <Medal className="h-2 w-2 mr-1" />
+                                )}
+                                {tipoOportunidade.toUpperCase()}
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     );
                   })
