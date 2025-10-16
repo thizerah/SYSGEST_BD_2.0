@@ -25,6 +25,7 @@ import {
   Search,
   MessageCircle,
   CheckCircle,
+  CheckCircle2,
   Target,
   Gauge,
   ArrowUp,
@@ -61,6 +62,17 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CardFooter } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import * as XLSX from "xlsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ServiceOrderTable } from "@/components/dashboard/ServiceOrderTable";
@@ -7822,6 +7834,9 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   const { vendas, primeirosPagamentos } = data;
   const permanenciaMetrics = data.calculatePermanenciaMetrics();
   
+  // Hook para notificações
+  const { toast } = useToast();
+  
   // Estado para controlar a página atual na tabela de propostas
   const [paginaAtual, setPaginaAtual] = useState(1);
   const itensPorPagina = 10;
@@ -7883,6 +7898,98 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     // Montar o link com o código do país (55)
     return `https://api.whatsapp.com/send?phone=55${telefoneLimpo}&text=${mensagemCodificada}`;
   }, []);
+
+  // Função para marcar cliente como pago
+  const marcarComoPago = useCallback(async (numeroProposta: string, pagamentoAtual: PrimeiroPagamento) => {
+    try {
+      // Criar novo registro com status "N" (pago)
+      const novoPagamento: PrimeiroPagamento = {
+        ...pagamentoAtual,
+        proposta: numeroProposta,
+        status_pacote: 'N',
+        passo: '0', // Resetar passo para 0 (adimplente)
+        data_passo_cobranca: '', // Limpar data de cobrança
+        data_importacao: new Date().toISOString() // Data atual da alteração
+      };
+
+      // Salvar no localStorage usando a função existente do sistema
+      data.importPrimeirosPagamentos([novoPagamento], true);
+      
+      // Feedback visual
+      toast({
+        title: "Pagamento registrado!",
+        description: `Proposta ${numeroProposta} marcada como paga.`,
+      });
+      
+    } catch (error) {
+      console.error('Erro ao registrar pagamento:', error);
+      toast({
+        title: "Erro ao registrar pagamento",
+        description: "Tente novamente.",
+        variant: "destructive"
+      });
+    }
+  }, [data, toast]);
+
+  // Função para calcular data limite (data_habilitacao + 120 dias)
+  const calcularDataLimite = useCallback((dataHabilitacao: string): string => {
+    const data = new Date(dataHabilitacao);
+    data.setDate(data.getDate() + 120);
+    return data.toISOString();
+  }, []);
+
+  // Função para calcular dias restantes até o limite
+  const calcularDiasRestantes = useCallback((dataHabilitacao: string): number => {
+    const dataLimite = new Date(dataHabilitacao);
+    dataLimite.setDate(dataLimite.getDate() + 120);
+    const hoje = new Date();
+    const diffTime = dataLimite.getTime() - hoje.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  }, []);
+
+  // Função para formatar data para exibição
+  const formatarDataParaExibicao = useCallback((dataString: string): string => {
+    const data = new Date(dataString);
+    return data.toLocaleDateString('pt-BR');
+  }, []);
+
+  // Função para renderizar a coluna DATA LIMITE
+  const renderDataLimite = useCallback((dataHabilitacao: string) => {
+    const dataLimite = calcularDataLimite(dataHabilitacao);
+    const diasRestantes = calcularDiasRestantes(dataHabilitacao);
+    
+    let corBolinha = 'bg-gray-400';
+    let corTexto = 'text-gray-500';
+    let status = 'Vencido';
+    
+    if (diasRestantes > 30) {
+      corBolinha = 'bg-green-500';
+      corTexto = 'text-green-700';
+      status = 'Longe';
+    } else if (diasRestantes > 7) {
+      corBolinha = 'bg-yellow-500';
+      corTexto = 'text-yellow-700';
+      status = 'Próximo';
+    } else if (diasRestantes > 0) {
+      corBolinha = 'bg-red-500';
+      corTexto = 'text-red-700';
+      status = 'Crítico';
+    }
+    
+    return (
+      <div className="flex items-center gap-2">
+        <div className={`w-2 h-2 rounded-full ${corBolinha}`} />
+        <div className="flex flex-col">
+          <span className={`text-xs ${corTexto}`}>
+            {formatarDataParaExibicao(dataLimite)}
+          </span>
+          <span className="text-xs text-gray-500">
+            ({diasRestantes > 0 ? `${diasRestantes} dias` : 'Vencido'})
+          </span>
+        </div>
+      </div>
+    );
+  }, [calcularDataLimite, calcularDiasRestantes, formatarDataParaExibicao]);
   
   // Sincronizar o estado local do filtro com o estado global
   useEffect(() => {
@@ -8166,11 +8273,6 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     return obterFaixasDiasCorridos();
   }, [obterFaixasDiasCorridos]);
   
-  // Função para formatar data para exibição
-  const formatarDataParaExibicao = useCallback((dataString: string): string => {
-    const data = new Date(dataString);
-    return data.toLocaleDateString('pt-BR');
-  }, []);
   
   // Função para identificar a sigla de um produto
   const getSigla = useCallback((venda: Venda): string => {
@@ -8615,7 +8717,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
       return;
     }
     
-    // Cabeçalhos do CSV
+    // Cabeçalhos do Excel
     const headers = [
       'Proposta',
       'CPF',
@@ -8628,18 +8730,29 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
       'Vendedor',
       'Data Habilitação',
       'Dias Corridos',
-      'Status',
+      'Data Limite',
+      'Dias Restantes',
+      'Status Limite',
+      'Status Pagamento',
       'Passo',
       'Vencimento Fatura',
       'Data Importação',
       'Tipo Oportunidade'
     ];
     
-    // Converter dados para CSV
-    const csvData = oportunidadesFiltradas.map(proposta => {
+    // Converter dados para Excel
+    const excelData = oportunidadesFiltradas.map(proposta => {
       const pagamento = pagamentosPorProposta.get(proposta.numero_proposta);
       const sigla = getSigla(proposta);
       const diasCorridos = proposta.data_habilitacao ? calcularDiasCorridos(proposta.data_habilitacao) : 0;
+      const dataLimite = proposta.data_habilitacao ? calcularDataLimite(proposta.data_habilitacao) : '';
+      const diasRestantes = proposta.data_habilitacao ? calcularDiasRestantes(proposta.data_habilitacao) : 0;
+      
+      // Determinar status da data limite
+      let statusLimite = 'Vencido';
+      if (diasRestantes > 30) statusLimite = 'Longe';
+      else if (diasRestantes > 7) statusLimite = 'Próximo';
+      else if (diasRestantes > 0) statusLimite = 'Crítico';
       
       // Determinar tipo de oportunidade
       let tipoOportunidade = '';
@@ -8661,6 +8774,9 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
         proposta.nome_proprietario || '',
         proposta.data_habilitacao ? formatarDataParaExibicao(proposta.data_habilitacao) : '',
         diasCorridos.toString(),
+        dataLimite ? formatarDataParaExibicao(dataLimite) : '',
+        diasRestantes.toString(),
+        statusLimite,
         pagamento?.status_pacote || '',
         pagamento?.passo || '',
         pagamento?.vencimento_fatura ? formatarDataParaExibicao(pagamento.vencimento_fatura) : '',
@@ -8669,26 +8785,48 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
       ];
     });
     
-    // Criar conteúdo CSV
-    const csvContent = [headers, ...csvData]
-      .map(row => row.map(field => `"${field}"`).join(','))
-      .join('\n');
+    // Criar workbook Excel
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...excelData]);
     
-    // Criar e baixar arquivo
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
+    // Configurar larguras das colunas
+    const columnWidths = [
+      { wch: 12 }, // Proposta
+      { wch: 15 }, // CPF
+      { wch: 25 }, // Nome Fantasia
+      { wch: 15 }, // Telefone
+      { wch: 20 }, // Cidade
+      { wch: 20 }, // Bairro
+      { wch: 8 },  // Sigla
+      { wch: 20 }, // Produto
+      { wch: 20 }, // Vendedor
+      { wch: 15 }, // Data Habilitação
+      { wch: 12 }, // Dias Corridos
+      { wch: 15 }, // Data Limite
+      { wch: 12 }, // Dias Restantes
+      { wch: 10 }, // Status Limite
+      { wch: 10 }, // Status Pagamento
+      { wch: 8 },  // Passo
+      { wch: 15 }, // Vencimento Fatura
+      { wch: 15 }, // Data Importação
+      { wch: 15 }  // Tipo Oportunidade
+    ];
+    worksheet['!cols'] = columnWidths;
     
+    // Adicionar planilha ao workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Oportunidades');
+    
+    // Baixar arquivo Excel
     const dataAtual = new Date().toISOString().split('T')[0];
-    const nomeArquivo = `oportunidades_${filtroOportunidade}_${dataAtual}.csv`;
-    link.setAttribute('download', nomeArquivo);
+    const nomeArquivo = `oportunidades_${filtroOportunidade}_${dataAtual}.xlsx`;
+    XLSX.writeFile(workbook, nomeArquivo);
     
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, [filtroOportunidade, propostasFiltradas, pagamentosPorProposta, getSigla, calcularDiasCorridos, formatarDataParaExibicao]);
+    // Feedback visual
+    toast({
+      title: "Exportação concluída!",
+      description: `Arquivo ${nomeArquivo} baixado com sucesso.`,
+    });
+  }, [filtroOportunidade, propostasFiltradas, pagamentosPorProposta, getSigla, calcularDiasCorridos, calcularDataLimite, calcularDiasRestantes, formatarDataParaExibicao, toast]);
 
 
   // Função para calcular contadores de oportunidades em tempo real
@@ -9323,6 +9461,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   <TableHead className="text-xs p-2 font-medium">Vendedor</TableHead>
                   <TableHead className="text-xs p-2 font-medium">Data Habilitação</TableHead>
                   <TableHead className="text-xs p-2 font-medium">Dias Corridos</TableHead>
+                  <TableHead className="text-xs p-2 font-medium">Data Limite</TableHead>
                   <TableHead className="text-xs p-2 font-medium">Status</TableHead>
                   <TableHead className="text-xs p-2 font-medium">Passo</TableHead>
                   <TableHead className="text-xs p-2 font-medium">Vencimento da Fatura</TableHead>
@@ -9382,6 +9521,9 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                           {proposta.data_habilitacao ? diasCorridos : '-'}
                         </TableCell>
                         <TableCell className="text-xs p-2">
+                          {proposta.data_habilitacao ? renderDataLimite(proposta.data_habilitacao) : '-'}
+                        </TableCell>
+                        <TableCell className="text-xs p-2">
                           {pagamento ? (
                             <Badge 
                               variant={getStatusBadgeVariant(
@@ -9410,6 +9552,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                         </TableCell>
                         <TableCell className="text-xs p-2">
                           <div className="flex items-center gap-1">
+                            {/* Botão WhatsApp */}
                             {proposta.telefone_celular ? (
                               <a
                                 href={gerarLinkWhatsApp(proposta.telefone_celular || "", proposta.nome_fantasia || "", proposta.produto_principal || "")}
@@ -9435,6 +9578,42 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                               >
                                 <MessageCircle className="h-3 w-3" />
                               </Button>
+                            )}
+
+                            {/* Botão "Marcar como Pago" - só aparece para status "S" */}
+                            {pagamento?.status_pacote === 'S' && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-6 w-6 bg-green-600 hover:bg-green-700 border-green-600"
+                                    title="Marcar como pago"
+                                  >
+                                    <CheckCircle2 className="h-3 w-3 text-white" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Confirmar Pagamento</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Tem certeza que deseja marcar a proposta <strong>{proposta.numero_proposta}</strong> como paga?
+                                      <br />
+                                      <br />
+                                      Esta ação criará um novo registro no sistema com status "N" (pago) e resetará o passo para "0".
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction 
+                                      onClick={() => marcarComoPago(proposta.numero_proposta, pagamento)}
+                                      className="bg-green-600 hover:bg-green-700"
+                                    >
+                                      Confirmar Pagamento
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
                             )}
                             
                             {/* Badge de Oportunidade */}

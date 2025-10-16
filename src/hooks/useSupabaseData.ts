@@ -73,6 +73,14 @@ export function useSupabaseData() {
         }
       }
       
+      // REMOVER CAMPOS AUTO-INCREMENTO DO SUPABASE (CORREÇÃO PARA ERRO DE MIGRAÇÃO)
+      if (tableName === 'pagamentos' || tableName === 'primeiros_pagamentos') {
+        delete sanitized.id;           // Campo auto-incremento
+        delete sanitized.created_at;   // Timestamp automático
+        delete sanitized.updated_at;   // Timestamp automático
+        console.log(`[SANITIZAÇÃO] ${tableName}[${index}]: Removidos campos auto-incremento (id, created_at, updated_at)`);
+      }
+      
       // SANITIZAR CAMPOS DE TIMESTAMP - converter strings vazias para null
       const timestampFields = getTimestampFields(tableName);
       timestampFields.forEach(field => {
