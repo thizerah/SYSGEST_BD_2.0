@@ -4,6 +4,7 @@ import useData from "@/context/useData";
 import { useMemo, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Venda } from "@/types";
+import { ProtectedCard } from "@/components/common/ProtectedCard";
 
 interface ValorDeFaceVendasProps {
   vendasFiltradas?: Venda[];
@@ -416,16 +417,21 @@ export function ValorDeFaceVendas({ vendasFiltradas }: ValorDeFaceVendasProps) {
           </div>
           
           {/* Coluna Direita: Quadro de Cálculo de Bonificações */}
-          <div className="border-l pl-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center">
-                <Calculator className="mr-2 h-5 w-5 text-blue-600" />
-                <h3 className="text-lg font-semibold">Cálculo de Bonificações</h3>
+          <ProtectedCard 
+            title="Cálculo de Bonificações" 
+            storageKey="indicadores_calculo_bonificacoes"
+            className="border-l pl-6"
+          >
+            <div className="border-l pl-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center">
+                  <Calculator className="mr-2 h-5 w-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold">Cálculo de Bonificações</h3>
+                </div>
+                <div className="text-sm text-gray-600">
+                  Fonte: {valoresMetas?.fonte === 'metas' ? 'Aba Metas (mês atual)' : 'Vendas Permanência (mês anterior)'} | POS: {(valoresMetas?.valorPOS || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} | FIBRA: {(valoresMetas?.valorFIBRA || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </div>
               </div>
-              <div className="text-sm text-gray-600">
-                Fonte: {valoresMetas?.fonte === 'metas' ? 'Aba Metas (mês atual)' : 'Vendas Permanência (mês anterior)'} | POS: {(valoresMetas?.valorPOS || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} | FIBRA: {(valoresMetas?.valorFIBRA || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </div>
-            </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Bonificações POS */}
@@ -544,7 +550,8 @@ export function ValorDeFaceVendas({ vendasFiltradas }: ValorDeFaceVendasProps) {
                 </span>
               </div>
             </div>
-          </div>
+            </div>
+          </ProtectedCard>
         </div>
         )}
       </CardContent>

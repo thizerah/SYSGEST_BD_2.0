@@ -1,5 +1,6 @@
 import useData from "@/context/useData";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ProtectedCard } from "@/components/common/ProtectedCard";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
@@ -758,11 +759,16 @@ function MetasTabContent() {
             </Card>
 
             {/* Valor dos Produtos (Pacotes Face) */}
-            <Card className="lg:col-span-2">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold">Valor dos Produtos (Pacotes Face)</CardTitle>
-              </CardHeader>
-              <CardContent className="p-3 pt-1">
+            <ProtectedCard 
+              title="Valor dos Produtos (Pacotes Face)" 
+              storageKey="metas_valor_produtos"
+              className="lg:col-span-2"
+            >
+              <Card className="lg:col-span-2">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold">Valor dos Produtos (Pacotes Face)</CardTitle>
+                </CardHeader>
+                <CardContent className="p-3 pt-1">
                 {(() => {
                   // Filtrar vendas do período selecionado
                   const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
@@ -829,8 +835,9 @@ function MetasTabContent() {
                     </div>
                   );
                 })()}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </ProtectedCard>
 
             {/* Quantidade de Produtos Principais */}
             <Card className="lg:col-span-2">
@@ -3791,19 +3798,24 @@ export function MetricsOverview() {
             </Card>
 
             {/* Painel de Faixas de Desempenho e Bonificações */}
-            <Card className="w-full mt-4">
-              <CardHeader>
-                <CardTitle>
-                  <div className="flex items-center">
-                    <BarChart2 className="mr-2 h-5 w-5" />
-                    Faixas de Desempenho e Bonificações - Serviços
-                  </div>
-                </CardTitle>
-                <CardDescription>
-                  Associação entre TA e Reabertura e resultados de bonificação
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+            <ProtectedCard 
+              title="Faixas de Desempenho e Bonificações - Serviços" 
+              storageKey="indicadores_faixas_desempenho"
+              className="w-full mt-4"
+            >
+              <Card className="w-full mt-4">
+                <CardHeader>
+                  <CardTitle>
+                    <div className="flex items-center">
+                      <BarChart2 className="mr-2 h-5 w-5" />
+                      Faixas de Desempenho e Bonificações - Serviços
+                    </div>
+                  </CardTitle>
+                  <CardDescription>
+                    Associação entre TA e Reabertura e resultados de bonificação
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   {/* A) Assistência Técnica TV ↔ Corretiva */}
                   {(() => {
@@ -4343,6 +4355,7 @@ export function MetricsOverview() {
                 </div>
               </CardContent>
             </Card>
+            </ProtectedCard>
             
             {/* Quadro Por Tipo de Serviço — Detalhamento por tipo (POS e BL-DGO) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -10905,17 +10918,21 @@ function VendedorDesempenhoContent() {
           {/* Coluna 1: Ticket Médio + Evolução por Período */}
           <div className="space-y-6">
           {/* Quadro Ticket Médio por Vendedor */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <DollarSign className="h-4 w-4 text-green-600" />
-                Ticket Médio por Vendedor {calcularMesesReferencia() && `(${calcularMesesReferencia()})`}
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Valores combinados (permanência + meta atual)
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-3">
+          <ProtectedCard 
+            title="Ticket Médio por Vendedor" 
+            storageKey="vendedor_ticket_medio"
+          >
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <DollarSign className="h-4 w-4 text-green-600" />
+                  Ticket Médio por Vendedor {calcularMesesReferencia() && `(${calcularMesesReferencia()})`}
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Valores combinados (permanência + meta atual)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-3">
               {vendas.length === 0 && vendasMeta.length === 0 ? (
                 <div className="text-center py-6 text-muted-foreground text-sm">
                   Importe dados de vendas para visualizar.
@@ -11058,26 +11075,37 @@ function VendedorDesempenhoContent() {
             )}
           </CardContent>
         </Card>
+          </ProtectedCard>
 
           {/* Gráfico Evolução do Desempenho por Período */}
-          <DesempenhoTrendChart
-            filtroMesHabilitacao={filtroMesHabilitacao}
-            filtroAnoHabilitacao={filtroAnoHabilitacao}
-            vendasFiltradas={vendasFiltradas}
-            vendasMetaFiltradas={vendasMetaFiltradas}
-            chartHeight={400}
-            containerMaxWidth="none"
-          />
+          <ProtectedCard 
+            title="Ticket Médio no Período" 
+            storageKey="vendedor_ticket_medio_periodo"
+          >
+            <DesempenhoTrendChart
+              filtroMesHabilitacao={filtroMesHabilitacao}
+              filtroAnoHabilitacao={filtroAnoHabilitacao}
+              vendasFiltradas={vendasFiltradas}
+              vendasMetaFiltradas={vendasMetaFiltradas}
+              chartHeight={400}
+              containerMaxWidth="none"
+            />
+          </ProtectedCard>
 
           {/* Gráfico Evolução do Desempenho por Período por Vendedor */}
-          <VendedorDesempenhoPerPeriodoTrendChart
-            filtroMesHabilitacao={filtroMesHabilitacao}
-            filtroAnoHabilitacao={filtroAnoHabilitacao}
-            vendasFiltradas={vendasFiltradas}
-            vendasMetaFiltradas={vendasMetaFiltradas}
-            chartHeight={400}
-            containerMaxWidth="none"
-          />
+          <ProtectedCard 
+            title="Ticket Médio no Período por Vendedor" 
+            storageKey="vendedor_ticket_medio_periodo_vendedor"
+          >
+            <VendedorDesempenhoPerPeriodoTrendChart
+              filtroMesHabilitacao={filtroMesHabilitacao}
+              filtroAnoHabilitacao={filtroAnoHabilitacao}
+              vendasFiltradas={vendasFiltradas}
+              vendasMetaFiltradas={vendasMetaFiltradas}
+              chartHeight={400}
+              containerMaxWidth="none"
+            />
+          </ProtectedCard>
         </div>
 
         {/* Coluna 2: Quantidade de Vendas + Evolução por Categoria */}
