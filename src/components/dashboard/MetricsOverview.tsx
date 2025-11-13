@@ -19,6 +19,7 @@ import {
   Upload,
   Trash,
   Calendar as CalendarIcon,
+  CalendarDays,
   Filter,
   Pencil,
   UserPlus,
@@ -27,7 +28,9 @@ import {
   MessageCircle,
   CheckCircle,
   CheckCircle2,
+  Check,
   Target,
+  Building2,
   Gauge,
   ArrowUp,
   ArrowDown,
@@ -37,7 +40,11 @@ import {
   Trophy,
   Medal,
   List,
-  Download
+  Download,
+  User as UserIcon,
+  Mail,
+  Columns,
+  Settings
 } from "lucide-react";
 import { 
   ChartContainer, 
@@ -54,8 +61,128 @@ import {
   ResponsiveContainer
 } from "recharts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
-import { ServiceOrder, User, VALID_STATUS, Venda, PrimeiroPagamento, Meta, VendaMeta, BaseData } from "@/types";
+import { ServiceOrder, User, VALID_STATUS, Venda, PrimeiroPagamento, Meta, VendaMeta, BaseData, TODOS_MATERIAIS } from "@/types";
 import { useAuth } from "@/context/auth";
+
+// Função para consolidar materiais de OSs duplicadas
+function consolidateMaterials(orders: ServiceOrder[]): ServiceOrder[] {
+  console.log(`[MaterialConsolidation] === INICIANDO CONSOLIDAÇÃO ===`);
+  console.log(`[MaterialConsolidation] Total de OSs recebidas: ${orders.length}`);
+  
+  // Agrupar OSs por codigo_os
+  const ordersByCode = orders.reduce((acc, order) => {
+    if (!acc[order.codigo_os]) {
+      acc[order.codigo_os] = [];
+    }
+    acc[order.codigo_os].push(order);
+    return acc;
+  }, {} as Record<string, ServiceOrder[]>);
+
+  console.log(`[MaterialConsolidation] Grupos únicos de OS: ${Object.keys(ordersByCode).length}`);
+  
+  // Log de grupos com duplicatas
+  Object.entries(ordersByCode).forEach(([codigo, group]) => {
+    if (group.length > 1) {
+      console.log(`[MaterialConsolidation] OS ${codigo} tem ${group.length} itens:`, 
+        group.map(g => `${g.tipo_servico} - ${g.subtipo_servico} (${g.codigo_item})`)
+      );
+    }
+  });
+
+  const consolidatedOrders: ServiceOrder[] = [];
+
+  // Processar cada grupo de OSs
+  Object.values(ordersByCode).forEach(group => {
+    if (group.length === 1) {
+      // OS única, manter como está
+      console.log(`[MaterialConsolidation] OS ${group[0].codigo_os} é única, mantendo como está`);
+      consolidatedOrders.push(group[0]);
+    } else {
+      // Múltiplas OSs com mesmo código, consolidar
+      console.log(`[MaterialConsolidation] === CONSOLIDANDO OS ${group[0].codigo_os} ===`);
+      console.log(`[MaterialConsolidation] Encontradas ${group.length} OSs com mesmo código`);
+      
+      // Mostrar detalhes de cada OS no grupo
+      group.forEach((order, index) => {
+        console.log(`[MaterialConsolidation] OS ${index + 1}: ${order.tipo_servico} - ${order.subtipo_servico} - ${order.codigo_item} - Materiais: ${order.materiais?.length || 0}`);
+        if (order.materiais && order.materiais.length > 0) {
+          console.log(`[MaterialConsolidation]   Materiais:`, order.materiais.map(m => `${m.nome}=${m.quantidade}`));
+        }
+      });
+      
+      // Encontrar OS primária (Ponto Principal) e secundária (Sistema Opcional)
+      const osPrimaria = group.find(order => order.subtipo_servico === "Ponto Principal");
+      const osSecundaria = group.find(order => order.subtipo_servico === "Sistema Opcional");
+      
+      console.log(`[MaterialConsolidation] OS Primária encontrada: ${osPrimaria ? 'SIM' : 'NÃO'}`);
+      console.log(`[MaterialConsolidation] OS Secundária encontrada: ${osSecundaria ? 'SIM' : 'NÃO'}`);
+      
+      if (osPrimaria && osSecundaria) {
+        console.log(`[MaterialConsolidation] === CONSOLIDANDO MATERIAIS ===`);
+        
+        // Consolidar materiais na primária
+        const materiaisPrimaria = osPrimaria.materiais || [];
+        const materiaisSecundaria = osSecundaria.materiais || [];
+        
+        console.log(`[MaterialConsolidation] Materiais OS Primária (${osPrimaria.codigo_item}):`, 
+          materiaisPrimaria.map(m => `${m.nome}=${m.quantidade}`)
+        );
+        console.log(`[MaterialConsolidation] Materiais OS Secundária (${osSecundaria.codigo_item}):`, 
+          materiaisSecundaria.map(m => `${m.nome}=${m.quantidade}`)
+        );
+        
+        // Combinar materiais (replicar da secundária para primária, sem somar)
+        const materiaisConsolidados = [...materiaisPrimaria];
+        
+        materiaisSecundaria.forEach(materialSecundario => {
+          const materialExistente = materiaisConsolidados.find(m => m.nome === materialSecundario.nome);
+          
+          if (materialExistente) {
+            // Material já existe na primária, manter quantidade original (não somar)
+            console.log(`[MaterialConsolidation] Material ${materialSecundario.nome} já existe na primária (${materialExistente.quantidade}), mantendo quantidade original`);
+          } else {
+            // Adicionar novo material da secundária
+            materiaisConsolidados.push({ ...materialSecundario });
+            console.log(`[MaterialConsolidation] Adicionando novo material ${materialSecundario.nome}: ${materialSecundario.quantidade}`);
+          }
+        });
+        
+        console.log(`[MaterialConsolidation] Materiais consolidados:`, 
+          materiaisConsolidados.map(m => `${m.nome}=${m.quantidade}`)
+        );
+        
+        // Atualizar OS primária com materiais consolidados
+        const osPrimariaConsolidada = {
+          ...osPrimaria,
+          materiais: materiaisConsolidados
+        };
+        
+        // Zerar materiais da OS secundária
+        const osSecundariaZerada = {
+          ...osSecundaria,
+          materiais: []
+        };
+        
+        console.log(`[MaterialConsolidation] RESULTADO FINAL:`);
+        console.log(`[MaterialConsolidation] - OS ${osPrimaria.codigo_os} (${osPrimaria.codigo_item}): ${materiaisConsolidados.length} materiais`);
+        console.log(`[MaterialConsolidation] - OS ${osSecundaria.codigo_os} (${osSecundaria.codigo_item}): 0 materiais`);
+        
+        consolidatedOrders.push(osPrimariaConsolidada);
+        consolidatedOrders.push(osSecundariaZerada);
+      } else {
+        // Se não encontrar Ponto Principal e Sistema Opcional, manter todas como estão
+        console.log(`[MaterialConsolidation] ⚠️ Não encontrou Ponto Principal/Sistema Opcional para OS ${group[0].codigo_os}`);
+        console.log(`[MaterialConsolidation] Subtipos encontrados:`, group.map(g => g.subtipo_servico));
+        console.log(`[MaterialConsolidation] Mantendo todas como estão`);
+        consolidatedOrders.push(...group);
+      }
+    }
+  });
+
+  console.log(`[MaterialConsolidation] === CONSOLIDAÇÃO CONCLUÍDA ===`);
+  console.log(`[MaterialConsolidation] Total: ${orders.length} → ${consolidatedOrders.length} OSs`);
+  return consolidatedOrders;
+}
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,6 +204,7 @@ import {
 import * as XLSX from "xlsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ServiceOrderTable } from "@/components/dashboard/ServiceOrderTable";
+import { OptimizationCountCard } from "@/components/dashboard/OptimizationCountCard";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -85,18 +213,24 @@ import { Switch } from "@/components/ui/switch";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Box } from "@/components/ui/box";
 import { Text } from "@/components/ui/text";
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuCheckboxItem, 
+  DropdownMenuLabel, 
+  DropdownMenuSeparator,
+  DropdownMenuTrigger 
+} from "@/components/ui/dropdown-menu";
 import { supabase } from "@/lib/supabase";
 import { clearDefaultUsers } from "@/utils/clearDefaultUsers";
 import { RegisterForm } from "@/components/auth/RegisterForm";
 import { PermanenciaPorTipoServico } from "./PermanenciaPorTipoServico";
-import { ValorDeFaceVendas } from "@/components/dashboard/ValorDeFaceVendas";
+import { BonificacoesVendas } from "@/components/dashboard/BonificacoesVendas";
 import { VendasInstaladasPorCidade } from "@/components/dashboard/VendasInstaladasPorCidade";
-import { PermanenciaTrendChart } from "@/components/dashboard/PermanenciaTrendChart";
-import { DesempenhoTrendChart } from "@/components/dashboard/DesempenhoTrendChart";
-import { VendedorPermanenciaTrendChart } from "@/components/dashboard/VendedorPermanenciaTrendChart";
-import { VendedorDesempenhoTrendChart } from "@/components/dashboard/VendedorDesempenhoTrendChart";
-import { VendedorDesempenhoPerPeriodoTrendChart } from "@/components/dashboard/VendedorDesempenhoPerPeriodoTrendChart";
-import { VendedorDesempenhoCategoriaTrendChart } from "@/components/dashboard/VendedorDesempenhoCategoriaTrendChart";
+import { PermanenciaTrendTable } from "@/components/dashboard/PermanenciaTrendTable";
+import { TicketMedioTrendTable } from "@/components/dashboard/TicketMedioTrendTable";
+import { DesempenhoCategoriaTrendTable } from "@/components/dashboard/DesempenhoCategoriaTrendTable";
+import { VendedorPermanenciaTrendTable } from "@/components/dashboard/VendedorPermanenciaTrendTable";
 import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName } from "@/context/DataUtils";
 import { useSystemSettings } from "@/hooks/useSystemSettings";
 import { getReopeningColorByServiceType, getTimeAttendanceColorByServiceType, getTimeAttendanceBackgroundColorByServiceType, getTimeAttendanceIndicatorColorByServiceType } from "@/utils/colorUtils";
@@ -228,7 +362,7 @@ function MetasTabContent() {
           vendas: 0,
           percentual: 0
         },
-        produtos: ['FIBRA', 'SKY MAIS']
+        produtos: ['SKY MAIS']
       },
       'SEG': {
         mesAtual: {
@@ -241,7 +375,7 @@ function MetasTabContent() {
           vendas: 0,
           percentual: 0
         },
-        produtos: ['SEGUROS POS', 'SEGUROS FIBRA']
+        produtos: ['SEGUROS POS']
       }
     };
     
@@ -389,28 +523,36 @@ function MetasTabContent() {
   return (
     <>
       {/* Controles de filtro */}
-      <Card className="w-full">
-        <CardHeader>
+      <Card className="w-full shadow-lg border-2">
+        <CardHeader className="bg-gradient-to-r from-orange-50 to-amber-50 border-b-2 pb-4">
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center">
-              <Target className="mr-2 h-5 w-5" />
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <Target className="h-5 w-5 text-orange-600" />
+              </div>
+              <CardTitle className="text-lg text-gray-800 font-semibold">
               Acompanhamento de Metas
             </CardTitle>
+            </div>
             <VendasMetaCleaner />
           </div>
-          <CardDescription>
+          <CardDescription className="text-sm mt-2 text-gray-600">
             Acompanhe o desempenho das vendas em relação às metas mensais definidas
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="flex flex-col sm:flex-row gap-4 sm:items-end w-full">
-            <div className="flex-1">
-              <Label htmlFor="mes-select">Mês</Label>
+        <CardContent className="pt-6">
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              <div className="space-y-2">
+                <Label htmlFor="mes-select" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                  <CalendarIcon className="h-4 w-4 text-orange-600" />
+                  Mês
+                </Label>
               <Select
                 value={selectedMonth?.toString() || ""}
                 onValueChange={(value) => setSelectedMonth(parseInt(value))}
               >
-                <SelectTrigger className="w-full">
+                  <SelectTrigger className="w-full h-11">
                   <SelectValue placeholder="Selecione o mês" />
                 </SelectTrigger>
                 <SelectContent>
@@ -430,14 +572,17 @@ function MetasTabContent() {
               </Select>
             </div>
             
-            <div className="flex-1">
-              <Label htmlFor="ano-select">Ano</Label>
+              <div className="space-y-2">
+                <Label htmlFor="ano-select" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                  <CalendarIcon className="h-4 w-4 text-orange-600" />
+                  Ano
+                </Label>
               <Select
                 value={selectedYear?.toString() || ""}
                 onValueChange={(value) => setSelectedYear(parseInt(value))}
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Ano" />
+                  <SelectTrigger className="w-full h-11">
+                    <SelectValue placeholder="Selecione o ano" />
                 </SelectTrigger>
                 <SelectContent>
                   {availablePeriods.length > 0 ? (
@@ -456,23 +601,48 @@ function MetasTabContent() {
               </Select>
             </div>
             
-            <div className="flex-none">
+              <div className="flex items-end">
               <Button
                 variant="outline"
                 onClick={clearFilters}
-                className="w-full flex items-center justify-center gap-2"
+                  disabled={!selectedMonth && !selectedYear}
+                  className="w-full h-11 border-2 hover:bg-gray-50 font-semibold"
+                  size="lg"
               >
-                <RefreshCcw className="h-4 w-4" />
+                  <RefreshCcw className="h-4 w-4 mr-2" />
                 Limpar Filtros
               </Button>
             </div>
           </div>
+
+            {/* Badges de seleção ativa */}
+            {(selectedMonth || selectedYear) && (
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-200">
+                {selectedMonth && (
+                  <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 px-3 py-1.5 text-sm font-semibold">
+                    <CalendarIcon className="h-3 w-3 mr-1.5" />
+                    Mês: {new Date(0, selectedMonth - 1).toLocaleDateString('pt-BR', { month: 'long' })}
+                  </Badge>
+                )}
+                {selectedYear && (
+                  <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 px-3 py-1.5 text-sm font-semibold">
+                    <CalendarIcon className="h-3 w-3 mr-1.5" />
+                    Ano: {selectedYear}
+                  </Badge>
+                )}
+              </div>
+            )}
           
           {availablePeriods.length > 0 && (
-            <div className="mt-3 text-sm text-muted-foreground">
-              <p>{availablePeriods.length} período(s) com dados disponíveis</p>
+              <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300 text-xs font-semibold">
+                    {availablePeriods.length} período(s) com dados disponíveis
+                  </Badge>
+                </div>
             </div>
           )}
+          </div>
         </CardContent>
       </Card>
 
@@ -519,43 +689,16 @@ function MetasTabContent() {
         </Card>
       ) : (
         <div className="space-y-6">
-          {/* Card de Tendência de Meta - Destaque */}
+          {/* Grid com Tendência de Meta e Dias Totais do Mês lado a lado */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Card de Tendência de Meta - Modernizado com Tabela */}
           {(() => {
             const tendencia = calcularTendenciaMeta();
             if (!tendencia) return null;
             
-            return (
-              <Card className="border-2 border-dashed border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center">
-                    <TrendingUp className="mr-2 h-5 w-5 text-blue-600" />
-                    Tendência de Meta
-                  </CardTitle>
-                  <CardDescription className="text-sm">
-                    Comparação entre períodos equivalentes
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                  
-                  {/* Tendências por Categoria - Produtos Detalhados */}
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                      Tendências por Categoria
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      {Object.entries(tendencia.agrupamentos).map(([categoria, dados]) => {
-                        return (
-                          <div key={categoria} className="bg-white border border-gray-200 rounded-lg p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <h5 className="font-medium text-sm text-gray-800">{categoria}</h5>
-                              <span className="text-xs text-muted-foreground bg-gray-100 px-2 py-0.5 rounded">
-                                {dados.produtos.length}
-                              </span>
-                            </div>
-                          
-                          {/* Lista de produtos detalhados */}
-                          <div className="space-y-1.5">
-                            {dados.produtos.map(produto => {
+              // Preparar dados para a tabela
+              const tabelaData = Object.entries(tendencia.agrupamentos).flatMap(([categoria, dados]) => 
+                dados.produtos.map(produto => {
                               const categoriaAtual = tendencia.metricasAtual.categorias.find(c => c.categoria === produto);
                               const categoriaAnterior = tendencia.metricasAnterior.categorias.find(c => c.categoria === produto);
                               
@@ -565,215 +708,243 @@ function MetasTabContent() {
                               const crescimento = diferenca > 0;
                               const percentualCrescimento = categoriaAnterior.percentual_atingido > 0 ? 
                                 (Math.abs(diferenca) / categoriaAnterior.percentual_atingido) * 100 : 0;
+                  
+                  return {
+                    produto,
+                    categoria,
+                    mesAnterior: {
+                      percentual: categoriaAnterior.percentual_atingido,
+                      vendas: categoriaAnterior.vendas_realizadas,
+                      meta: categoriaAnterior.meta_definida
+                    },
+                    mesAtual: {
+                      percentual: categoriaAtual.percentual_atingido,
+                      vendas: categoriaAtual.vendas_realizadas,
+                      meta: categoriaAtual.meta_definida
+                    },
+                    diferenca,
+                    crescimento,
+                    percentualCrescimento
+                  };
+                }).filter(Boolean)
+              );
                               
                               return (
-                                <div key={produto} className="bg-gray-50 border border-gray-100 rounded-md p-2">
-                                  <div className="flex items-center justify-between mb-1.5">
-                                    <h6 className="font-medium text-sm text-gray-700">{produto}</h6>
-                                    <span className="text-xs text-muted-foreground">
-                                      Meta: {categoriaAtual.meta_definida}
+                <Card className="lg:col-span-2 shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
+                  <CardHeader className="pb-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5" />
+                      Tendência de Meta
+                    </CardTitle>
+                    <CardDescription className="text-blue-100 text-sm">
+                      Comparação entre períodos equivalentes
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
+                            <th className="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                              Produto
+                            </th>
+                            <th className="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                              Categoria
+                            </th>
+                            <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                              {new Date(0, tendencia.mesAnterior.mes - 1).toLocaleDateString('pt-BR', { month: 'short' })}/{tendencia.mesAnterior.ano}
+                            </th>
+                            <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                              Tendência
+                            </th>
+                            <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                              {new Date(0, tendencia.mesAtual.mes - 1).toLocaleDateString('pt-BR', { month: 'short' })}/{tendencia.mesAtual.ano}
+                            </th>
+                            <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                              Meta
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {tabelaData.map((row, index) => (
+                            <tr 
+                              key={`${row.categoria}-${row.produto}`}
+                              className="hover:bg-blue-50/50 transition-colors duration-150"
+                            >
+                              <td className="py-3 px-4">
+                                <span className="font-semibold text-sm text-gray-900">{row.produto}</span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  {row.categoria}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <div className="flex flex-col items-center">
+                                  <span className="text-sm font-bold text-gray-700">
+                                    {row.mesAnterior.percentual.toFixed(1)}%
+                                  </span>
+                                  <span className="text-xs text-gray-500 mt-0.5">
+                                    Meta {row.mesAnterior.meta} / Produzido {row.mesAnterior.vendas}
                                     </span>
                                   </div>
-                                  
-                                  <div className="grid grid-cols-3 gap-2 items-center">
-                                    {/* Mês Anterior */}
-                                    <div className="text-center">
-                                      <div className="text-xs text-muted-foreground mb-0.5">
-                                        {new Date(0, tendencia.mesAnterior.mes - 1).toLocaleDateString('pt-BR', { month: 'short' })}/{tendencia.mesAnterior.ano}
-                                      </div>
-                                      <div className="text-sm font-bold text-gray-600">
-                                        {categoriaAnterior.percentual_atingido.toFixed(1)}%
-                                      </div>
-                                      <div className="text-xs text-muted-foreground">
-                                        {categoriaAnterior.vendas_realizadas}/{categoriaAnterior.meta_definida}
-                                      </div>
-                                    </div>
-                                    
-                                    {/* Indicador de Tendência */}
-                                    <div className="text-center flex flex-col items-center">
-                                      <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                                        crescimento 
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <div className="flex flex-col items-center gap-1">
+                                  <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                    row.crescimento 
                                           ? 'bg-green-100 text-green-800' 
-                                          : diferenca === 0
+                                      : row.diferenca === 0
                                             ? 'bg-gray-100 text-gray-800'
                                             : 'bg-red-100 text-red-800'
                                       }`}>
-                                        {crescimento ? (
-                                          <TrendingUp className="h-3 w-3" />
-                                        ) : diferenca === 0 ? (
-                                          <span className="h-3 w-3 text-center">—</span>
+                                    {row.crescimento ? (
+                                      <TrendingUp className="h-3.5 w-3.5" />
+                                    ) : row.diferenca === 0 ? (
+                                      <span className="h-3.5 w-3.5 text-center flex items-center justify-center">—</span>
                                         ) : (
-                                          <TrendingDown className="h-3 w-3" />
+                                      <TrendingDown className="h-3.5 w-3.5" />
                                         )}
-                                        {diferenca === 0 ? '0pp' : `${diferenca > 0 ? '+' : ''}${diferenca.toFixed(1)}pp`}
+                                    <span>
+                                      {row.diferenca === 0 ? '0pp' : `${row.diferenca > 0 ? '+' : ''}${row.diferenca.toFixed(1)}pp`}
+                                    </span>
                                       </div>
-                                      <div className="text-xs text-muted-foreground mt-0.5">
-                                        {diferenca === 0 ? 'estável' : `${percentualCrescimento.toFixed(1)}% ${crescimento ? 'crescimento' : 'queda'}`}
+                                  <span className="text-[10px] text-gray-500">
+                                    {row.diferenca === 0 ? 'estável' : `${row.percentualCrescimento.toFixed(1)}% ${row.crescimento ? 'crescimento' : 'queda'}`}
+                                  </span>
                                       </div>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <div className="flex flex-col items-center">
+                                  <span className="text-sm font-bold text-blue-600">
+                                    {row.mesAtual.percentual.toFixed(1)}%
+                                  </span>
+                                  <span className="text-xs text-gray-500 mt-0.5">
+                                    Meta {row.mesAtual.meta} / Produzido {row.mesAtual.vendas}
+                                  </span>
                                     </div>
-                                    
-                                    {/* Mês Atual */}
-                                    <div className="text-center">
-                                      <div className="text-xs text-muted-foreground mb-0.5">
-                                        {new Date(0, tendencia.mesAtual.mes - 1).toLocaleDateString('pt-BR', { month: 'short' })}/{tendencia.mesAtual.ano}
-                                      </div>
-                                      <div className="text-sm font-bold text-blue-600">
-                                        {categoriaAtual.percentual_atingido.toFixed(1)}%
-                                      </div>
-                                      <div className="text-xs text-muted-foreground">
-                                        {categoriaAtual.vendas_realizadas}/{categoriaAtual.meta_definida}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    </div>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span className="text-sm font-semibold text-gray-700">
+                                  {row.mesAtual.meta}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                   </div>
                 </CardContent>
               </Card>
             );
           })()}
 
-          {/* Cards de Métricas - Grid com tamanhos diferentes */}
-          <div className="grid grid-cols-1 lg:grid-cols-6 gap-4">
-            {/* Quadro Dias Totais do Mês - Compacto */}
-            <Card className="lg:col-span-1">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-semibold">Dias Totais do Mês</CardTitle>
-              </CardHeader>
-              <CardContent className="p-2 pt-1">
-                <div className="space-y-3">
+            {/* Card Dias Totais do Mês - Modernizado */}
                   {(() => {
                     const { diasDecorridos, diasRestantes, diasTotais } = calcularDiasUteisMes(selectedMonth || 0, selectedYear || 0);
+              const percentualDecorrido = diasTotais > 0 ? (diasDecorridos / diasTotais) * 100 : 0;
                     
                     return (
-                      <>
-                        <div className="flex justify-between items-center py-1">
-                          <span className="text-sm text-muted-foreground">Trabalhados</span>
-                          <span className="text-lg font-bold text-blue-600">{diasDecorridos}</span>
+                <Card className="shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
+                  <CardHeader className="pb-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-t-lg">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <CalendarDays className="h-5 w-5" />
+                      Dias Totais do Mês
+                    </CardTitle>
+                    <CardDescription className="text-indigo-100 text-sm">
+                      Progresso do mês atual
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <div className="space-y-5">
+                      {/* Dias Trabalhados */}
+                      <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-700">Dias Trabalhados</span>
+                          <span className="text-2xl font-bold text-blue-600">{diasDecorridos}</span>
                         </div>
-                        <div className="flex justify-between items-center py-1">
-                          <span className="text-sm text-muted-foreground">Restantes</span>
-                          <span className="text-lg font-bold text-orange-600">{diasRestantes}</span>
+                        <div className="w-full bg-blue-200 rounded-full h-2">
+                          <div 
+                            className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.min(percentualDecorrido, 100)}%` }}
+                          ></div>
                         </div>
-                        <div className="flex justify-between items-center py-1">
-                          <span className="text-sm text-muted-foreground">Totais</span>
-                          <span className="text-lg font-bold text-gray-700">{diasTotais}</span>
+                        <span className="text-xs text-gray-500 mt-1 block">{percentualDecorrido.toFixed(1)}% do mês</span>
                         </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </CardContent>
-            </Card>
 
-            {/* Total de Vendas por Forma de Pagamento */}
-            <Card className="lg:col-span-1">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-semibold">Total de Vendas por Forma de Pagamento</CardTitle>
-              </CardHeader>
-              <CardContent className="p-2 pt-1">
-                {(() => {
-                  // Filtrar vendas do período selecionado
-                  const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
-                  
-                                     // Mapear e agrupar formas de pagamento
-                   const formasPagamento = vendasDoPeriodo.reduce((acc, venda) => {
-                     const forma = ('forma_pagamento' in venda ? venda.forma_pagamento : '') || 'Não informado';
-                    
-                    // Normalizar formas de pagamento similares
-                    let formaNormalizada = forma.toUpperCase();
-                    
-                    if (formaNormalizada.includes('CARTÃO DE CRÉDITO') || formaNormalizada.includes('CARTAO DE CREDITO')) {
-                      formaNormalizada = 'CARTÃO DE CRÉDITO';
-                    } else if (formaNormalizada.includes('DIGITAL') || formaNormalizada.includes('PIX') || formaNormalizada.includes('PEC') || formaNormalizada.includes('LINHA DIGITÁVEL')) {
-                      formaNormalizada = 'DIGITAL/PIX/PEC';
-                    } else if (formaNormalizada.includes('DÉBITO') || formaNormalizada.includes('DEBITO')) {
-                      formaNormalizada = 'DÉBITO AUTOMÁTICO';
-                    } else if (formaNormalizada.includes('BOLETO')) {
-                      formaNormalizada = 'BOLETO';
-                    } else if (formaNormalizada.includes('NÃO HÁ COBRANÇA') || formaNormalizada.includes('NAO HA COBRANCA') || formaNormalizada.includes('SEM COBRANÇA')) {
-                      formaNormalizada = 'SEM COBRANÇA';
-                    } else if (formaNormalizada.includes('DINHEIRO') || formaNormalizada.includes('ESPÉCIE')) {
-                      formaNormalizada = 'DINHEIRO';
-                    } else if (formaNormalizada.includes('NÃO INFORMADO') || formaNormalizada.includes('') || formaNormalizada.includes('NULL')) {
-                      formaNormalizada = 'NÃO INFORMADO';
-                    }
-                    
-                    acc[formaNormalizada] = (acc[formaNormalizada] || 0) + 1;
-                    return acc;
-                  }, {} as Record<string, number>);
-                  
-                  const totalVendas = vendasDoPeriodo.length;
-                  
-                  // Ordenar por quantidade (decrescente) e pegar top 5
-                  const formasOrdenadas = Object.entries(formasPagamento)
-                    .sort(([,a], [,b]) => b - a)
-                    .slice(0, 5);
-                  
-                  return (
-                    <div className="space-y-1">
-                      {formasOrdenadas.map(([forma, quantidade]) => {
-                        const percentual = totalVendas > 0 ? (quantidade / totalVendas) * 100 : 0;
-                        
-                        // Truncar nome da forma se muito longo
-                        const formaExibicao = forma.length > 18 ? 
-                          forma.substring(0, 15) + '...' : forma;
-                        
-                        return (
-                          <div key={forma} className="flex justify-between items-center py-0.5">
-                            <span className="text-xs text-muted-foreground" title={forma}>
-                              {formaExibicao}
-                            </span>
-                            <div className="flex items-center gap-1">
-                              <span className="font-semibold text-xs">
-                                {quantidade}
-                              </span>
-                              <span className="text-xs text-blue-600 font-medium">
-                                ({percentual.toFixed(1)}%)
-                              </span>
+                      {/* Dias Restantes */}
+                      <div className="bg-gradient-to-r from-orange-50 to-orange-100 rounded-xl p-4 border border-orange-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-700">Dias Restantes</span>
+                          <span className="text-2xl font-bold text-orange-600">{diasRestantes}</span>
                             </div>
+                        <div className="w-full bg-orange-200 rounded-full h-2">
+                          <div 
+                            className="bg-gradient-to-r from-orange-500 to-orange-600 h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${diasTotais > 0 ? ((diasRestantes / diasTotais) * 100) : 0}%` }}
+                          ></div>
                           </div>
-                        );
-                      })}
+                      </div>
                       
-                      {totalVendas > 0 && (
-                        <div className="border-t pt-1 mt-1">
-                          <div className="flex justify-between items-center py-0.5">
-                            <span className="text-xs font-bold">TOTAL</span>
-                            <span className="text-xs font-bold text-purple-600">
-                              {totalVendas} (100%)
-                            </span>
+                      {/* Total */}
+                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-gray-700">Total de Dias</span>
+                          <span className="text-2xl font-bold text-gray-700">{diasTotais}</span>
                           </div>
                         </div>
-                      )}
                     </div>
-                  );
-                })()}
               </CardContent>
             </Card>
+              );
+            })()}
+          </div>
 
-            {/* Valor dos Produtos (Pacotes Face) */}
+          {/* Grid com Produtos Principais e Vendas por Cidade lado a lado */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Card Unificado - Produtos e Formas de Pagamento */}
             <ProtectedCard 
-              title="Valor dos Produtos (Pacotes Face)" 
+              title="Produtos Principais e Formas de Pagamento" 
               storageKey="metas_valor_produtos"
-              className="lg:col-span-2"
             >
-              <Card className="lg:col-span-2">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold">Valor dos Produtos (Pacotes Face)</CardTitle>
+              <Card className="shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
+                <CardHeader className="pb-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <BarChart2 className="h-4 w-4" />
+                    Produtos Principais e Formas de Pagamento
+                  </CardTitle>
+                  <CardDescription className="text-blue-100 text-xs">
+                    Detalhamento de vendas por produto e forma de pagamento
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="p-3 pt-1">
+              <CardContent className="p-0">
                 {(() => {
                   // Filtrar vendas do período selecionado
                   const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
                   
-                  // Mapear categorias
+                // Função para normalizar forma de pagamento
+                const normalizarFormaPagamento = (forma: string): string => {
+                  const formaUpper = forma.toUpperCase();
+                  
+                  if (formaUpper.includes('CARTÃO DE CRÉDITO') || formaUpper.includes('CARTAO DE CREDITO') || formaUpper.includes('CREDITO')) {
+                    return 'CARTÃO';
+                  } else if (formaUpper.includes('DIGITAL') || formaUpper.includes('PIX') || formaUpper.includes('PEC') || formaUpper.includes('LINHA DIGITÁVEL')) {
+                    return 'DIGITAL/PIX';
+                  } else if (formaUpper.includes('DÉBITO') || formaUpper.includes('DEBITO')) {
+                    return 'DÉBITO';
+                  } else if (formaUpper.includes('BOLETO')) {
+                    return 'BOLETO';
+                  } else if (formaUpper.includes('NÃO HÁ COBRANÇA') || formaUpper.includes('NAO HA COBRANCA') || formaUpper.includes('SEM COBRANÇA')) {
+                    return 'SEM COBRANÇA';
+                  } else if (formaUpper.includes('DINHEIRO') || formaUpper.includes('ESPÉCIE')) {
+                    return 'DINHEIRO';
+                  } else if (!forma || formaUpper.includes('NÃO INFORMADO') || formaUpper.includes('NULL') || formaUpper.trim() === '') {
+                    return 'NÃO INFORMADO';
+                  }
+                  return forma.toUpperCase();
+                };
+
+                // Mapear categorias para valor dos produtos
                   const mapearCategoria = (categoria: string): string => {
                     if (categoria.includes('PÓS-PAGO') || categoria.includes('POS')) return 'POS';
                     if (categoria.includes('PRÉ-PAGO') || categoria.includes('PRE')) return 'PRE';
@@ -783,55 +954,150 @@ function MetasTabContent() {
                     return 'OUTROS';
                   };
                   
-                                     // Agrupar valores por produto
-                   const valoresPorProduto = vendasDoPeriodo.reduce((acc, venda) => {
+                // Agrupar por produto, forma de pagamento e valor
+                const dadosPorProduto = vendasDoPeriodo.reduce((acc, venda) => {
+                  const produto = (('produto' in venda ? venda.produto : venda.produto_principal) || 'NÃO INFORMADO').toUpperCase();
+                  const forma = normalizarFormaPagamento('forma_pagamento' in venda ? venda.forma_pagamento : '');
                      const categoria = ('categoria' in venda ? venda.categoria : venda.agrupamento_produto) || '';
-                     const produto = mapearCategoria(categoria);
-                     // Para vendas de meta, não há campo "valor" direto, então assumir valor 0
+                  const categoriaMapeada = mapearCategoria(categoria);
                      const valor = ('valor' in venda ? (venda as Venda).valor : 0) || 0;
-                     acc[produto] = (acc[produto] || 0) + valor;
+                  
+                  if (!acc[produto]) {
+                    acc[produto] = {
+                      total: 0,
+                      formas: {} as Record<string, number>,
+                      valorTotal: 0
+                    };
+                  }
+                  
+                  acc[produto].total += 1;
+                  acc[produto].formas[forma] = (acc[produto].formas[forma] || 0) + 1;
+                  acc[produto].valorTotal += valor;
+                  
+                  return acc;
+                }, {} as Record<string, { total: number; formas: Record<string, number>; valorTotal: number }>);
+                
+                // Ordenar produtos por quantidade total (decrescente) e pegar top 10
+                const produtosOrdenados = Object.entries(dadosPorProduto)
+                  .sort(([,a], [,b]) => b.total - a.total)
+                  .slice(0, 10);
+                
+                // Calcular totais por forma de pagamento
+                const totaisPorForma = vendasDoPeriodo.reduce((acc, venda) => {
+                  const forma = normalizarFormaPagamento('forma_pagamento' in venda ? venda.forma_pagamento : '');
+                  acc[forma] = (acc[forma] || 0) + 1;
                      return acc;
                    }, {} as Record<string, number>);
                   
-                  // Calcular total
-                  const valorTotal = Object.values(valoresPorProduto).reduce((sum, valor) => sum + valor, 0);
+                const totalGeral = vendasDoPeriodo.length;
+                
+                // Ordenar formas por quantidade (descendente)
+                const formasOrdenadas = Object.entries(totaisPorForma)
+                  .sort(([,a], [,b]) => b - a);
                   
-                  // Produtos ordenados
-                  const produtosOrdenados = ['POS', 'PRE', 'NP', 'FIBRA', 'SKY+'];
+                // Calcular valor total geral
+                const valorTotalGeral = produtosOrdenados.reduce((sum, [, dados]) => sum + dados.valorTotal, 0);
                   
                   return (
-                    <div className="space-y-1">
-                      {produtosOrdenados.map(produto => {
-                        const valor = valoresPorProduto[produto] || 0;
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
+                          <th className="text-left py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider sticky left-0 bg-gray-50 z-10">
+                            Produto
+                          </th>
+                          <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                            Qtd Total
+                          </th>
+                          {/* Colunas dinâmicas para formas de pagamento */}
+                          {formasOrdenadas.map(([forma, qtd]) => (
+                            <th key={forma} className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                              {forma.replace('/', '/ ')}
+                            </th>
+                          ))}
+                          <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                            Valor dos Produtos
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {produtosOrdenados.map(([produto, dados]) => {
+                          const produtoExibicao = produto.length > 40 ? produto.substring(0, 37) + '...' : produto;
+                          
                         return (
-                          <div key={produto} className="flex justify-between items-center py-0.5">
-                            <span className="text-sm text-muted-foreground">{produto}</span>
-                            <span className="font-semibold text-sm">
-                              {valor > 0 ? 
-                                valor.toLocaleString('pt-BR', {
+                            <tr 
+                              key={produto}
+                              className="hover:bg-blue-50/50 transition-colors duration-150"
+                            >
+                              <td className="py-2 px-3 sticky left-0 bg-white z-10">
+                                <span className="font-semibold text-xs text-gray-900" title={produto}>
+                                  {produtoExibicao}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="text-xs font-bold text-blue-600">
+                                  {dados.total}
+                                </span>
+                              </td>
+                              {/* Células para cada forma de pagamento */}
+                              {formasOrdenadas.map(([forma]) => (
+                                <td key={forma} className="py-2 px-3 text-center">
+                                  <span className="text-xs font-semibold text-gray-700">
+                                    {dados.formas[forma] || '-'}
+                                  </span>
+                                </td>
+                              ))}
+                              {/* Coluna de valor */}
+                              <td className="py-2 px-3 text-center">
+                                <span className="text-xs font-bold text-purple-600">
+                                  {dados.valorTotal > 0 ? 
+                                    dados.valorTotal.toLocaleString('pt-BR', {
                                   style: 'currency',
                                   currency: 'BRL',
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2
-                                }).replace('R$', 'R$').replace(/\s/g, '') : 'R$0,00'
+                                    }).replace(/\s/g, '') : 'R$0,00'
                               }
                             </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot className="bg-gradient-to-r from-purple-50 to-indigo-50 border-t-2 border-purple-200">
+                        <tr>
+                          <td className="py-2 px-3 sticky left-0 bg-purple-50 z-10">
+                            <span className="text-sm font-bold text-gray-900">TOTAL</span>
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            <span className="text-sm font-bold text-purple-600">{totalGeral}</span>
+                          </td>
+                          {/* Totais por forma de pagamento com percentuais */}
+                          {formasOrdenadas.map(([forma, qtd]) => {
+                            const percentual = totalGeral > 0 ? (qtd / totalGeral) * 100 : 0;
+                            return (
+                              <td key={forma} className="py-2 px-3 text-center">
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className="text-sm font-bold text-purple-700">{qtd}</span>
+                                  <span className="text-xs text-purple-600 font-medium">({percentual.toFixed(2)}%)</span>
                           </div>
+                              </td>
                         );
                       })}
-                      <div className="border-t pt-1 mt-1">
-                        <div className="flex justify-between items-center py-0.5">
-                          <span className="text-sm font-bold">TOTAL</span>
-                          <span className="text-sm font-bold text-purple-600">
-                            {valorTotal.toLocaleString('pt-BR', {
+                          {/* Total de valor */}
+                          <td className="py-2 px-3 text-center">
+                            <span className="text-sm font-bold text-purple-700">
+                              {valorTotalGeral.toLocaleString('pt-BR', {
                               style: 'currency',
                               currency: 'BRL',
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2
-                            }).replace('R$', 'R$').replace(/\s/g, '')}
+                              }).replace(/\s/g, '')}
                           </span>
-                        </div>
-                      </div>
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
                     </div>
                   );
                 })()}
@@ -839,79 +1105,18 @@ function MetasTabContent() {
               </Card>
             </ProtectedCard>
 
-            {/* Quantidade de Produtos Principais */}
-            <Card className="lg:col-span-2">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold">Quantidade de Produtos Principais</CardTitle>
-              </CardHeader>
-              <CardContent className="p-3 pt-1">
-                {(() => {
-                  // Filtrar vendas do período selecionado
-                  const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
-                  
-                                     // Contar produtos principais
-                   const produtosPorTipo = vendasDoPeriodo.reduce((acc, venda) => {
-                     const produto = ('produto' in venda ? venda.produto : venda.produto_principal) || '';
-                     acc[produto] = (acc[produto] || 0) + 1;
-                     return acc;
-                   }, {} as Record<string, number>);
-                  
-                  // Ordenar por quantidade (decrescente)
-                  const produtosOrdenados = Object.entries(produtosPorTipo)
-                    .sort(([,a], [,b]) => b - a)
-                    .slice(0, 8); // Mostrar top 8
-                  
-                  // Calcular total
-                  const totalQuantidade = Object.values(produtosPorTipo).reduce((sum, qtd) => sum + qtd, 0);
-                  
-                  return (
-                    <div className="space-y-1">
-                      {produtosOrdenados.map(([produto, quantidade]) => {
-                        // Converter para caixa alta e truncar nome do produto se muito longo
-                        const produtoUpperCase = (produto || '').toUpperCase();
-                        const produtoExibicao = produtoUpperCase.length > 35 ? 
-                          produtoUpperCase.substring(0, 32) + '...' : produtoUpperCase;
-                        
-                        return (
-                          <div key={produto} className="flex justify-between items-center py-0.5">
-                            <span className="text-xs text-muted-foreground" title={produtoUpperCase}>
-                              {produtoExibicao || 'NÃO INFORMADO'}
-                            </span>
-                            <span className="font-semibold text-xs">
-                              {quantidade}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      <div className="border-t pt-1 mt-1">
-                        <div className="flex justify-between items-center py-0.5">
-                          <span className="text-xs font-bold">TOTAL</span>
-                          <span className="text-xs font-bold text-purple-600">
-                            {totalQuantidade}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Vendas por Cidade - Segunda linha */}
-          <div className="grid grid-cols-1">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center">
-                  <MapPin className="mr-2 h-4 w-4" />
+            {/* Vendas por Cidade - Modernizado */}
+            <Card className="shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
+              <CardHeader className="pb-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-t-lg">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <MapPin className="h-4 w-4" />
                   Vendas por Cidade
                 </CardTitle>
-                <CardDescription className="text-xs">
+                <CardDescription className="text-indigo-100 text-xs">
                   Top cidades por volume de vendas
                 </CardDescription>
               </CardHeader>
-              <CardContent className="p-4 pt-0">
-                <div className="space-y-2">
+              <CardContent className="p-0">
                   {(() => {
                      // Filtrar vendas do período selecionado
                      const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
@@ -921,12 +1126,7 @@ function MetasTabContent() {
                        pos_pago: number;
                        flex_conforto: number;
                        nova_parabolica: number;
-                       fibra: number;
                        sky_mais: number;
-                     }
-                     
-                     interface VendaMetaComCidade extends VendaMeta {
-                       cidade?: string;
                      }
                      
                      const vendasPorCidade: Record<string, VendaPorCidade> = {};
@@ -941,7 +1141,6 @@ function MetasTabContent() {
                            pos_pago: 0, 
                            flex_conforto: 0, 
                            nova_parabolica: 0, 
-                           fibra: 0, 
                            sky_mais: 0 
                          };
                        }
@@ -950,15 +1149,13 @@ function MetasTabContent() {
                        // Categorizar por tipo específico baseado no Agrupamento do Produto
                        const agrupamento = (('categoria' in venda ? venda.categoria : venda.agrupamento_produto) || '').toUpperCase().trim();
                        
-                       // Usar a mesma lógica de mapeamento do quadro de valores
+                    // Usar a mesma lógica de mapeamento do quadro de valores (sem FIBRA)
                        if (agrupamento.includes('PÓS-PAGO') || agrupamento.includes('POS')) {
                          vendasPorCidade[cidade].pos_pago++;
                        } else if (agrupamento.includes('PRÉ-PAGO') || agrupamento.includes('PRE')) {
                          vendasPorCidade[cidade].flex_conforto++;
                        } else if (agrupamento.includes('NOVA PARABÓLICA') || agrupamento.includes('NP')) {
                          vendasPorCidade[cidade].nova_parabolica++;
-                       } else if (agrupamento.includes('FIBRA') || agrupamento.includes('BL-DGO')) {
-                         vendasPorCidade[cidade].fibra++;
                        } else if (agrupamento.includes('SKY MAIS') || agrupamento.includes('DGO')) {
                          vendasPorCidade[cidade].sky_mais++;
                        }
@@ -972,7 +1169,6 @@ function MetasTabContent() {
                          pos_pago: dados.pos_pago,
                          flex_conforto: dados.flex_conforto,
                          nova_parabolica: dados.nova_parabolica,
-                         fibra: dados.fibra,
                          sky_mais: dados.sky_mais,
                          percentual: (dados.total / (metaMetrics?.total_vendas || 1)) * 100
                        }))
@@ -980,432 +1176,309 @@ function MetasTabContent() {
                        .slice(0, 10); // Top 10
 
                      return cidadesArray.length > 0 ? (
-                       <div className="space-y-2">
-                         {/* Cabeçalho */}
-                         <div className="grid grid-cols-9 gap-1 text-sm font-semibold border-b-2 border-slate-200 pb-2 bg-slate-50 px-2 py-1 rounded-t-md">
-                           <div className="col-span-2">Cidade</div>
-                           <div className="text-center">Total</div>
-                           <div className="text-center">POS</div>
-                           <div className="text-center">PRE</div>
-                           <div className="text-center">NP</div>
-                           <div className="text-center">FIBRA</div>
-                           <div className="text-center">SKY+</div>
-                           <div className="text-center">%</div>
-                         </div>
-                         
-                         {/* Dados */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
+                            <th className="text-left py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider sticky left-0 bg-gray-50 z-10">
+                              Cidade
+                            </th>
+                            <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                              Total
+                            </th>
+                            <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                              POS
+                            </th>
+                            <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                              PRE
+                            </th>
+                            <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                              NP
+                            </th>
+                            <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                              SKY+
+                            </th>
+                            <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                              %
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
                          {cidadesArray.map((item, index) => (
-                           <div key={index} className={`grid grid-cols-9 gap-1 text-sm py-2 px-2 rounded-md transition-colors hover:bg-slate-100 ${
-                             index % 2 === 0 ? 'bg-white' : 'bg-slate-25'
-                           } border-b border-slate-100`}>
-                             <div className="col-span-2 truncate font-medium" title={item.cidade}>
+                            <tr 
+                              key={index}
+                              className="hover:bg-indigo-50/50 transition-colors duration-150"
+                            >
+                              <td className="py-2 px-3 sticky left-0 bg-white z-10">
+                                <span className="font-semibold text-xs text-gray-900" title={item.cidade}>
                                {item.cidade.toUpperCase()}
-                             </div>
-                             <div className="text-center font-semibold text-slate-800">
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="text-xs font-bold text-indigo-600">
                                {item.total}
-                             </div>
-                             <div className="text-center text-blue-600">
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="text-xs font-semibold text-blue-600">
                                {item.pos_pago}
-                             </div>
-                             <div className="text-center text-purple-600">
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="text-xs font-semibold text-purple-600">
                                {item.flex_conforto}
-                             </div>
-                             <div className="text-center text-orange-600">
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="text-xs font-semibold text-orange-600">
                                {item.nova_parabolica}
-                             </div>
-                             <div className="text-center text-green-600">
-                               {item.fibra}
-                             </div>
-                             <div className="text-center text-cyan-600">
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="text-xs font-semibold text-cyan-600">
                                {item.sky_mais}
-                             </div>
-                             <div className="text-center text-blue-700 font-semibold">
-                               {item.percentual.toFixed(1)}%
-                             </div>
-                           </div>
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="text-xs font-bold text-indigo-700">
+                                  {item.percentual.toFixed(2)}%
+                                </span>
+                              </td>
+                            </tr>
                          ))}
+                        </tbody>
+                      </table>
                        </div>
                      ) : (
-                       <div className="text-center text-sm text-muted-foreground py-8 bg-slate-50 rounded-md">
+                    <div className="text-center text-sm text-muted-foreground py-8 bg-gray-50 rounded-md">
                          Nenhum dado de cidade disponível
                        </div>
                      );
                    })()}
-                </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Detalhamento por Categoria */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Desempenho por Categoria</CardTitle>
+          {/* Desempenho por Categoria - Cards Individuais Modernizados */}
+          <Card className="shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
+            <CardHeader className="pb-3 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-t-lg">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Target className="h-4 w-4" />
+                Desempenho por Categoria
+              </CardTitle>
+              <CardDescription className="text-teal-100 text-xs">
+                Análise detalhada de metas e desempenho por categoria de produto
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-8">
+            <CardContent className="p-4">
                 {(() => {
-                  // Organizar categorias por grupos
-                  const categoriasPorGrupo = {
-                    payTV: metaMetrics.categorias.filter(c => 
-                      ['PÓS-PAGO', 'FLEX/CONFORTO', 'NOVA PARABÓLICA'].includes(c.categoria)
-                    ),
-                    internetStreaming: metaMetrics.categorias.filter(c => 
-                      ['FIBRA', 'SKY+', 'SKY MAIS'].includes(c.categoria)
-                    ),
-                    seguros: metaMetrics.categorias.filter(c => 
-                      ['SEGUROS POS', 'SEGUROS FIBRA'].includes(c.categoria)
-                    )
-                  };
-
-                  // Calcular totais por grupo
-                  const calcularTotalGrupo = (categorias: typeof metaMetrics.categorias) => {
-                    const totalMeta = categorias.reduce((sum, cat) => sum + cat.meta_definida, 0);
-                    const totalVendas = categorias.reduce((sum, cat) => sum + cat.vendas_realizadas, 0);
-                    const percentual = totalMeta > 0 ? (totalVendas / totalMeta) * 100 : 0;
-                    return { totalMeta, totalVendas, percentual };
-                  };
-
-                  // Função global para calcular dias úteis (reutilizada em todos os lugares)
-                  const calcularDiasUteisGlobal = (dataInicio: Date, dataFim: Date): number => {
+                // Função para calcular dias úteis (excluindo domingos)
+                const calcularDiasUteis = (dataInicio: Date, dataFim: Date): number => {
                     let diasUteis = 0;
                     const dataAtual = new Date(dataInicio);
-                    
-                    // Normalizar as datas para evitar problemas de timezone
                     dataAtual.setHours(0, 0, 0, 0);
                     const dataFimNormalizada = new Date(dataFim);
                     dataFimNormalizada.setHours(23, 59, 59, 999);
                     
                     while (dataAtual <= dataFimNormalizada) {
-                      if (dataAtual.getDay() !== 0) { // Não é domingo
+                    if (dataAtual.getDay() !== 0) {
                         diasUteis++;
                       }
                       dataAtual.setDate(dataAtual.getDate() + 1);
                     }
-                    
                     return diasUteis;
                   };
 
-                  // Função para mapear nomes de categorias para exibição
-                  const mapearNomeCategoria = (categoria: string): string => {
-                    switch (categoria) {
-                      case 'FLEX/CONFORTO':
-                        return 'PRÉ-PAGO';
-                      default:
-                        return categoria;
-                    }
-                  };
-
-                  const renderCategoria = (categoria: typeof metaMetrics.categorias[0], isSubcategory = false) => {
-                    const saldo = categoria.vendas_realizadas - categoria.meta_definida;
-                    const saldoPositivo = saldo >= 0;
-                    
-                    // Usar a função global para calcular dias úteis
-                    const calcularDiasUteis = calcularDiasUteisGlobal;
-                    
-                    // Cálculos para as novas colunas (excluindo domingos)
+                // Calcular dados para cada categoria
                     const hoje = new Date();
                     const primeiroDiaMes = new Date(metaMetrics.ano, metaMetrics.mes - 1, 1);
                     const ultimoDiaMes = new Date(metaMetrics.ano, metaMetrics.mes, 0);
-                    
-                    // Dias úteis trabalhados (do primeiro dia do mês até ontem)
                     const ontem = new Date(hoje);
                     ontem.setDate(hoje.getDate() - 1);
-                    const diasUteisDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, ontem));
                     
-                    // Dias úteis restantes (de hoje até o final do mês)
+                const diasUteisDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, ontem));
                     const diasUteisRestantes = Math.max(1, calcularDiasUteis(hoje, ultimoDiaMes));
-                    
-                    // Total de dias úteis no mês
                     const totalDiasUteisMes = calcularDiasUteis(primeiroDiaMes, ultimoDiaMes);
                     
-                    // Projeção baseada no realizado vs dias úteis
-                    const mediaDiariaAtual = categoria.vendas_realizadas / diasUteisDecorridos;
-                    const projecaoFinal = mediaDiariaAtual * totalDiasUteisMes;
-                    
-                    // Média de vendas por dia útil (baseada nas vendas realizadas e dias úteis trabalhados)
-                    const mediaDiaria = mediaDiariaAtual;
-                    
-                    // Média de vendas por dia útil para atingir a meta (baseada no que falta e dias úteis restantes)
-                    const saldoRestante = Math.max(0, categoria.meta_definida - categoria.vendas_realizadas);
-                    const metaDiariaParaMeta = saldoRestante / diasUteisRestantes;
-                    
-                    // Determinar cor da Meta/Dia (verde se já atingiu meta, vermelho se está fora)
-                    const corMetaDiaria = categoria.percentual_atingido >= 100 
-                      ? 'text-green-600' 
-                      : projecaoFinal >= categoria.meta_definida 
-                        ? 'text-green-600' 
-                        : 'text-red-600';
-                    
-                    // Calcular o "Ideal": meta / dias totais * dias trabalhados (até ontem)
-                    const ideal = (categoria.meta_definida / totalDiasUteisMes) * diasUteisDecorridos;
-                    
-                    // Determinar cor do Ideal baseado na comparação com Realizado
-                    let corIdeal = 'text-gray-600'; // padrão
-                    if (ideal > categoria.vendas_realizadas) {
-                      corIdeal = 'text-red-600'; // Ideal maior que realizado = vermelho
-                    } else if (ideal === categoria.vendas_realizadas) {
-                      corIdeal = 'text-yellow-600'; // Ideal igual ao realizado = amarelo
-                    } else {
-                      corIdeal = 'text-green-600'; // Ideal menor que realizado = verde
-                    }
+                // Calcular resumo PAY TV (PÓS-PAGO + PRÉ-PAGO + NOVA PARABÓLICA)
+                const categoriasPayTV = metaMetrics.categorias.filter(c => 
+                  ['PÓS-PAGO', 'FLEX/CONFORTO', 'NOVA PARABÓLICA'].includes(c.categoria)
+                );
+
+                const totalMetaPayTV = categoriasPayTV.reduce((sum, c) => sum + c.meta_definida, 0);
+                const totalRealizadoPayTV = categoriasPayTV.reduce((sum, c) => sum + c.vendas_realizadas, 0);
+                const totalSaldoPayTV = totalRealizadoPayTV - totalMetaPayTV;
+                const percentualPayTV = totalMetaPayTV > 0 ? (totalRealizadoPayTV / totalMetaPayTV) * 100 : 0;
 
                     return (
-                      <div className={`grid grid-cols-9 gap-3 py-3 px-3 rounded-lg ${isSubcategory ? 'bg-gray-50/80 ml-4 border-l-4 border-blue-200' : 'bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow'}`}>
-                        <div className="flex items-center text-left">
-                          <span className={`font-medium ${isSubcategory ? 'text-xs text-gray-700' : 'text-sm'}`}>
-                            {mapearNomeCategoria(categoria.categoria)}
-                          </span>
-                        </div>
-                        
-                        <div className="text-center">
-                          <p className="font-semibold text-blue-600 text-sm">
-                            {categoria.meta_definida.toLocaleString('pt-BR')}
-                          </p>
-                        </div>
-                        
-                        <div className="text-center">
-                          <p className="font-semibold text-green-600 text-sm">
-                            {categoria.vendas_realizadas.toLocaleString('pt-BR')}
-                          </p>
-                        </div>
-                        
-                        <div className="text-center">
-                          <p className={`font-semibold text-sm ${saldoPositivo ? 'text-green-600' : 'text-red-600'}`}>
-                            {saldoPositivo ? '+' : ''}{Math.abs(saldo).toLocaleString('pt-BR')}
-                          </p>
-                        </div>
-                        
-                        <div className="text-center">
-                          <span className={`text-sm font-bold px-2 py-1 rounded ${
-                            categoria.percentual_atingido >= 100 
-                              ? 'bg-green-100 text-green-800' 
-                              : categoria.percentual_atingido >= 80 
-                              ? 'bg-yellow-100 text-yellow-800' 
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {categoria.percentual_atingido.toFixed(1)}%
-                          </span>
-                        </div>
-                        
-                        <div className="text-center">
-                          <p className="font-semibold text-purple-600 text-sm">
-                            {projecaoFinal.toFixed(0)}
-                          </p>
-                        </div>
-                        
-                        <div className="text-center">
-                          <p className={`font-semibold text-sm ${corIdeal}`}>
-                            {ideal.toFixed(0)}
-                          </p>
-                        </div>
-                        
-                        <div className="text-center">
-                          <p className="font-semibold text-blue-600 text-sm">
-                            {mediaDiaria.toFixed(1)}
-                          </p>
-                        </div>
-                        
-                        <div className="text-center">
-                          <p className={`font-semibold text-sm ${corMetaDiaria}`}>
-                            {metaDiariaParaMeta.toFixed(1)}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  };
-
-                  const renderGrupo = (titulo: string, categorias: typeof metaMetrics.categorias, cor: string) => {
-                    if (categorias.length === 0) return null;
-                    
-                    const total = calcularTotalGrupo(categorias);
-                    const saldoTotal = total.totalVendas - total.totalMeta;
-                    const saldoPositivo = saldoTotal >= 0;
-
-                                          return (
-                      <div className="space-y-3">
-                        {/* Cabeçalho do Grupo */}
-                        <div className={`${cor} py-3 px-3 rounded-lg shadow-lg`}>
-                          <div className="grid grid-cols-9 gap-3">
-                            <div className="flex items-center text-left">
-                              <h3 className="font-bold text-white text-lg">{titulo}</h3>
-                            </div>
-                            <div className="flex items-center justify-center text-center">
-                              <p className="font-bold text-white text-base">
-                                {total.totalMeta.toLocaleString('pt-BR')}
-                              </p>
-                            </div>
-                            <div className="flex items-center justify-center text-center">
-                              <p className="font-bold text-white text-base">
-                                {total.totalVendas.toLocaleString('pt-BR')}
-                              </p>
-                            </div>
-                            <div className="flex items-center justify-center text-center">
-                              <p className="font-bold text-white text-base">
-                                {saldoPositivo ? '+' : ''}{Math.abs(saldoTotal).toLocaleString('pt-BR')}
-                              </p>
-                            </div>
-                            <div className="flex items-center justify-center text-center">
-                              <p className="font-bold text-white text-base">
-                                {total.percentual.toFixed(1)}%
-                              </p>
-                            </div>
-                            <div className="flex items-center justify-center text-center">
-                              <p className="font-bold text-white text-base">
-                                {(() => {
-                                  // Função para calcular dias úteis (excluindo domingos)
-                                  const calcularDiasUteis = (dataInicio: Date, dataFim: Date): number => {
-                                    let diasUteis = 0;
-                                    const dataAtual = new Date(dataInicio);
-                                    
-                                    while (dataAtual <= dataFim) {
-                                      if (dataAtual.getDay() !== 0) { // Não é domingo
-                                        diasUteis++;
-                                      }
-                                      dataAtual.setDate(dataAtual.getDate() + 1);
-                                    }
-                                    
-                                    return diasUteis;
-                                  };
-                                  
-                                  const hoje = new Date();
-                                  const primeiroDiaMes = new Date(metaMetrics.ano, metaMetrics.mes - 1, 1);
-                                  const ultimoDiaMes = new Date(metaMetrics.ano, metaMetrics.mes, 0);
-                                  const ontem = new Date(hoje);
-                                  ontem.setDate(hoje.getDate() - 1);
-                                  
-                                  const diasUteisDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, ontem));
-                                  const totalDiasUteisMes = calcularDiasUteis(primeiroDiaMes, ultimoDiaMes);
-                                  const mediaDiaria = total.totalVendas / diasUteisDecorridos;
-                                  const projecao = mediaDiaria * totalDiasUteisMes;
-                                  return projecao.toFixed(0);
-                                })()}
-                              </p>
-                            </div>
-                            <div className="flex items-center justify-center text-center">
-                              <p className="font-bold text-white text-base">
-                                {(() => {
-                                  // Calcular o "Ideal" para o grupo: meta total / dias totais * dias trabalhados
-                                  const calcularDiasUteis = (dataInicio: Date, dataFim: Date): number => {
-                                    let diasUteis = 0;
-                                    const dataAtual = new Date(dataInicio);
-                                    
-                                    while (dataAtual <= dataFim) {
-                                      if (dataAtual.getDay() !== 0) { // Não é domingo
-                                        diasUteis++;
-                                      }
-                                      dataAtual.setDate(dataAtual.getDate() + 1);
-                                    }
-                                    
-                                    return diasUteis;
-                                  };
-                                  
-                                  const hoje = new Date();
-                                  const primeiroDiaMes = new Date(metaMetrics.ano, metaMetrics.mes - 1, 1);
-                                  const ultimoDiaMes = new Date(metaMetrics.ano, metaMetrics.mes, 0);
-                                  const ontem = new Date(hoje);
-                                  ontem.setDate(hoje.getDate() - 1);
-                                  
-                                  const diasUteisDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, ontem));
-                                  const totalDiasUteisMes = calcularDiasUteis(primeiroDiaMes, ultimoDiaMes);
-                                  const ideal = (total.totalMeta / totalDiasUteisMes) * diasUteisDecorridos;
-                                  return ideal.toFixed(0);
-                                })()}
-                              </p>
-                            </div>
-                            <div className="flex items-center justify-center text-center">
-                              <p className="font-bold text-white text-base">
-                                {(() => {
-                                  // Função para calcular dias úteis (excluindo domingos)
-                                  const calcularDiasUteis = (dataInicio: Date, dataFim: Date): number => {
-                                    let diasUteis = 0;
-                                    const dataAtual = new Date(dataInicio);
-                                    
-                                    while (dataAtual <= dataFim) {
-                                      if (dataAtual.getDay() !== 0) { // Não é domingo
-                                        diasUteis++;
-                                      }
-                                      dataAtual.setDate(dataAtual.getDate() + 1);
-                                    }
-                                    
-                                    return diasUteis;
-                                  };
-                                  
-                                  const hoje = new Date();
-                                  const primeiroDiaMes = new Date(metaMetrics.ano, metaMetrics.mes - 1, 1);
-                                  const ontem = new Date(hoje);
-                                  ontem.setDate(hoje.getDate() - 1);
-                                  
-                                  const diasUteisDecorridos = Math.max(1, calcularDiasUteis(primeiroDiaMes, ontem));
-                                  const mediaDiaria = total.totalVendas / diasUteisDecorridos;
-                                  return mediaDiaria.toFixed(1);
-                                })()}
-                              </p>
-                            </div>
-                            <div className="flex items-center justify-center text-center">
-                              <p className="font-bold text-white text-base">
-                                {(() => {
-                                  // Função para calcular dias úteis (excluindo domingos)
-                                  const calcularDiasUteis = (dataInicio: Date, dataFim: Date): number => {
-                                    let diasUteis = 0;
-                                    const dataAtual = new Date(dataInicio);
-                                    
-                                    while (dataAtual <= dataFim) {
-                                      if (dataAtual.getDay() !== 0) { // Não é domingo
-                                        diasUteis++;
-                                      }
-                                      dataAtual.setDate(dataAtual.getDate() + 1);
-                                    }
-                                    
-                                    return diasUteis;
-                                  };
-                                  
-                                  const hoje = new Date();
-                                  const ultimoDiaMes = new Date(metaMetrics.ano, metaMetrics.mes, 0);
-                                  const diasUteisRestantes = Math.max(1, calcularDiasUteis(hoje, ultimoDiaMes));
-                                  const saldoRestante = Math.max(0, total.totalMeta - total.totalVendas);
-                                  const metaDiaria = saldoRestante / diasUteisRestantes;
-                                  return metaDiaria.toFixed(1);
-                                })()}
-                              </p>
-                            </div>
+                  <>
+                    {/* Barra de Resumo PAY TV */}
+                    <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-lg border-2 border-blue-200 shadow-sm">
+                      <div className="flex items-center justify-between flex-wrap gap-4">
+                        {/* Título */}
+                        <div className="flex items-center gap-2">
+                          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-2 rounded-lg">
+                            <Target className="h-5 w-5 text-white" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-bold text-gray-900">PAY TV</h3>
+                            <p className="text-[10px] text-gray-600">Resumo: PÓS-PAGO + PRÉ-PAGO + NOVA PARABÓLICA</p>
                           </div>
                         </div>
                         
-                        {/* Subcategorias */}
-                        <div className="space-y-1">
-                          {categorias.map((categoria, index) => (
-                            <div key={index}>
-                              {renderCategoria(categoria, true)}
-                            </div>
-                          ))}
+                        {/* Informações */}
+                        <div className="flex items-center gap-6 flex-wrap">
+                        <div className="text-center">
+                            <span className="text-[10px] text-gray-600 block mb-1">Meta</span>
+                            <span className="text-sm font-bold text-blue-600">
+                              {totalMetaPayTV.toLocaleString('pt-BR')}
+                            </span>
                         </div>
-                      </div>
-                    );
-                  };
+                        <div className="text-center">
+                            <span className="text-[10px] text-gray-600 block mb-1">Realizado</span>
+                            <span className="text-sm font-bold text-green-600">
+                              {totalRealizadoPayTV.toLocaleString('pt-BR')}
+                            </span>
+                        </div>
+                        <div className="text-center">
+                            <span className="text-[10px] text-gray-600 block mb-1">Saldo</span>
+                            <span className={`text-sm font-bold ${totalSaldoPayTV >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {totalSaldoPayTV >= 0 ? '+' : ''}{Math.abs(totalSaldoPayTV).toLocaleString('pt-BR')}
+                            </span>
+                        </div>
+                        <div className="text-center">
+                            <span className="text-[10px] text-gray-600 block mb-1">Percentual</span>
+                            <span className={`text-lg font-bold px-3 py-1 rounded ${
+                              percentualPayTV >= 100 
+                              ? 'bg-green-100 text-green-800' 
+                                : percentualPayTV >= 80 
+                              ? 'bg-yellow-100 text-yellow-800' 
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                              {percentualPayTV.toFixed(1)}%
+                          </span>
+                        </div>
+                        </div>
+                        </div>
+                        </div>
+                        
+                    {/* Cards Individuais */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                      {(() => {
+                        // Organizar categorias (removido FIBRA e SEGUROS FIBRA)
+                        const categoriasFiltradas = metaMetrics.categorias.filter(c => 
+                          ['PÓS-PAGO', 'FLEX/CONFORTO', 'NOVA PARABÓLICA', 'SKY+', 'SKY MAIS', 'SEGUROS POS'].includes(c.categoria)
+                        );
 
-                  return (
-                    <>
-                      {/* Cabeçalho da Tabela */}
-                      <div className="grid grid-cols-9 gap-3 py-4 px-3 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-200 font-bold text-sm text-gray-800 shadow-sm">
-                        <div className="text-left">Categoria</div>
-                        <div className="text-center">Meta</div>
-                        <div className="text-center">Realizado</div>
-                        <div className="text-center">Saldo</div>
-                        <div className="text-center">%</div>
-                        <div className="text-center">Projeção</div>
-                        <div className="text-center">Ideal</div>
-                        <div className="text-center">Média/Dia</div>
-                        <div className="text-center">Meta/Dia</div>
-                      </div>
+                        // Função para mapear nomes de categorias
+                        const mapearNomeCategoria = (categoria: string): string => {
+                          switch (categoria) {
+                            case 'FLEX/CONFORTO':
+                              return 'PRÉ-PAGO';
+                            case 'SKY MAIS':
+                              return 'SKY MAIS';
+                            default:
+                              return categoria;
+                          }
+                        };
 
-                      {/* Grupos */}
-                      {renderGrupo("PAY TV", categoriasPorGrupo.payTV, "bg-gradient-to-r from-blue-600 to-blue-700")}
-                      {renderGrupo("OUT", categoriasPorGrupo.internetStreaming, "bg-gradient-to-r from-blue-600 to-blue-700")}
-                      {renderGrupo("SEG", categoriasPorGrupo.seguros, "bg-gradient-to-r from-blue-600 to-blue-700")}
+                        return categoriasFiltradas.map((categoria) => {
+                          const saldo = categoria.vendas_realizadas - categoria.meta_definida;
+                          const mediaDiariaAtual = categoria.vendas_realizadas / diasUteisDecorridos;
+                          const projecaoFinal = mediaDiariaAtual * totalDiasUteisMes;
+                          const ideal = (categoria.meta_definida / totalDiasUteisMes) * diasUteisDecorridos;
+                          const saldoRestante = Math.max(0, categoria.meta_definida - categoria.vendas_realizadas);
+                          const metaDiariaParaMeta = saldoRestante / diasUteisRestantes;
+
+                                          return (
+                            <Card 
+                              key={categoria.categoria}
+                              className="bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow"
+                            >
+                              <CardContent className="p-4">
+                                {/* Título */}
+                                <h3 className="font-bold text-base text-gray-900 mb-4">
+                                  {mapearNomeCategoria(categoria.categoria)}
+                                </h3>
+                                
+                                {/* Informações principais */}
+                      <div className="space-y-3">
+                                  {/* Meta vs Realizado */}
+                                  <div className="space-y-1.5">
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-xs text-gray-600">Meta</span>
+                                      <span className="text-sm font-bold text-blue-600">
+                                        {categoria.meta_definida.toLocaleString('pt-BR')}
+                                      </span>
+                            </div>
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-xs text-gray-600">Realizado</span>
+                                      <span className="text-sm font-bold text-green-600">
+                                        {categoria.vendas_realizadas.toLocaleString('pt-BR')}
+                                      </span>
+                            </div>
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-xs text-gray-600">Saldo</span>
+                                      <span className={`text-sm font-bold ${saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {saldo >= 0 ? '+' : ''}{Math.abs(saldo).toLocaleString('pt-BR')}
+                                      </span>
+                            </div>
+                            </div>
+
+                                  {/* Percentual destacado */}
+                                  <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-2 text-center">
+                                    <span className={`text-base font-bold px-2 py-1 rounded ${
+                                      categoria.percentual_atingido >= 100 
+                                        ? 'bg-green-100 text-green-800' 
+                                        : categoria.percentual_atingido >= 80 
+                                        ? 'bg-yellow-100 text-yellow-800' 
+                                        : 'bg-red-100 text-red-800'
+                                    }`}>
+                                      {categoria.percentual_atingido.toFixed(1)}%
+                                    </span>
+                            </div>
+
+                                  {/* Informações secundárias */}
+                                  <div className="space-y-1.5 pt-2 border-t border-gray-200">
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[10px] text-gray-500">Projeção</span>
+                                      <span className="text-xs font-semibold text-purple-600">
+                                        {projecaoFinal.toFixed(0)}
+                                      </span>
+                            </div>
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[10px] text-gray-500">Ideal</span>
+                                      <span className="text-xs font-semibold text-gray-700">
+                                        {ideal.toFixed(0)}
+                                      </span>
+                            </div>
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[10px] text-gray-500">Média/Dia</span>
+                                      <span className="text-xs font-semibold text-blue-600">
+                                        {mediaDiariaAtual.toFixed(1)}
+                                      </span>
+                            </div>
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[10px] text-gray-500">Meta/Dia</span>
+                                      <span className={`text-xs font-semibold ${
+                                        categoria.percentual_atingido >= 100 
+                                          ? 'text-green-600' 
+                                          : 'text-red-600'
+                                      }`}>
+                                        {metaDiariaParaMeta.toFixed(1)}
+                                      </span>
+                          </div>
+                        </div>
+                            </div>
+                              </CardContent>
+                            </Card>
+                          );
+                        });
+                      })()}
+                      </div>
                     </>
                   );
                 })()}
-              </div>
             </CardContent>
           </Card>
         </div>
@@ -1416,7 +1489,7 @@ function MetasTabContent() {
 
 export function MetricsOverview() {
   const data = useData();
-  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs, vendas, baseData, calculateThreeMonthAverage } = data;
+  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs, vendas, vendasMeta, baseData, calculateThreeMonthAverage } = data;
   const { user } = useAuth();
   const { getSetting, updateSetting } = useSystemSettings();
 
@@ -1453,6 +1526,57 @@ export function MetricsOverview() {
   const [originalServiceTypeFilter, setOriginalServiceTypeFilter] = useState<string>("");
   // Estado para o filtro de data de habilitação (usado nos componentes de permanência)
   const [filtroDataHabilitacao, setFiltroDataHabilitacao] = useState<string[]>([]);
+  
+  // Estados para controle de colunas visíveis nas tabelas de técnicos
+  const [reopeningVisibleColumns, setReopeningVisibleColumns] = useState<{
+    pontoTV: boolean;
+    assistenciaTV: boolean;
+    assistenciaFibra: boolean;
+  }>(() => {
+    const saved = localStorage.getItem('reopening-visible-columns');
+    return saved ? JSON.parse(saved) : { pontoTV: true, assistenciaTV: true, assistenciaFibra: true };
+  });
+
+  const [timeVisibleColumns, setTimeVisibleColumns] = useState<{
+    pontoTV: boolean;
+    assistenciaTV: boolean;
+    assistenciaFibra: boolean;
+  }>(() => {
+    const saved = localStorage.getItem('time-visible-columns');
+    return saved ? JSON.parse(saved) : { pontoTV: true, assistenciaTV: true, assistenciaFibra: true };
+  });
+
+  // Salvar preferências de colunas no localStorage
+  useEffect(() => {
+    localStorage.setItem('reopening-visible-columns', JSON.stringify(reopeningVisibleColumns));
+  }, [reopeningVisibleColumns]);
+
+  useEffect(() => {
+    localStorage.setItem('time-visible-columns', JSON.stringify(timeVisibleColumns));
+  }, [timeVisibleColumns]);
+  
+  // Estado para os filtros da tabela de ordens de serviço
+  const [tableFilters, setTableFilters] = useState<{
+    search: string;
+    technician: string;
+    status: string;
+    city: string;
+    neighborhood: string;
+    serviceTypes: string[];
+    motivos: string[];
+    dates: string[];
+    meta: string;
+  }>({
+    search: "",
+    technician: "",
+    status: "",
+    city: "",
+    neighborhood: "",
+    serviceTypes: [],
+    motivos: [],
+    dates: [],
+    meta: ""
+  });
 
   // Função para calcular o mês de permanência (data de habilitação + 4 meses)
   const calcularMesPermanencia = useCallback((dataHabilitacao: string): string => {
@@ -1498,6 +1622,36 @@ export function MetricsOverview() {
       return mesPermanencia === mesNomeSelecionado && anoPermanencia.toString() === selectedYear;
     });
   }, [vendas, selectedMonth, selectedYear, activeTab, calcularMesPermanencia, calcularAnoPermanencia]);
+  
+  // Função para buscar vendas do período selecionado por data_habilitacao (igual à guia Metas)
+  // Usada para o cálculo de bonificações que deve considerar o mês de habilitação, não o mês de permanência
+  const buscarVendasDoPeriodoBonificacoes = useMemo(() => {
+    if (!selectedMonth || !selectedYear || activeTab !== "indicadores") {
+      return [];
+    }
+    
+    const hoje = new Date();
+    const mes = parseInt(selectedMonth, 10);
+    const ano = parseInt(selectedYear, 10);
+    const isCurrentMonth = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
+    
+    // Sempre retornar vendas da aba "vendas permanencia" pela data_habilitacao do mês selecionado
+    // O componente BonificacoesVendas já trata a lógica de usar vendasMeta quando necessário
+    return vendas.filter(venda => {
+      if (!venda.data_habilitacao) return false;
+      const dataVenda = new Date(venda.data_habilitacao);
+      return dataVenda.getMonth() + 1 === mes && dataVenda.getFullYear() === ano;
+    });
+  }, [selectedMonth, selectedYear, activeTab, vendas]);
+  
+  // Verificar se o período selecionado é o mês atual
+  const isPeriodoMesAtual = useMemo(() => {
+    if (!selectedMonth || !selectedYear) return false;
+    const hoje = new Date();
+    const mes = parseInt(selectedMonth, 10);
+    const ano = parseInt(selectedYear, 10);
+    return ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
+  }, [selectedMonth, selectedYear]);
   
   // Resetar o filtro de tipo de serviço original quando mudar de guia
   useEffect(() => {
@@ -1792,9 +1946,123 @@ export function MetricsOverview() {
     });
   }, [serviceOrders, selectedMonth, selectedYear]);
   
-  // Obter métricas apenas com as ordens filtradas
+  // Aplicar filtros da tabela nas ordens de serviço
+  const tableFilteredServiceOrders = useMemo(() => {
+    if (!showData) return [];
+    
+    const filtered = filteredServiceOrdersByFinalization.filter(order => {
+      // Aplicar os mesmos filtros da tabela
+      const searchTerm = tableFilters.search.toLowerCase();
+      const matchesSearch = 
+        order.codigo_os.toLowerCase().includes(searchTerm) ||
+        (order.nome_tecnico && order.nome_tecnico.toLowerCase().includes(searchTerm)) ||
+        (order.tipo_servico && order.tipo_servico.toLowerCase().includes(searchTerm)) ||
+        (order.subtipo_servico && order.subtipo_servico.toLowerCase().includes(searchTerm)) ||
+        (order.nome_cliente && order.nome_cliente.toLowerCase().includes(searchTerm)) ||
+        (order.motivo && order.motivo.toLowerCase().includes(searchTerm)) ||
+        (order.acao_tomada && order.acao_tomada.toLowerCase().includes(searchTerm)) ||
+        (order.info_endereco_completo && order.info_endereco_completo.toLowerCase().includes(searchTerm));
+      
+      const matchesTechnician = !tableFilters.technician || tableFilters.technician === "all" || order.nome_tecnico === tableFilters.technician;
+      const matchesServiceType = tableFilters.serviceTypes.length === 0 || tableFilters.serviceTypes.includes(order.subtipo_servico);
+      const matchesStatus = !tableFilters.status || tableFilters.status === "all" || order.status === tableFilters.status;
+      const matchesCity = !tableFilters.city || tableFilters.city === "all" || normalizeCityName(order.cidade) === tableFilters.city;
+      const matchesNeighborhood = !tableFilters.neighborhood || tableFilters.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === tableFilters.neighborhood;
+      const matchesMotivo = tableFilters.motivos.length === 0 || tableFilters.motivos.includes(order.motivo);
+      const matchesMeta = !tableFilters.meta || tableFilters.meta === "all" || 
+        (tableFilters.meta === "atingiu" && order.atingiu_meta === true) ||
+        (tableFilters.meta === "nao_atingiu" && order.atingiu_meta === false);
+      
+      // Função para formatar data de finalização para comparação
+      const formatDateForFilter = (dateString: string) => {
+        if (!dateString) return "";
+        try {
+          const date = new Date(dateString);
+          return date.toLocaleDateString('pt-BR');
+        } catch {
+          return "";
+        }
+      };
+      
+      const matchesFinalizationDate = tableFilters.dates.length === 0 ||
+        tableFilters.dates.includes(formatDateForFilter(order.data_finalizacao));
+      
+      return matchesSearch && matchesTechnician && matchesServiceType && matchesStatus && 
+             matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
+    });
+    
+    // Log comparativo simples
+    const applicableAfter = filtered.filter(order => {
+      return (
+        (order.tipo_servico === "Ponto Principal" && order.motivo === "Individual") ||
+        (order.tipo_servico === "Instalação" && order.motivo === "Individual") ||
+        order.motivo === "Reinstalacao Novo Endereco"
+      );
+    });
+    const applicableWithoutMaterialsAfter = applicableAfter.filter(o => 
+      !o.materiais || o.materiais.length === 0
+    );
+    
+    console.log('🔍 [FILTROS]', {
+      antes: filteredServiceOrdersByFinalization.length,
+      depois: filtered.length,
+      aplicaveis: applicableAfter.length,
+      aplicaveisSemMateriais: applicableWithoutMaterialsAfter.length
+    });
+    
+    return filtered;
+  }, [filteredServiceOrdersByFinalization, tableFilters, showData]);
+  
+  // Helper: verifica se há filtros ativos
+  const isAnyFilterActive = useMemo(() => {
+    const f = tableFilters;
+    return !!(
+      (f.search && f.search.trim() !== "") ||
+      (f.technician && f.technician !== "all" && f.technician !== "") ||
+      (f.status && f.status !== "all" && f.status !== "") ||
+      (f.city && f.city !== "all" && f.city !== "") ||
+      (f.neighborhood && f.neighborhood !== "all" && f.neighborhood !== "") ||
+      (f.meta && f.meta !== "all" && f.meta !== "") ||
+      (f.serviceTypes && f.serviceTypes.length > 0) ||
+      (f.motivos && f.motivos.length > 0)
+      // NOTA: f.dates é intencionalmente ignorado aqui, pois é específico do mês atual
+    );
+  }, [tableFilters]);
+
+  // Helper: aplica os mesmos filtros da tabela em um order (exceto data)
+  const applyTableFiltersBase = useCallback((order: ServiceOrder) => {
+    const f = tableFilters;
+    const searchTerm = (f.search || "").toLowerCase();
+
+    const matchesSearch =
+      !searchTerm ||
+      order.codigo_os.toLowerCase().includes(searchTerm) ||
+      (order.nome_tecnico && order.nome_tecnico.toLowerCase().includes(searchTerm)) ||
+      (order.tipo_servico && order.tipo_servico.toLowerCase().includes(searchTerm)) ||
+      (order.subtipo_servico && order.subtipo_servico.toLowerCase().includes(searchTerm)) ||
+      (order.nome_cliente && order.nome_cliente.toLowerCase().includes(searchTerm)) ||
+      (order.motivo && order.motivo.toLowerCase().includes(searchTerm)) ||
+      (order.acao_tomada && order.acao_tomada.toLowerCase().includes(searchTerm)) ||
+      (order.info_endereco_completo && order.info_endereco_completo.toLowerCase().includes(searchTerm));
+
+    const matchesTechnician = !f.technician || f.technician === "all" || order.nome_tecnico === f.technician;
+    const matchesServiceType = !f.serviceTypes?.length || f.serviceTypes.includes(order.subtipo_servico);
+    const matchesStatus = !f.status || f.status === "all" || order.status === f.status;
+    const matchesCity = !f.city || f.city === "all" || normalizeCityName(order.cidade) === f.city;
+    const matchesNeighborhood = !f.neighborhood || f.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === f.neighborhood;
+    const matchesMotivo = !f.motivos?.length || f.motivos.includes(order.motivo);
+    const matchesMeta =
+      !f.meta || f.meta === "all" ||
+      (f.meta === "atingiu" && order.atingiu_meta === true) ||
+      (f.meta === "nao_atingiu" && order.atingiu_meta === false);
+
+    return matchesSearch && matchesTechnician && matchesServiceType && matchesStatus &&
+           matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta;
+  }, [tableFilters]);
+  
+  // Obter métricas apenas com as ordens filtradas (incluindo filtros da tabela)
   const timeMetrics = useMemo(() => {
-    if (!showData || filteredServiceOrdersByFinalization.length === 0) {
+    if (!showData || tableFilteredServiceOrders.length === 0) {
       return {
         ordersWithinGoal: 0,
         ordersOutsideGoal: 0,
@@ -1804,10 +2072,10 @@ export function MetricsOverview() {
       };
     }
     
-    return calculateTimeMetrics(filteredServiceOrdersByFinalization);
-  }, [calculateTimeMetrics, filteredServiceOrdersByFinalization, showData]);
+    return calculateTimeMetrics(tableFilteredServiceOrders);
+  }, [calculateTimeMetrics, tableFilteredServiceOrders, showData]);
 
-  // Calcular dados para comparação de serviços finalizados
+  // Calcular dados para comparação de serviços finalizados (usando dados filtrados da tabela)
   const finishedServicesComparison = useMemo(() => {
     if (!selectedMonth || !selectedYear || !showData) {
       return [];
@@ -1847,7 +2115,18 @@ export function MetricsOverview() {
          const result = targetSubtypes.map(subtipo => {
        // Função helper para contar serviços em um mês específico
        const countServicesInMonth = (targetYear: number, targetMonth: number) => {
-         return serviceOrders.filter(order => {
+         // Se for mês atual → usar o já filtrado (tableFilteredServiceOrders)
+         const isCurrent =
+           targetYear === selectedYearNum && targetMonth === selectedMonthNum;
+
+         const source = isCurrent
+           ? tableFilteredServiceOrders
+           // Se há filtros ativos, aplicamos os mesmos filtros base em serviceOrders
+           : (isAnyFilterActive
+               ? serviceOrders.filter(applyTableFiltersBase)
+               : serviceOrders);
+
+         return source.filter(order => {
            if (!order.data_finalizacao || order.status !== "Finalizada" && order.status !== "Finalizado") {
              return false;
            }
@@ -1927,7 +2206,7 @@ export function MetricsOverview() {
 
     // Filtrar apenas os subtipos que têm dados (pelo menos um dos meses > 0)
     return result.filter(item => item.currentMonth > 0 || item.previousMonth > 0);
-  }, [serviceOrders, selectedMonth, selectedYear, showData]);
+  }, [tableFilteredServiceOrders, serviceOrders, selectedMonth, selectedYear, showData, isAnyFilterActive, applyTableFiltersBase]);
   
   // Obter métricas de reabertura apenas com base nos pares filtrados
   // Função para calcular quantos serviços são necessários para atingir a meta de tempo de atendimento
@@ -2300,6 +2579,188 @@ export function MetricsOverview() {
     
     return calculateThreeMonthAverage(currentMonth, currentYear);
   }, [calculateThreeMonthAverage, selectedMonth, selectedYear, showData]);
+
+  // Mapa com estatísticas de otimização por técnico (replicando card Otimização de Consumo)
+  const optimizationStatsByTechnician = useMemo(() => {
+    const stats = new Map<string, {
+      volumeOS: number;
+      consumoAntena: number;
+      consumoLnbs: number;
+    }>();
+
+    const uniqueOrders = tableFilteredServiceOrders.reduce((acc, order) => {
+      if (!acc.has(order.codigo_os)) {
+        acc.set(order.codigo_os, order);
+      }
+      return acc;
+    }, new Map<string, ServiceOrder>());
+
+    const deduplicatedOrders = Array.from(uniqueOrders.values());
+
+    const applicableOrders = deduplicatedOrders.filter(order => {
+      return (
+        (order.tipo_servico === "Ponto Principal" && order.motivo === "Individual") ||
+        (order.tipo_servico === "Instalação" && order.motivo === "Individual") ||
+        order.motivo === "Reinstalacao Novo Endereco"
+      );
+    });
+
+    applicableOrders.forEach(order => {
+      const technician = order.nome_tecnico;
+      if (!technician) return;
+
+      if (!stats.has(technician)) {
+        stats.set(technician, {
+          volumeOS: 0,
+          consumoAntena: 0,
+          consumoLnbs: 0
+        });
+      }
+
+      const technicianStats = stats.get(technician)!;
+      technicianStats.volumeOS++;
+
+      const materiais = order.materiais || [];
+      const antena150 = materiais.find(m => m.nome === "ANTENA 150 CM C/ KIT FIXACAO");
+      const antena75 = materiais.find(m => m.nome === "ANTENA 75 CM");
+      const antena90 = materiais.find(m => m.nome === "ANTENA 90CM C/ KIT FIXACAO");
+      const antena60 = materiais.find(m => m.nome === "ANTENA DE 60 CM C/ KIT FIXACAO");
+      const somaAntenas =
+        (antena150?.quantidade || 0) +
+        (antena75?.quantidade || 0) +
+        (antena90?.quantidade || 0) +
+        (antena60?.quantidade || 0);
+      if (somaAntenas > 0) {
+        technicianStats.consumoAntena++;
+      }
+
+      const lnbfSimples = materiais.find(m => m.nome === "LNBF SIMPLES ANTENA 45/60/90 CM");
+      const lnbfDuplo = materiais.find(m => m.nome === "LNBF DUPLO ANTENA 45/60/90 CM");
+      const somaLnbfs = (lnbfSimples?.quantidade || 0) + (lnbfDuplo?.quantidade || 0);
+      if (somaLnbfs > 0) {
+        technicianStats.consumoLnbs++;
+      }
+    });
+
+    return stats;
+  }, [tableFilteredServiceOrders]);
+  
+  // Calcular ranking de excelência dos técnicos (Top 3)
+  const technicianExcellenceRanking = useMemo(() => {
+    if (!showData || !selectedMonth || !selectedYear || technicians.length === 0) {
+      return [];
+    }
+    
+    const techStats = technicians
+      .filter(name => name)
+      .map(name => {
+        const techOrders = filteredServiceOrders.filter(o => o.nome_tecnico === name);
+        
+        // Contar serviços por tipo
+        const pontoPrincipalTVServices = techOrders.filter(o => {
+          const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+          return category === "Ponto Principal TV";
+        }).length;
+        
+        const assistenciaTecnicaTVServices = techOrders.filter(o => {
+          const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+          return category === "Assistência Técnica TV";
+        }).length;
+        
+        const assistenciaTecnicaFibraServices = techOrders.filter(o => {
+          const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+          return category === "Assistência Técnica FIBRA";
+        }).length;
+        
+        // Contar reaberturas
+        let pontoTVReopenings = 0;
+        let assistenciaTVReopenings = 0;
+        let assistenciaFibraReopenings = 0;
+        
+        const techReopeningPairs = getFilteredReopeningPairs.filter(
+          pair => pair.originalOrder.nome_tecnico === name
+        );
+        
+        techReopeningPairs.forEach(pair => {
+          const originalCategory = pair.originalServiceCategory;
+          if (originalCategory?.includes("Ponto Principal TV")) {
+            pontoTVReopenings++;
+          } else if (originalCategory?.includes("Assistência Técnica TV")) {
+            assistenciaTVReopenings++;
+          } else if (originalCategory?.includes("Assistência Técnica FIBRA")) {
+            assistenciaFibraReopenings++;
+          }
+        });
+        
+        // Calcular percentuais de reabertura
+        const pontoTVRate = pontoPrincipalTVServices > 0 ? (pontoTVReopenings / pontoPrincipalTVServices) * 100 : 0;
+        const assistenciaTVRate = assistenciaTecnicaTVServices > 0 ? (assistenciaTVReopenings / assistenciaTecnicaTVServices) * 100 : 0;
+        const assistenciaFibraRate = assistenciaTecnicaFibraServices > 0 ? (assistenciaFibraReopenings / assistenciaTecnicaFibraServices) * 100 : 0;
+        
+        // Reabertura de AT (TV + FIBRA combinadas)
+        const totalATServices = assistenciaTecnicaTVServices + assistenciaTecnicaFibraServices;
+        const totalATReopenings = assistenciaTVReopenings + assistenciaFibraReopenings;
+        const atRate = totalATServices > 0 ? (totalATReopenings / totalATServices) * 100 : 0;
+        
+        const optimizationStats = optimizationStatsByTechnician.get(name) || {
+          volumeOS: 0,
+          consumoAntena: 0,
+          consumoLnbs: 0
+        };
+        const volumeOS = optimizationStats.volumeOS;
+        const percentualConsumo = volumeOS > 0
+          ? ((optimizationStats.consumoAntena / volumeOS) + (optimizationStats.consumoLnbs / volumeOS)) / 2 * 100
+          : 0;
+        const percentualOtimizacao = 100 - percentualConsumo;
+        
+        // Calcular score final
+        // Menor reabertura = melhor (inverter: 100 - taxa)
+        const scoreReaberturaAT = 100 - atRate; // 40% do peso
+        const scoreReaberturaPonto = 100 - pontoTVRate; // 40% do peso
+        const scoreOtimizacao = percentualOtimizacao; // 20% do peso
+        
+        const scoreFinal = (scoreReaberturaAT * 0.4) + (scoreReaberturaPonto * 0.4) + (scoreOtimizacao * 0.2);
+        
+        // Total geral de serviços (excluindo canceladas e tipos específicos)
+        // Excluir: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto
+        const totalServices = techOrders.filter(o => {
+          if (o.status === "Cancelada") return false;
+          const subtipo = o.subtipo_servico || "";
+          const motivo = o.motivo || "";
+          
+          // Excluir Corretiva e Corretiva BL
+          if (subtipo === "Corretiva" || subtipo === "Corretiva BL") return false;
+          
+          // Excluir Entrega emergencial Controle Remoto (pode estar em subtipo ou motivo)
+          if (subtipo.includes("Entrega emergencial Controle Remoto") || 
+              motivo.includes("Entrega emergencial Controle Remoto")) return false;
+          
+          return true;
+        }).length;
+        
+        return {
+          nome: name,
+          scoreFinal,
+          atRate,
+          pontoTVRate,
+          percentualOtimizacao,
+          percentualConsumo,
+          totalServices,
+          volumeOS
+        };
+      })
+      .filter(tech => tech.totalServices > 0) // Apenas técnicos com serviços
+      .sort((a, b) => {
+        // Ordenar por score (maior = melhor)
+        if (b.scoreFinal !== a.scoreFinal) {
+          return b.scoreFinal - a.scoreFinal;
+        }
+        // Em caso de empate: maior volume de serviços
+        return b.totalServices - a.totalServices;
+      });
+    
+    return techStats.slice(0, 3); // Top 3
+  }, [technicians, filteredServiceOrders, getFilteredReopeningPairs, showData, selectedMonth, selectedYear, optimizationStatsByTechnician]);
   
   // Extrair tipos de serviço únicos das ordens originais para o filtro
   const uniqueOriginalServiceTypes = useMemo(() => {
@@ -2318,8 +2779,10 @@ export function MetricsOverview() {
       }
     });
     
-    // Converter o Set para array e ordenar alfabeticamente
-    return Array.from(uniqueTypes).sort();
+    // Converter o Set para array, remover "Ponto Principal BL" e ordenar alfabeticamente
+    return Array.from(uniqueTypes)
+      .filter(type => type !== 'Ponto Principal BL')
+      .sort();
   }, [getReopeningPairs, showData]);
   
   // Resetar o estado de exibição quando o usuário troca de aba
@@ -2345,15 +2808,6 @@ export function MetricsOverview() {
     }
   }, [selectedMonth, selectedYear]);
   
-  // Função para aplicar filtros
-  const handleApplyFilters = () => {
-    if (selectedMonth && selectedYear) {
-      // Aplicar filtros imediatamente
-      setShowData(true);
-      setIsFiltering(false);
-    }
-  };
-  
   // Função para limpar filtros
   const handleClearFilters = () => {
     setSelectedMonth(null);
@@ -2364,15 +2818,17 @@ export function MetricsOverview() {
   
   // Componente de filtro reutilizável
   const FilterControls = () => (
-    <Card className="mb-4">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium">
-          <div className="flex items-center">
-            <Filter className="mr-2 h-4 w-4" />
-            Filtrar por Período
+    <Card className="mb-6 shadow-lg border-2">
+      <CardHeader className="bg-gradient-to-r from-indigo-50 to-blue-50 border-b-2 pb-4">
+        <CardTitle className="text-lg">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-100 rounded-lg">
+              <Filter className="h-5 w-5 text-indigo-600" />
+            </div>
+            <span className="text-gray-800 font-semibold">Filtrar por Período</span>
           </div>
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="text-sm mt-2 text-gray-600">
           {activeTab === "reopening" ? (
             "Selecione o mês e ano para visualizar reaberturas criadas no período"
           ) : (
@@ -2382,16 +2838,20 @@ export function MetricsOverview() {
           )}
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
-            <Label htmlFor="month-select">Mês</Label>
+      <CardContent className="pt-6">
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div className="space-y-2">
+              <Label htmlFor="month-select" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <CalendarIcon className="h-4 w-4 text-indigo-600" />
+                Mês
+              </Label>
             <Select 
               value={selectedMonth || ""} 
               onValueChange={(value) => setSelectedMonth(value || null)}
               disabled={isFiltering}
             >
-              <SelectTrigger id="month-select">
+                <SelectTrigger id="month-select" className="h-11">
                 <SelectValue placeholder="Selecione o mês" />
               </SelectTrigger>
               <SelectContent>
@@ -2404,14 +2864,17 @@ export function MetricsOverview() {
             </Select>
           </div>
           
-          <div className="flex-1">
-            <Label htmlFor="year-select">Ano</Label>
+            <div className="space-y-2">
+              <Label htmlFor="year-select" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <CalendarIcon className="h-4 w-4 text-indigo-600" />
+                Ano
+              </Label>
             <Select 
               value={selectedYear || ""} 
               onValueChange={(value) => setSelectedYear(value || null)}
               disabled={isFiltering}
             >
-              <SelectTrigger id="year-select">
+                <SelectTrigger id="year-select" className="h-11">
                 <SelectValue placeholder="Selecione o ano" />
               </SelectTrigger>
               <SelectContent>
@@ -2422,38 +2885,66 @@ export function MetricsOverview() {
             </Select>
           </div>
           
-          <div className="flex items-end gap-2">
-            <Button 
-              onClick={handleApplyFilters}
-              disabled={!selectedMonth || !selectedYear || isFiltering}
-              variant="default"
-            >
-              {isFiltering ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Aplicando...
-                </>
-              ) : "Aplicar Filtros"}
-            </Button>
+            <div className="flex items-end">
             <Button 
               onClick={handleClearFilters}
               variant="outline"
-              disabled={isFiltering}
+                disabled={!selectedMonth && !selectedYear}
+                className="w-full h-11 border-2 hover:bg-gray-50 font-semibold"
+                size="lg"
             >
-              Limpar
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                Limpar Filtros
             </Button>
           </div>
         </div>
+
+          {/* Badges de seleção ativa */}
+          {(selectedMonth || selectedYear) && (
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-200">
+              {selectedMonth && (
+                <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-300 px-3 py-1.5 text-sm font-semibold">
+                  <CalendarIcon className="h-3 w-3 mr-1.5" />
+                  Mês: {getMonthName(selectedMonth)}
+                </Badge>
+              )}
+              {selectedYear && (
+                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 px-3 py-1.5 text-sm font-semibold">
+                  <CalendarIcon className="h-3 w-3 mr-1.5" />
+                  Ano: {selectedYear}
+                </Badge>
+              )}
+            </div>
+          )}
+
+          {/* Notas informativas */}
         {activeTab === "time" && (
-          <div className="mt-2 text-xs text-muted-foreground">
-            <strong>Nota:</strong> Os dados mostrados são das ordens de serviço <strong>finalizadas</strong> no mês e ano selecionados. O cálculo de tempo de atendimento considera apenas OSs que já foram concluídas.
+            <div className="mt-4 p-4 bg-blue-50 border-l-4 border-blue-400 rounded-lg">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm text-blue-900 font-semibold mb-1">Nota Importante</p>
+                  <p className="text-xs text-blue-800 leading-relaxed">
+                    Os dados mostrados são das ordens de serviço <strong className="font-semibold">finalizadas</strong> no mês e ano selecionados. O cálculo de tempo de atendimento considera apenas OSs que já foram concluídas.
+                  </p>
+                </div>
+              </div>
           </div>
         )}
         {activeTab === "reopening" && (
-          <div className="mt-2 text-xs text-muted-foreground">
-            <strong>Nota:</strong> As reaberturas mostradas são aquelas <strong>criadas</strong> no mês e ano selecionados, mesmo que a OS original tenha sido finalizada em um mês anterior. A taxa de reabertura considera apenas os tipos de serviço que podem gerar reaberturas. O "Total de Ordens Abertas" considera as OSs <strong>criadas ou finalizadas</strong> no mês selecionado.
+            <div className="mt-4 p-4 bg-amber-50 border-l-4 border-amber-400 rounded-lg">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm text-amber-900 font-semibold mb-1">Nota Importante</p>
+                  <p className="text-xs text-amber-800 leading-relaxed">
+                    As reaberturas mostradas são aquelas <strong className="font-semibold">criadas</strong> no mês e ano selecionados, mesmo que a OS original tenha sido finalizada em um mês anterior. A taxa de reabertura considera apenas os tipos de serviço que podem gerar reaberturas. O "Total de Ordens Abertas" considera as OSs <strong className="font-semibold">criadas ou finalizadas</strong> no mês selecionado.
+                  </p>
+                </div>
+              </div>
           </div>
         )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -2494,7 +2985,7 @@ export function MetricsOverview() {
           <TabsList className="flex flex-nowrap min-w-max">
             <TabsTrigger value="time" className="flex items-center whitespace-nowrap">
               <Clock className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Tempos</span>
+              <span className="text-xs sm:text-sm">Tempos e Otimização</span>
             </TabsTrigger>
             <TabsTrigger value="reopening" className="flex items-center whitespace-nowrap">
               <Repeat className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
@@ -2544,31 +3035,33 @@ export function MetricsOverview() {
           <NoDataMessage />
         ) : (
           <>
-        {/* Dois quadros lado a lado */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* Três quadros lado a lado */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Service Type Time Performance */}
-          <Card>
-            <CardHeader>
-                <CardTitle>
-                  <div className="flex items-center">
-                    <Clock className="mr-2 h-5 w-5" />
-                    Desempenho por Tempo de Atendimento
+          <Card className="shadow-md">
+            <CardHeader className="pb-3 border-b border-gray-200">
+              <CardTitle className="text-lg">
+                <div className="flex items-center space-x-2">
+                  <div className="bg-blue-100 p-2 rounded-lg">
+                    <Clock className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <span>Desempenho por Tempo de Atendimento</span>
                   </div>
                 </CardTitle>
-              <CardDescription>
+              <CardDescription className="mt-2 text-sm text-gray-600">
                 Análise do tempo médio de atendimento por tipo de serviço
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
               <div className="overflow-x-auto w-full">
-                <Table className="w-full table-fixed">
+                <Table className="w-full">
                   <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-sm font-medium w-[30%] px-2">Tipo de Serviço</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">Dentro Meta</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">Total</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[15%] px-2">% Meta</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[25%] px-2">Serv. p/ Meta</TableHead>
+                    <TableRow className="bg-gray-50 hover:bg-gray-50">
+                      <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">Tipo de Serviço</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">Dentro Meta</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">Total</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">% Meta</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">Serv. p/ Meta</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2584,7 +3077,7 @@ export function MetricsOverview() {
                       // Filtrar e ordenar os tipos que existem nos dados
                       return orderedTypes
                         .filter(type => timeMetrics.servicesByType[type])
-                        .map(type => {
+                        .map((type, index) => {
                           const metrics = timeMetrics.servicesByType[type] as {
                             totalOrders: number;
                             withinGoal: number;
@@ -2593,18 +3086,30 @@ export function MetricsOverview() {
                           };
                           const goalPercent = metrics.percentWithinGoal;
                           const servicesNeeded = calculateServicesNeededForTimeTarget(type, metrics.withinGoal, metrics.totalOrders);
+                          const colorClass = getTimeAttendanceColorByServiceType(type, goalPercent);
                           
                           return (
-                            <TableRow key={type}>
-                              <TableCell className="font-medium text-sm px-2">{type}</TableCell>
-                              <TableCell className="text-center text-sm px-2">{metrics.withinGoal}</TableCell>
-                              <TableCell className="text-center text-sm px-2">{metrics.totalOrders}</TableCell>
-                              <TableCell className="text-center text-sm px-2">
-                                <span className={`font-bold ${getTimeAttendanceColorByServiceType(type, goalPercent)}`}>
+                            <TableRow 
+                              key={type} 
+                              className={`${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-gray-100 transition-colors`}
+                            >
+                              <TableCell className="font-medium text-sm px-3 py-3">{type}</TableCell>
+                              <TableCell className="text-center px-3 py-3">
+                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 font-semibold">
+                                  {metrics.withinGoal}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-center px-3 py-3">
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold">
+                                  {metrics.totalOrders}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-center px-3 py-3">
+                                <span className={`text-base font-bold ${colorClass}`}>
                                   {goalPercent.toFixed(2)}%
                                 </span>
                               </TableCell>
-                              <TableCell className="text-center text-sm px-2">
+                              <TableCell className="text-center px-3 py-3">
                                 {formatTimeMetaDisplay(servicesNeeded)}
                               </TableCell>
                             </TableRow>
@@ -2614,35 +3119,51 @@ export function MetricsOverview() {
                     
                     {Object.keys(timeMetrics.servicesByType).length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-4 text-muted-foreground text-sm px-2">
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground text-sm">
                           Nenhum dado disponível para análise no período selecionado
                         </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
                 </Table>
-                <div className="mt-3 text-sm text-muted-foreground italic space-y-1">
-                  <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">+X acima</span> = dentro da meta com X serviços acima, <span className="text-green-600 font-medium">limite</span> = exatamente no limite da meta, <span className="text-red-600 font-medium">+X serviços</span> = fora da meta, precisa de X serviços adicionais para voltar à faixa verde.</p>
+                <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-700 font-semibold mb-2">📋 Legenda - Serv. p/ Meta:</p>
+                  <div className="space-y-1.5 text-xs text-gray-600">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-green-600 font-medium">+X acima</span>
+                      <span>= dentro da meta com X serviços acima</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-green-600 font-medium">limite</span>
+                      <span>= exatamente no limite da meta</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-red-600 font-medium">+X serviços</span>
+                      <span>= fora da meta, precisa de X serviços adicionais para voltar à faixa verde</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
           {/* Total de Serviços Finalizados */}
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <div className="flex items-center">
-                  <CheckCircle className="mr-2 h-5 w-5" />
-                  Total de Serviços Finalizados
+          <Card className="shadow-md">
+            <CardHeader className="pb-3 border-b border-gray-200">
+              <CardTitle className="text-lg">
+                <div className="flex items-center space-x-2">
+                  <div className="bg-green-100 p-2 rounded-lg">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                  </div>
+                  <span>Total de Serviços Finalizados</span>
                 </div>
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="mt-2 text-sm text-gray-600">
                 Comparação mensal de serviços finalizados por subtipo
               </CardDescription>
             </CardHeader>
-                         <CardContent className="py-4">
-               <div className="space-y-2">
+            <CardContent className="pt-4">
+              <div className="space-y-4">
                  {/* Função para mapear os nomes dos tipos para a nova nomenclatura */}
                  {(() => {
                    const mapServiceTypeName = (originalType: string): string => {
@@ -2684,14 +3205,14 @@ export function MetricsOverview() {
                        {/* Seção Assistência Técnica */}
                        {assistenciaTecnica.length > 0 && (
                          <div className="mb-4">
-                           <div className="flex items-center mb-2 pb-1 border-b border-blue-200">
+                           <div className="flex items-center mb-2 pb-1.5 border-b-2 border-blue-200 bg-blue-50/30 -mx-2 px-2.5 py-1.5 rounded-t-lg">
                              <div className="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
                              <h4 className="font-semibold text-sm text-blue-700">Assistência Técnica</h4>
-                             <span className="ml-2 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                             <Badge variant="outline" className="ml-2 text-[10px] text-blue-700 bg-blue-100 border-blue-300 font-medium px-1.5 py-0">
                                Redução = Melhoria
-                             </span>
+                             </Badge>
                            </div>
-                           <div className="space-y-1 ml-5">
+                           <div className="space-y-1.5 ml-5">
                              {assistenciaTecnica.map((item) => {
                                const percentChange = item.previousMonth > 0 
                                  ? ((item.currentMonth - item.previousMonth) / item.previousMonth) * 100 
@@ -2707,23 +3228,27 @@ export function MetricsOverview() {
                                  : item.currentMonth > 0 ? 100 : 0;
                                
                                return (
-                                 <div key={item.subtipo} className="border-b border-gray-50 pb-1 last:border-b-0">
-                                   <div className="mb-0.5">
-                                     <span className="font-medium text-xs">{mapServiceTypeName(item.subtipo)}</span>
+                                 <div key={item.subtipo} className="border-b border-gray-100 pb-1.5 last:border-b-0 hover:bg-gray-50/50 rounded px-2 py-1 transition-colors">
+                                   <div className="mb-1">
+                                     <span className="font-semibold text-xs text-gray-800">{mapServiceTypeName(item.subtipo)}</span>
                                    </div>
                                    
-                                   <div className="grid grid-cols-12 gap-1 text-xs items-center">
+                                   <div className="grid grid-cols-12 gap-1.5 text-xs items-center">
                                      {/* Seção Mês Atual vs Anterior */}
                                      <div className="col-span-1">
-                                       <div className="text-gray-400 text-xs">Atual</div>
-                                       <div className="font-semibold text-xs">{item.currentMonth}</div>
+                                       <div className="text-gray-500 text-[10px] font-medium uppercase mb-0.5">Atual</div>
+                                       <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-bold text-[11px] px-1.5 py-0">
+                                         {item.currentMonth}
+                                       </Badge>
                                      </div>
                                      <div className="col-span-1">
-                                       <div className="text-gray-400 text-xs">M.A.</div>
-                                       <div className="font-semibold text-xs">{item.previousMonth}</div>
+                                       <div className="text-gray-500 text-[10px] font-medium uppercase mb-0.5">M.A.</div>
+                                       <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200 font-semibold text-[11px] px-1.5 py-0">
+                                         {item.previousMonth}
+                                       </Badge>
                                      </div>
                                      <div className="col-span-3">
-                                       <div className="text-gray-400 text-xs">Diferença</div>
+                                       <div className="text-gray-500 text-[10px] font-medium uppercase mb-0.5">Diferença</div>
                                        <div className={`font-semibold text-xs ${getDifferenceColor(item.subtipo, difference)}`}>
                                          {difference >= 0 ? '+' : ''}{difference} ({percentChange >= 0 ? '+' : ''}{percentChange.toFixed(2).replace('.', ',')}%)
                                        </div>
@@ -2736,11 +3261,13 @@ export function MetricsOverview() {
 
                                      {/* Seção Média 3 Meses */}
                                      <div className="col-span-2">
-                                       <div className="text-gray-400 text-xs">M3M</div>
-                                       <div className="font-semibold text-xs">{averageThreeMonths}</div>
+                                       <div className="text-gray-500 text-[10px] font-medium uppercase mb-0.5">M3M</div>
+                                       <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 font-semibold text-[11px] px-1.5 py-0">
+                                         {averageThreeMonths}
+                                       </Badge>
                                      </div>
                                      <div className="col-span-4">
-                                       <div className="text-gray-400 text-xs">Diferença</div>
+                                       <div className="text-gray-500 text-[10px] font-medium uppercase mb-0.5">Diferença</div>
                                        <div className={`font-semibold text-xs ${getDifferenceColor(item.subtipo, averageDifference)}`}>
                                          {averageDifference >= 0 ? '+' : ''}{averageDifference} ({averagePercentChange >= 0 ? '+' : ''}{averagePercentChange.toFixed(2).replace('.', ',')}%)
                                        </div>
@@ -2756,14 +3283,14 @@ export function MetricsOverview() {
                        {/* Seção Outros Serviços */}
                        {outrosServicos.length > 0 && (
                          <div>
-                           <div className="flex items-center mb-2 pb-1 border-b border-green-200">
+                           <div className="flex items-center mb-2 pb-1.5 border-b-2 border-green-200 bg-green-50/30 -mx-2 px-2.5 py-1.5 rounded-t-lg">
                              <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
                              <h4 className="font-semibold text-sm text-green-700">Outros Serviços</h4>
-                             <span className="ml-2 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                             <Badge variant="outline" className="ml-2 text-[10px] text-green-700 bg-green-100 border-green-300 font-medium px-1.5 py-0">
                                Aumento = Melhoria
-                             </span>
+                             </Badge>
                            </div>
-                           <div className="space-y-1 ml-5">
+                           <div className="space-y-1.5 ml-5">
                              {outrosServicos.map((item) => {
                                const percentChange = item.previousMonth > 0 
                                  ? ((item.currentMonth - item.previousMonth) / item.previousMonth) * 100 
@@ -2779,23 +3306,27 @@ export function MetricsOverview() {
                                  : item.currentMonth > 0 ? 100 : 0;
                                
                                return (
-                                 <div key={item.subtipo} className="border-b border-gray-50 pb-1 last:border-b-0">
-                                   <div className="mb-0.5">
-                                     <span className="font-medium text-xs">{mapServiceTypeName(item.subtipo)}</span>
+                                 <div key={item.subtipo} className="border-b border-gray-100 pb-1.5 last:border-b-0 hover:bg-gray-50/50 rounded px-2 py-1 transition-colors">
+                                   <div className="mb-1">
+                                     <span className="font-semibold text-xs text-gray-800">{mapServiceTypeName(item.subtipo)}</span>
                                    </div>
                                    
-                                   <div className="grid grid-cols-12 gap-1 text-xs items-center">
+                                   <div className="grid grid-cols-12 gap-1.5 text-xs items-center">
                                      {/* Seção Mês Atual vs Anterior */}
                                      <div className="col-span-1">
-                                       <div className="text-gray-400 text-xs">Atual</div>
-                                       <div className="font-semibold text-xs">{item.currentMonth}</div>
+                                       <div className="text-gray-500 text-[10px] font-medium uppercase mb-0.5">Atual</div>
+                                       <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-bold text-[11px] px-1.5 py-0">
+                                         {item.currentMonth}
+                                       </Badge>
                                      </div>
                                      <div className="col-span-1">
-                                       <div className="text-gray-400 text-xs">M.A.</div>
-                                       <div className="font-semibold text-xs">{item.previousMonth}</div>
+                                       <div className="text-gray-500 text-[10px] font-medium uppercase mb-0.5">M.A.</div>
+                                       <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200 font-semibold text-[11px] px-1.5 py-0">
+                                         {item.previousMonth}
+                                       </Badge>
                                      </div>
                                      <div className="col-span-3">
-                                       <div className="text-gray-400 text-xs">Diferença</div>
+                                       <div className="text-gray-500 text-[10px] font-medium uppercase mb-0.5">Diferença</div>
                                        <div className={`font-semibold text-xs ${getDifferenceColor(item.subtipo, difference)}`}>
                                          {difference >= 0 ? '+' : ''}{difference} ({percentChange >= 0 ? '+' : ''}{percentChange.toFixed(2).replace('.', ',')}%)
                                        </div>
@@ -2808,11 +3339,13 @@ export function MetricsOverview() {
 
                                      {/* Seção Média 3 Meses */}
                                      <div className="col-span-2">
-                                       <div className="text-gray-400 text-xs">M3M</div>
-                                       <div className="font-semibold text-xs">{averageThreeMonths}</div>
+                                       <div className="text-gray-500 text-[10px] font-medium uppercase mb-0.5">M3M</div>
+                                       <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 font-semibold text-[11px] px-1.5 py-0">
+                                         {averageThreeMonths}
+                                       </Badge>
                                      </div>
                                      <div className="col-span-4">
-                                       <div className="text-gray-400 text-xs">Diferença</div>
+                                       <div className="text-gray-500 text-[10px] font-medium uppercase mb-0.5">Diferença</div>
                                        <div className={`font-semibold text-xs ${getDifferenceColor(item.subtipo, averageDifference)}`}>
                                          {averageDifference >= 0 ? '+' : ''}{averageDifference} ({averagePercentChange >= 0 ? '+' : ''}{averagePercentChange.toFixed(2).replace('.', ',')}%)
                                        </div>
@@ -2836,6 +3369,9 @@ export function MetricsOverview() {
                </div>
              </CardContent>
           </Card>
+
+          {/* Card de Contagem de Economia de Materiais */}
+          <OptimizationCountCard serviceOrders={tableFilteredServiceOrders} />
         </div>
           </>
         )}
@@ -2925,82 +3461,134 @@ export function MetricsOverview() {
           </CardContent>
         </Card>
             
-        {/* Grid 2x3 - Posição Superior */}
+        {/* Grid - Card Unificado de Métricas de Reabertura + Tabela */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          {/* Primeira linha - 2 cards */}
-          {/* Reopened Orders Count */}
-          <Card>
-            <CardHeader className="pb-0">
-              <CardTitle className="text-sm font-medium">
-                Ordens Reabertas
+          {/* Card Unificado de Métricas de Reabertura */}
+          <Card className="md:col-span-2 shadow-md">
+            <CardHeader className="pb-3 border-b border-gray-200">
+              <CardTitle className="text-lg">
+                <div className="flex items-center space-x-2">
+                  <div className="bg-red-100 p-2 rounded-lg">
+                    <Repeat className="h-5 w-5 text-red-600" />
+                  </div>
+                  <span>Métricas de Reabertura</span>
+                </div>
               </CardTitle>
-              <CardDescription className="text-xs">
-                Total de ordens identificadas como reabertas
-              </CardDescription>
             </CardHeader>
-            <CardContent className="pt-0 pb-2">
-                  <div className="text-2xl font-bold">{getReopeningMetrics.reopenedOrders}</div>
-            </CardContent>
-          </Card>
-          
-          {/* Total Original Services */}
-          <Card>
-            <CardHeader className="pb-0">
-              <CardTitle className="text-sm font-medium">
-                Total de Ordens Abertas
-              </CardTitle>
-              <CardDescription className="text-xs">
+            <CardContent className="pt-4">
+              <div className="space-y-4">
+                {/* Total de Ordens Abertas - Destaque Principal */}
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-blue-600" />
+                      <span className="text-xs font-semibold text-blue-900">Total de Ordens Abertas</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-600 mb-2">
                 {originalServiceTypeFilter 
                   ? `Total de ${originalServiceTypeFilter}`
                   : "Soma de Corretiva, Corretiva BL, Ponto Principal e Ponto Principal BL"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0 pb-2">
-              <div className="text-2xl font-bold">
+                  </p>
+                  <Badge className="bg-blue-600 text-white text-2xl px-4 py-1.5 font-bold">
                 {filteredServiceOrders.filter(order => {
                   if (originalServiceTypeFilter) {
-                    // Se há um filtro, mostrar apenas as ordens do tipo exato filtrado
                     return order.subtipo_servico === originalServiceTypeFilter;
                   } else {
-                    // Se não há filtro, mostrar todos os tipos principais
                     return ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
                       type => order.subtipo_servico?.includes(type)
                     );
                   }
                 }).length}
+                  </Badge>
+                </div>
+
+                {/* Grid 2x1 para Ordens Reabertas e Chance */}
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Ordens Reabertas */}
+                  <div className="p-2.5 bg-red-50 rounded-lg border border-red-200 shadow-sm">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <Repeat className="h-3.5 w-3.5 text-red-600" />
+                      <span className="text-xs font-semibold text-red-900">Reabertas</span>
+                    </div>
+                    <p className="text-[10px] text-gray-600 mb-1.5">Total identificado</p>
+                    <Badge className="bg-red-600 text-white text-xl px-3 py-1 font-bold">
+                      {getReopeningMetrics.reopenedOrders}
+                    </Badge>
+                  </div>
+
+                  {/* Chance de Reabertura */}
+                  <div className="p-2.5 bg-orange-50 rounded-lg border border-orange-200 shadow-sm">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <BarChart2 className="h-3.5 w-3.5 text-orange-600" />
+                      <span className="text-xs font-semibold text-orange-900">Taxa</span>
+                    </div>
+                    <p className="text-[10px] text-gray-600 mb-1.5">% sobre total</p>
+                    <div className="text-xl font-bold text-orange-600 mb-1">
+                      {getReopeningMetrics.reopeningRate.toFixed(2).replace('.', ',')}%
+                    </div>
+                    <Progress 
+                      value={getReopeningMetrics.reopeningRate} 
+                      className="h-1.5"
+                    />
+                  </div>
+                </div>
+
+                {/* Tempo Médio Entre OS */}
+                <div className="p-2.5 bg-purple-50 rounded-lg border border-purple-200 shadow-sm">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Clock className="h-3.5 w-3.5 text-purple-600" />
+                    <span className="text-xs font-semibold text-purple-900">Tempo Médio Entre OS</span>
+                  </div>
+                  <p className="text-[10px] text-gray-600 mb-1.5">
+                    Entre finalização original e reabertura
+                  </p>
+                  <div className="text-xl font-bold text-purple-600">
+                    {getReopeningMetrics.averageTimeBetween} horas
+                  </div>
+                  <div className="text-sm text-gray-600 mt-0.5">
+                    ({(getReopeningMetrics.averageTimeBetween / 24).toFixed(1)} dias)
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
           
-          {/* Reaberturas por Tipo da OS Original - Ocupa 3 colunas e 2 linhas */}
-          <Card className="md:col-span-3 md:row-span-2">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-medium">
-                <div className="flex items-center">
-                  <BarChart2 className="mr-2 h-5 w-5" />
-                  Reaberturas por Tipo da OS Original
+          {/* Reaberturas por Tipo da OS Original - Ocupa 3 colunas */}
+          <Card className="md:col-span-3 shadow-md">
+            <CardHeader className="pb-3 border-b border-gray-200">
+              <CardTitle className="text-lg">
+                <div className="flex items-center space-x-2">
+                  <div className="bg-purple-100 p-2 rounded-lg">
+                    <BarChart2 className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <span>Reaberturas por Tipo da OS Original</span>
                 </div>
               </CardTitle>
-              <CardDescription className="text-sm">
+              <CardDescription className="mt-2 text-sm text-gray-600">
                 Análise de reaberturas por tipo de serviço
               </CardDescription>
             </CardHeader>
-            <CardContent className="overflow-y-auto" style={{ maxHeight: "450px" }}>
+            <CardContent className="pt-4 overflow-y-auto" style={{ maxHeight: "450px" }}>
               <div className="overflow-x-auto w-full">
-                <Table className="w-full table-fixed">
+                <Table className="w-full">
                   <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-sm font-medium w-[30%] px-2">Tipo da OS Original</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[12%] px-2">Serviços</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[12%] px-2">Reab.</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[12%] px-2">M3M</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[14%] px-2">% Reabertura</TableHead>
-                      <TableHead className="text-center text-sm font-medium w-[20%] px-2">Serv. p/ Meta</TableHead>
+                    <TableRow className="bg-gray-50 hover:bg-gray-50">
+                      <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">Tipo da OS Original</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">Serviços</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">Reab.</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">M3M</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">% Reabertura</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">Serv. p/ Meta</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {Object.entries(getReopeningMetrics.reopeningsByOriginalType)
                       .filter(([type, data]) => {
+                        // Remover "Ponto Principal BL" (Ponto Principal FIBRA)
+                        if (type === 'Ponto Principal BL') {
+                          return false;
+                        }
                         // Se houver um filtro, mostrar apenas o tipo filtrado
                         if (originalServiceTypeFilter) {
                           return type === originalServiceTypeFilter;
@@ -3038,14 +3626,41 @@ export function MetricsOverview() {
                         
                         const displayName = mapOriginalServiceTypeName(type);
                         const servicesNeeded = calculateServicesNeededForTarget(type, data.reopenings, data.totalOriginals);
+                        const index = Object.entries(getReopeningMetrics.reopeningsByOriginalType)
+                          .filter(([t, d]) => {
+                            if (originalServiceTypeFilter) return t === originalServiceTypeFilter;
+                            return true;
+                          })
+                          .sort((a, b) => {
+                            const orderPriority = ["Corretiva", "Corretiva BL", "Ponto Principal", "Ponto Principal BL"];
+                            if (orderPriority.includes(a[0]) && orderPriority.includes(b[0])) {
+                              return orderPriority.indexOf(a[0]) - orderPriority.indexOf(b[0]);
+                            }
+                            if (orderPriority.includes(a[0])) return -1;
+                            if (orderPriority.includes(b[0])) return 1;
+                            return a[0].localeCompare(b[0]);
+                          })
+                          .findIndex(([t]) => t === type);
+                        
                         return (
-                          <TableRow key={type}>
-                            <TableCell className="font-medium text-sm px-2">{displayName}</TableCell>
-                            <TableCell className="text-center text-sm px-2">{data.totalOriginals}</TableCell>
-                            <TableCell className="text-center text-sm px-2">{data.reopenings}</TableCell>
-                            <TableCell className="text-center text-sm px-2">
+                          <TableRow 
+                            key={type}
+                            className={`${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-gray-100 transition-colors`}
+                          >
+                            <TableCell className="font-semibold text-sm px-3 py-3">{displayName}</TableCell>
+                            <TableCell className="text-center px-3 py-3">
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold text-xs">
+                                {data.totalOriginals}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-center px-3 py-3">
+                              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 font-semibold text-xs">
+                                {data.reopenings}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-center px-3 py-3">
                               {threeMonthAverages[type] !== undefined ? (
-                                <span className={`font-medium ${
+                                <span className={`font-bold text-sm ${
                                   data.reopenings < threeMonthAverages[type] ? 'text-green-600' :
                                   data.reopenings > threeMonthAverages[type] ? 'text-red-600' : 
                                   'text-yellow-600'
@@ -3053,23 +3668,23 @@ export function MetricsOverview() {
                                   {threeMonthAverages[type]}
                                 </span>
                               ) : (
-                                <span className="text-muted-foreground">-</span>
+                                <span className="text-muted-foreground text-sm">-</span>
                               )}
                             </TableCell>
-                            <TableCell className="text-center text-sm px-2">
-                              <span className={`font-bold ${getReopeningColorByServiceType(type, (data.reopenings / data.totalOriginals * 100))}`}>
-                                {(data.reopenings / data.totalOriginals * 100).toFixed(2)}%
+                            <TableCell className="text-center px-3 py-3">
+                              <span className={`text-base font-bold ${getReopeningColorByServiceType(type, (data.reopenings / data.totalOriginals * 100))}`}>
+                                {data.totalOriginals > 0 ? (data.reopenings / data.totalOriginals * 100).toFixed(2) : '0.00'}%
                               </span>
                             </TableCell>
-                            <TableCell className="text-center text-sm px-2">
+                            <TableCell className="text-center px-3 py-3">
                               {servicesNeeded < 0 ? (
-                                <span className="text-green-600 font-medium">{Math.abs(servicesNeeded)} reab. disp.</span>
+                                <span className="text-green-600 font-semibold text-sm">{Math.abs(servicesNeeded)} reab. disp.</span>
                               ) : servicesNeeded === 0 ? (
-                                <span className="text-amber-600 font-medium">0 reab. disp.</span>
+                                <span className="text-amber-600 font-semibold text-sm">0 reab. disp.</span>
                               ) : (
-                                <span className="text-red-600 font-medium">
+                                <span className="text-red-600 font-semibold text-sm">
                                   +{servicesNeeded} serviços
-                                  <span className="text-muted-foreground ml-1">({data.totalOriginals + servicesNeeded} total)</span>
+                                  <span className="text-muted-foreground ml-1 text-xs">({data.totalOriginals + servicesNeeded} total)</span>
                                 </span>
                               )}
                             </TableCell>
@@ -3080,91 +3695,62 @@ export function MetricsOverview() {
                     
                     {Object.keys(getReopeningMetrics.reopeningsByOriginalType).length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-4 text-muted-foreground text-sm px-2">
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground text-sm">
                           Nenhuma reabertura encontrada no período selecionado
                         </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
                 </Table>
-                <div className="mt-3 text-sm text-muted-foreground italic space-y-1">
-                  <p><strong>Nota:</strong> Na coluna "Serviços" são contabilizadas todas as ordens que foram <strong>criadas OU finalizadas</strong> no mês selecionado.</p>
-                  <p><strong>M3M (Média 3 Meses):</strong> Representa a <strong>média de reaberturas dos últimos 3 meses anteriores</strong> ao mês selecionado. Cores: <span className="text-green-600 font-medium">Verde</span> = mês atual abaixo da média, <span className="text-yellow-600 font-medium">Amarelo</span> = igual à média, <span className="text-red-600 font-medium">Vermelho</span> = acima da média.</p>
-                  <p><strong>Serv. p/ Meta:</strong> <span className="text-green-600 font-medium">X reab. disp.</span> = dentro da meta com X reaberturas ainda disponíveis, <span className="text-amber-600 font-medium">0 reab. disp.</span> = no limite exato da meta (ponto de atenção), <span className="text-red-600 font-medium">+X serviços (Y total)</span> = fora da meta, precisa de X serviços adicionais (chegando a Y serviços no total) para voltar à faixa verde.</p>
+                <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-700 font-semibold mb-2">📋 Legenda:</p>
+                  <div className="space-y-1.5 text-xs text-gray-600">
+                    <div>
+                      <span className="font-medium text-gray-800">Nota:</span> Na coluna "Serviços" são contabilizadas todas as ordens que foram <strong>criadas OU finalizadas</strong> no mês selecionado.
                 </div>
+                    <div>
+                      <span className="font-medium text-gray-800">M3M (Média 3 Meses):</span> Representa a <strong>média de reaberturas dos últimos 3 meses anteriores</strong> ao mês selecionado. Cores: <span className="text-green-600 font-medium">Verde</span> = mês atual abaixo da média, <span className="text-yellow-600 font-medium">Amarelo</span> = igual à média, <span className="text-red-600 font-medium">Vermelho</span> = acima da média.
               </div>
-            </CardContent>
-          </Card>
-          
-          {/* Segunda linha - 2 cards */}
-          {/* Reopening Rate */}
-          <Card>
-            <CardHeader className="pb-0">
-              <CardTitle className="text-sm font-medium">
-                Chance de reabertura (Taxa de Reabertura)
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Percentual de reaberturas sobre o total
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0 pb-2">
-              <div className="text-2xl font-bold">{getReopeningMetrics.reopeningRate.toFixed(2).replace('.', ',')}%</div>
-              <Progress 
-                value={getReopeningMetrics.reopeningRate} 
-                className="h-2 mt-2"
-              />
-            </CardContent>
-          </Card>
-          
-          {/* Average Time Between */}
-          <Card>
-            <CardHeader className="pb-0">
-              <CardTitle className="text-sm font-medium">
-                Tempo Médio Entre OS
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Tempo médio entre finalização original e reabertura
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0 pb-2">
-                <div className="text-2xl font-bold">
-                      {getReopeningMetrics.averageTimeBetween} horas 
-                  <span className="text-base font-normal text-muted-foreground ml-2">
-                        ({(getReopeningMetrics.averageTimeBetween / 24).toFixed(1)} dias)
-                  </span>
+                    <div>
+                      <span className="font-medium text-gray-800">Serv. p/ Meta:</span> <span className="text-green-600 font-medium">X reab. disp.</span> = dentro da meta com X reaberturas ainda disponíveis, <span className="text-amber-600 font-medium">0 reab. disp.</span> = no limite exato da meta (ponto de atenção), <span className="text-red-600 font-medium">+X serviços (Y total)</span> = fora da meta, precisa de X serviços adicionais (chegando a Y serviços no total) para voltar à faixa verde.
+                    </div>
+                  </div>
+                </div>
                 </div>
             </CardContent>
           </Card>
         </div>
         
         {/* Reopening Pairs List */}
-        <Card className="w-full">
-          <CardHeader className="py-3">
-            <CardTitle>
-              <div className="flex items-center">
-                <Repeat className="mr-2 h-5 w-5" />
-                Ordens de Serviço Reabertas
+        <Card className="w-full shadow-md">
+          <CardHeader className="pb-3 border-b border-gray-200">
+            <CardTitle className="text-lg">
+              <div className="flex items-center space-x-2">
+                <div className="bg-orange-100 p-2 rounded-lg">
+                  <Repeat className="h-5 w-5 text-orange-600" />
+                </div>
+                <span>Ordens de Serviço Reabertas</span>
               </div>
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="mt-2 text-sm text-gray-600">
               Pares de OS original e reabertura identificados por cliente
             </CardDescription>
           </CardHeader>
-          <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
+          <CardContent className="pt-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
             {/* O filtro que estava aqui foi movido para cima */}
             <div className="overflow-x-auto w-full">
               <Table className="w-full">
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Técnico Responsável</TableHead>
-                    <TableHead>OS Original</TableHead>
-                    <TableHead>Ação Tomada Original</TableHead>
-                    <TableHead>Finalização Original</TableHead>
-                    <TableHead>OS Reabertura</TableHead>
-                    <TableHead>Ação Tomada Reabertura</TableHead>
-                    <TableHead>Data Criação Reabertura</TableHead>
-                    <TableHead className="text-right">Tempo entre OS</TableHead>
+                  <TableRow className="bg-gray-50 hover:bg-gray-50">
+                    <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">Cliente</TableHead>
+                    <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">Técnico Responsável</TableHead>
+                    <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">OS Original</TableHead>
+                    <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">Ação Tomada Original</TableHead>
+                    <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">Finalização Original</TableHead>
+                    <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">OS Reabertura</TableHead>
+                    <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">Ação Tomada Reabertura</TableHead>
+                    <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">Data Criação Reabertura</TableHead>
+                    <TableHead className="text-right font-semibold text-gray-700 text-sm px-3 py-3">Tempo entre OS</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -3215,52 +3801,83 @@ export function MetricsOverview() {
                     };
                     
                     return (
-                      <TableRow key={index}>
-                        <TableCell className="font-medium">{pair.originalOrder.nome_cliente}</TableCell>
-                        <TableCell className="font-medium">{pair.originalOrder.nome_tecnico}</TableCell>
-                        <TableCell>{pair.originalOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.originalOrder.subtipo_servico}</span></TableCell>
-                        <TableCell>{getAcaoTomadaBadge(pair.originalOrder.acao_tomada, pair.originalOrder.status)}</TableCell>
-                        <TableCell>{formatDate(pair.originalOrder.data_finalizacao)}</TableCell>
-                        <TableCell>{pair.reopeningOrder.codigo_os}<br/><span className="text-xs text-muted-foreground">{pair.reopeningOrder.subtipo_servico}</span></TableCell>
-                        <TableCell>{getAcaoTomadaBadge(pair.reopeningOrder.acao_tomada, pair.reopeningOrder.status)}</TableCell>
-                        <TableCell>{formatDate(pair.reopeningOrder.data_criacao)}</TableCell>
-                        <TableCell className="text-right font-medium">
+                      <TableRow 
+                        key={index}
+                        className={`${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-gray-100 transition-colors`}
+                      >
+                        <TableCell className="font-semibold text-sm px-3 py-3">{pair.originalOrder.nome_cliente}</TableCell>
+                        <TableCell className="font-medium text-sm px-3 py-3">
+                          {pair.originalOrder.nome_tecnico ? pair.originalOrder.nome_tecnico : <span className="text-muted-foreground italic">Sem técnico atribuído</span>}
+                        </TableCell>
+                        <TableCell className="px-3 py-3">
+                          <span className="font-semibold text-sm">{pair.originalOrder.codigo_os}</span>
+                          <br/>
+                          <span className="text-xs text-muted-foreground">{pair.originalOrder.subtipo_servico}</span>
+                        </TableCell>
+                        <TableCell className="px-3 py-3">{getAcaoTomadaBadge(pair.originalOrder.acao_tomada, pair.originalOrder.status)}</TableCell>
+                        <TableCell className="text-sm px-3 py-3">{formatDate(pair.originalOrder.data_finalizacao)}</TableCell>
+                        <TableCell className="px-3 py-3">
+                          <span className="font-semibold text-sm">{pair.reopeningOrder.codigo_os}</span>
+                          <br/>
+                          <span className="text-xs text-muted-foreground">{pair.reopeningOrder.subtipo_servico}</span>
+                        </TableCell>
+                        <TableCell className="px-3 py-3">{getAcaoTomadaBadge(pair.reopeningOrder.acao_tomada, pair.reopeningOrder.status)}</TableCell>
+                        <TableCell className="text-sm px-3 py-3">{formatDate(pair.reopeningOrder.data_criacao)}</TableCell>
+                        <TableCell className="text-right px-3 py-3">
+                          <div className="font-semibold text-sm">
                           {pair.timeBetween.toFixed(1)} horas
-                          <br />
-                              <span className={`text-xs ${getDaysColor(pair.daysBetween)}`}>
+                          </div>
+                          <div className={`text-xs font-medium mt-0.5 ${getDaysColor(pair.daysBetween)}`}>
                                 ({pair.daysBetween} dias)
-                          </span>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
                   })}
                       {getFilteredReopeningPairs.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-4 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground text-sm">
                             Nenhum par de reabertura encontrado no período selecionado
                           </TableCell>
                         </TableRow>
                       )}
                     </TableBody>
                   </Table>
-                  <div className="mt-2 space-y-1">
-                    <div className="text-xs text-muted-foreground italic">
-                      <p>Nota: As reaberturas são identificadas quando uma nova OS é criada no mesmo mês que a OS original foi finalizada.
+                  <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-sm text-gray-700 font-semibold mb-2">📋 Informações Importantes:</p>
+                    <div className="space-y-1.5 text-xs text-gray-600">
+                      <div>
+                        <span className="font-medium text-gray-800">Nota:</span> As reaberturas são identificadas quando uma nova OS é criada no mesmo mês que a OS original foi finalizada.
                       <strong> Exceção:</strong> Se a OS original foi finalizada no último dia do mês e a reabertura ocorreu no primeiro dia do mês seguinte, 
-                      também é considerada uma reabertura válida.</p>
-                      
-                      <p className="mt-1"><strong>Importante:</strong> O tempo entre OS é calculado da <strong>finalização da OS original</strong> até a <strong>criação da OS de reabertura</strong>.</p>
-                      
-                      <p className="mt-1"><strong>Importante:</strong> O filtro de Mês/Ano considera a <strong>data de criação da OS de reabertura</strong> (não a data da OS original). 
-                      Isso significa que você verá as reaberturas que foram <strong>criadas</strong> no mês selecionado, mesmo que a OS original tenha sido finalizada em um mês anterior.</p>
-                      
-                      <p className="mt-1"><strong>Importante:</strong> OSs com Ação Tomada Original contendo "Cliente Cancelou via SAC" não são consideradas como OSs primárias de reabertura.</p>
+                        também é considerada uma reabertura válida.
                     </div>
-                    <div className="flex items-center gap-4 text-xs mt-2">
-                      <div>Indicadores de proximidade ao limite:</div>
-                      <div className="flex items-center"><span className="inline-block w-3 h-3 rounded-full bg-muted mr-1"></span> Normal</div>
-                      <div className="flex items-center"><span className="inline-block w-3 h-3 rounded-full bg-amber-500 mr-1"></span> Próximo (20-24 dias)</div>
-                      <div className="flex items-center"><span className="inline-block w-3 h-3 rounded-full bg-red-500 mr-1"></span> Crítico (25-30 dias)</div>
+                      <div>
+                        <span className="font-medium text-gray-800">Importante:</span> O tempo entre OS é calculado da <strong>finalização da OS original</strong> até a <strong>criação da OS de reabertura</strong>.
+                    </div>
+                      <div>
+                        <span className="font-medium text-gray-800">Importante:</span> O filtro de Mês/Ano considera a <strong>data de criação da OS de reabertura</strong> (não a data da OS original). 
+                        Isso significa que você verá as reaberturas que foram <strong>criadas</strong> no mês selecionado, mesmo que a OS original tenha sido finalizada em um mês anterior.
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-800">Importante:</span> OSs com Ação Tomada Original contendo "Cliente Cancelou via SAC" não são consideradas como OSs primárias de reabertura.
+                      </div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-gray-200">
+                      <p className="text-xs font-semibold text-gray-700 mb-2">Indicadores de proximidade ao limite:</p>
+                      <div className="flex items-center gap-4 text-xs text-gray-600">
+                        <div className="flex items-center">
+                          <span className="inline-block w-3 h-3 rounded-full bg-gray-400 mr-1.5"></span>
+                          <span>Normal</span>
+                        </div>
+                        <div className="flex items-center">
+                          <span className="inline-block w-3 h-3 rounded-full bg-amber-500 mr-1.5"></span>
+                          <span>Próximo (20-24 dias)</span>
+                        </div>
+                        <div className="flex items-center">
+                          <span className="inline-block w-3 h-3 rounded-full bg-red-500 mr-1.5"></span>
+                          <span>Crítico (25-30 dias)</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -3269,33 +3886,35 @@ export function MetricsOverview() {
             
 
         
-          {/* Organize all reopening cards in a 2x2 grid that fills the screen */}
+          {/* Organize all reopening cards in a 2x1 grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Motivo da Reabertura por OS Primária */}
-            <Card className="h-full w-full">
-              <CardHeader className="py-3">
-                <CardTitle>
-                  <div className="flex items-center">
-                    <AlertTriangle className="mr-2 h-5 w-5" />
-                    Motivo da Reabertura por OS Primária
+            <Card className="h-full w-full shadow-md">
+              <CardHeader className="pb-3 border-b border-gray-200">
+                <CardTitle className="text-lg">
+                  <div className="flex items-center space-x-2">
+                    <div className="bg-amber-100 p-2 rounded-lg">
+                      <AlertTriangle className="h-5 w-5 text-amber-600" />
+                    </div>
+                    <span>Motivo da Reabertura por OS Primária</span>
                   </div>
                 </CardTitle>
-                <CardDescription>
+                <CardDescription className="mt-2 text-sm text-gray-600">
                   Motivos agrupados pela OS de origem (primária)
                 </CardDescription>
           </CardHeader>
-              <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
+              <CardContent className="pt-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
                 <div className="overflow-x-auto w-full">
                   <Table className="w-full">
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Motivo da Reabertura</TableHead>
-                        <TableHead>Total</TableHead>
+                      <TableRow className="bg-gray-50 hover:bg-gray-50">
+                        <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3">Motivo da Reabertura</TableHead>
+                        <TableHead className="font-semibold text-gray-700 text-sm px-3 py-3 text-center">Total</TableHead>
                         {Object.keys(getReopeningMetrics.reopeningsByOriginalType).length > 0 && 
                           Object.keys(getReopeningMetrics.reopeningsByOriginalType)
                             .sort((a, b) => getReopeningMetrics.reopeningsByOriginalType[b].reopenings - getReopeningMetrics.reopeningsByOriginalType[a].reopenings)
                             .map(type => (
-                              <TableHead key={type} className="text-center">
+                              <TableHead key={type} className="text-center font-semibold text-gray-700 text-sm px-3 py-3">
                                 {type}
                               </TableHead>
                             ))}
@@ -3305,23 +3924,36 @@ export function MetricsOverview() {
                       {getReopeningMetrics.reopeningsByReason && 
                         Object.entries(getReopeningMetrics.reopeningsByReason)
                           .sort((a, b) => b[1].total - a[1].total)
-                          .map(([reason, data]) => (
-                            <TableRow key={reason}>
-                              <TableCell className="font-medium">{reason}</TableCell>
-                              <TableCell className="text-center">{data.total}</TableCell>
+                          .map(([reason, data], index) => (
+                            <TableRow 
+                              key={reason}
+                              className={`${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-gray-100 transition-colors`}
+                            >
+                              <TableCell className="font-semibold text-sm px-3 py-3">{reason}</TableCell>
+                              <TableCell className="text-center px-3 py-3">
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold text-xs">
+                                  {data.total}
+                                </Badge>
+                              </TableCell>
                               {Object.keys(getReopeningMetrics.reopeningsByOriginalType).length > 0 && 
                                 Object.keys(getReopeningMetrics.reopeningsByOriginalType)
                                   .sort((a, b) => getReopeningMetrics.reopeningsByOriginalType[b].reopenings - getReopeningMetrics.reopeningsByOriginalType[a].reopenings)
                                   .map(type => (
-                                    <TableCell key={type} className="text-center">
-                                      {data.byOriginalType[type] ? data.byOriginalType[type] : "-"}
+                                    <TableCell key={type} className="text-center px-3 py-3 text-sm">
+                                      {data.byOriginalType[type] ? (
+                                        <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200 font-semibold text-xs">
+                                          {data.byOriginalType[type]}
+                                        </Badge>
+                                      ) : (
+                                        <span className="text-muted-foreground">-</span>
+                                      )}
                                     </TableCell>
                                   ))}
                             </TableRow>
                           ))}
                       {(!getReopeningMetrics.reopeningsByReason || Object.keys(getReopeningMetrics.reopeningsByReason).length === 0) && (
                         <TableRow>
-                          <TableCell colSpan={Object.keys(getReopeningMetrics.reopeningsByOriginalType).length + 2} className="text-center py-4 text-muted-foreground">
+                          <TableCell colSpan={Object.keys(getReopeningMetrics.reopeningsByOriginalType).length + 2} className="text-center py-8 text-muted-foreground text-sm">
                             Nenhum motivo de reabertura encontrado no período selecionado
                       </TableCell>
                     </TableRow>
@@ -3332,137 +3964,148 @@ export function MetricsOverview() {
           </CardContent>
         </Card>
         
-            {/* Reopening by Technician */}
-            <Card className="h-full w-full">
-              <CardHeader className="py-3">
-                <CardTitle>
-                  <div className="flex items-center">
-                    <Users className="mr-2 h-5 w-5" />
-                    Reaberturas por Técnico
+            {/* Card Unificado: Reaberturas por Técnico, Cidade e Bairro */}
+            <Card className="h-full w-full shadow-md">
+              <CardHeader className="pb-3 border-b border-gray-200">
+                <CardTitle className="text-lg">
+                  <div className="flex items-center space-x-2">
+                    <div className="bg-indigo-100 p-2 rounded-lg">
+                      <Users className="h-5 w-5 text-indigo-600" />
+                    </div>
+                    <span>Reaberturas por Localização</span>
                   </div>
                 </CardTitle>
           </CardHeader>
-              <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
-                <div className="space-y-4 w-full">
+              <CardContent className="pt-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
+                <Tabs defaultValue="technician" className="w-full">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="technician">Técnico</TabsTrigger>
+                    <TabsTrigger value="city">Cidade</TabsTrigger>
+                    <TabsTrigger value="neighborhood">Bairro</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="technician" className="mt-3">
+                    <div className="space-y-1.5 w-full">
                     {Object.entries(getReopeningMetrics.reopeningsByTechnician)
                     .sort((a, b) => b[1] - a[1])
                     .slice(0, 10)
-                    .map(([technician, count]: [string, number]) => {
+                        .map(([technician, count]: [string, number], index) => {
                         const percent = (count / getReopeningMetrics.reopenedOrders) * 100;
                       return (
-                        <div key={technician} className="space-y-1 w-full">
-                          <div className="flex justify-between items-center w-full">
-                            <span className="font-medium">{technician}</span>
-                            <span className="text-sm">{count} reaberturas</span>
-                          </div>
-                          <div className="bg-orange-100 rounded-full h-2 overflow-hidden w-full">
                             <div 
-                              className="bg-orange-400 h-full rounded-full" 
+                              key={technician} 
+                              className={`p-1.5 rounded border transition-colors ${
+                                index % 2 === 0 ? "bg-white border-gray-200" : "bg-gray-50/50 border-gray-200"
+                              } hover:bg-gray-100`}
+                            >
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="font-semibold text-xs text-gray-800 truncate">{technician}</span>
+                                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 font-semibold text-[10px] px-1.5 py-0 ml-2 flex-shrink-0">
+                                  {count}
+                                </Badge>
+                          </div>
+                              <div className="bg-orange-100 rounded-full h-2 overflow-hidden w-full mb-0.5">
+                            <div 
+                                  className="bg-orange-500 h-full rounded-full transition-all duration-300" 
                               style={{ width: `${percent}%` }}
                             />
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {percent.toFixed(1)}% do total de reaberturas
+                              <div className="text-[10px] font-medium text-gray-600">
+                                {percent.toFixed(2)}%
                           </div>
                         </div>
                       );
                     })
                   }
                     {Object.keys(getReopeningMetrics.reopeningsByTechnician).length === 0 && (
-                    <div className="text-center text-muted-foreground py-4">
+                        <div className="text-center text-muted-foreground py-6 text-xs">
                         Nenhuma reabertura por técnico encontrada no período selecionado
                     </div>
                   )}
                 </div>
-          </CardContent>
-        </Card>
-        
-            {/* By City */}
-            <Card className="h-full w-full">
-              <CardHeader className="py-3">
-                <CardTitle>
-                  <div className="flex items-center">
-                <MapPin className="mr-2 h-5 w-5" />
-                Reaberturas por Cidade
-                  </div>
-                </CardTitle>
-            </CardHeader>
-              <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
-                <div className="space-y-4 w-full">
+                  </TabsContent>
+                  
+                  <TabsContent value="city" className="mt-3">
+                    <div className="space-y-1.5 w-full">
                     {Object.entries(getReopeningMetrics.reopeningsByCity)
                   .sort((a, b) => b[1] - a[1])
-                    .map(([city, count]: [string, number]) => {
+                        .map(([city, count]: [string, number], index) => {
                         const percent = (count / getReopeningMetrics.reopenedOrders) * 100;
                     return (
-                        <div key={city} className="space-y-1 w-full">
-                          <div className="flex justify-between items-center w-full">
-                          <span className="font-medium">{city.toUpperCase()}</span>
-                          <span className="text-sm">{count} reaberturas</span>
+                            <div 
+                              key={city} 
+                              className={`p-1.5 rounded border transition-colors ${
+                                index % 2 === 0 ? "bg-white border-gray-200" : "bg-gray-50/50 border-gray-200"
+                              } hover:bg-gray-100`}
+                            >
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="font-semibold text-xs text-gray-800 truncate">{city.toUpperCase()}</span>
+                                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 font-semibold text-[10px] px-1.5 py-0 ml-2 flex-shrink-0">
+                                  {count}
+                                </Badge>
                         </div>
-                          <div className="bg-orange-100 rounded-full h-2 overflow-hidden w-full">
+                              <div className="bg-orange-100 rounded-full h-2 overflow-hidden w-full mb-0.5">
                           <div 
-                            className="bg-orange-400 h-full rounded-full" 
+                                  className="bg-orange-500 h-full rounded-full transition-all duration-300" 
                               style={{ width: `${percent}%` }}
                           />
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                            {percent.toFixed(1)}% do total de reaberturas
+                              <div className="text-[10px] font-medium text-gray-600">
+                                {percent.toFixed(2)}%
                         </div>
                       </div>
                     );
                   })
                 }
                     {Object.keys(getReopeningMetrics.reopeningsByCity).length === 0 && (
-                  <div className="text-center text-muted-foreground py-4">
+                        <div className="text-center text-muted-foreground py-6 text-xs">
                         Nenhuma reabertura por cidade encontrada no período selecionado
                   </div>
                 )}
               </div>
-            </CardContent>
-          </Card>
-          
-            {/* By Neighborhood */}
-            <Card className="h-full w-full">
-              <CardHeader className="py-3">
-                <CardTitle>
-                  <div className="flex items-center">
-                <MapPin className="mr-2 h-5 w-5" />
-                Reaberturas por Bairro
-                  </div>
-                </CardTitle>
-            </CardHeader>
-              <CardContent className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 400px)" }}>
-                <div className="space-y-4 w-full">
+                  </TabsContent>
+                  
+                  <TabsContent value="neighborhood" className="mt-3">
+                    <div className="space-y-1.5 w-full">
                     {Object.entries(getReopeningMetrics.reopeningsByNeighborhood)
                   .sort((a, b) => b[1] - a[1])
                     .slice(0, 10)
-                    .map(([neighborhood, count]: [string, number]) => {
+                        .map(([neighborhood, count]: [string, number], index) => {
                         const percent = (count / getReopeningMetrics.reopenedOrders) * 100;
                     return (
-                        <div key={neighborhood} className="space-y-1 w-full">
-                          <div className="flex justify-between items-center w-full">
-                          <span className="font-medium">{neighborhood.toUpperCase()}</span>
-                          <span className="text-sm">{count} reaberturas</span>
+                            <div 
+                              key={neighborhood} 
+                              className={`p-1.5 rounded border transition-colors ${
+                                index % 2 === 0 ? "bg-white border-gray-200" : "bg-gray-50/50 border-gray-200"
+                              } hover:bg-gray-100`}
+                            >
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="font-semibold text-xs text-gray-800 truncate">{neighborhood.toUpperCase()}</span>
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold text-[10px] px-1.5 py-0 ml-2 flex-shrink-0">
+                                  {count}
+                                </Badge>
                         </div>
-                          <div className="bg-blue-100 rounded-full h-2 overflow-hidden w-full">
+                              <div className="bg-blue-100 rounded-full h-2 overflow-hidden w-full mb-0.5">
                           <div 
-                            className="bg-blue-400 h-full rounded-full" 
+                                  className="bg-blue-500 h-full rounded-full transition-all duration-300" 
                               style={{ width: `${percent}%` }}
                           />
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                            {percent.toFixed(1)}% do total de reaberturas
+                              <div className="text-[10px] font-medium text-gray-600">
+                                {percent.toFixed(2)}%
                         </div>
                       </div>
                     );
                   })
                 }
                     {Object.keys(getReopeningMetrics.reopeningsByNeighborhood).length === 0 && (
-                  <div className="text-center text-muted-foreground py-4">
+                        <div className="text-center text-muted-foreground py-6 text-xs">
                         Nenhuma reabertura por bairro encontrada no período selecionado
                   </div>
                 )}
               </div>
+                  </TabsContent>
+                </Tabs>
             </CardContent>
           </Card>
         </div>
@@ -3492,340 +4135,45 @@ export function MetricsOverview() {
         {!showData ? (
           <NoDataMessage />
         ) : (
+          <ProtectedCard 
+            title="Desempenho e Bonificações - Serviços" 
+            storageKey="indicadores_desempenho_bonificacoes_unificado"
+            className="w-full"
+          >
           <>
-            {/* Quadro unificado de métricas de desempenho */}
-            <Card>
-              <CardHeader>
+            {/* Card Unificado: Desempenho e Bonificações - Serviços */}
+            <Card className="w-full shadow-lg border-2">
+                <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b-2 pb-2">
                 <CardTitle>
-                  <div className="flex items-center">
-                    <BarChart2 className="mr-2 h-5 w-5" />
-                    Indicadores de Desempenho
+                    <div className="flex items-center space-x-2">
+                      <div className="p-1.5 bg-blue-500 rounded-lg shadow-md">
+                        <BarChart2 className="h-4 w-4 text-white" />
                   </div>
-                </CardTitle>
-                <CardDescription>
-                  Percentuais de Tempo de Atendimento e Reaberturas por tipo de serviço
+                      <div>
+                        <div className="text-base font-bold text-gray-800">Desempenho e Bonificações - Serviços</div>
+                        <CardDescription className="text-xs mt-0.5 text-gray-600">
+                          Métricas de desempenho, base de clientes e bonificações por tipo de serviço
                 </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  {/* Assistência Técnica TV */}
-                  <div className="border rounded-md p-4 shadow-sm">
-                    <h3 className="text-lg font-medium text-center mb-3">Assistência Técnica TV</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <div className="text-sm text-muted-foreground text-center">Tempo de Atendimento</div>
-                        {(() => {
-                          const metrics = Object.entries(timeMetrics.servicesByType)
-                            .filter(([type]) => type === 'Assistência Técnica TV')
-                            .map(([_, data]) => data)[0];
-                          
-                          if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
-                          
-                          const goalPercent = metrics.percentWithinGoal;
-                          // Usar funções de coloração baseadas no tipo de serviço
-                          const progressClass = getTimeAttendanceBackgroundColorByServiceType("Assistência Técnica TV", goalPercent);
-                          const indicatorClass = getTimeAttendanceIndicatorColorByServiceType("Assistência Técnica TV", goalPercent);
-                          const textColorClass = getTimeAttendanceColorByServiceType("Assistência Técnica TV", goalPercent);
-                          
-                          return (
-                            <>
-                              <div className={`text-center text-2xl font-bold ${textColorClass}`}>{goalPercent.toFixed(2)}%</div>
-                              <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
-                                <div 
-                                  className={indicatorClass + " h-full rounded-full"} 
-                                  style={{ width: `${goalPercent}%` }}
-                                />
                               </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                      <div className="space-y-2">
-                        <div className="text-sm text-muted-foreground text-center">Reaberturas</div>
-                        {(() => {
-                          const data = getReopeningMetrics.reopeningsByOriginalType["Corretiva"];
-                          
-                          if (!data) return <div className="text-center text-2xl font-bold">-</div>;
-                          
-                          // Critérios para Reaberturas de Assistência Técnica TV usando colorUtils
-                          const colorClass = getReopeningColorByServiceType("Corretiva", data.reopeningRate);
-                          const reopeningClass = data.reopeningRate < 3.5
-                            ? "bg-green-100" 
-                            : data.reopeningRate < 10.5
-                              ? "bg-yellow-100" 
-                              : "bg-red-100";
-                          const reopeningIndicatorClass = data.reopeningRate < 3.5
-                            ? "bg-green-400" 
-                            : data.reopeningRate < 10.5
-                              ? "bg-yellow-400" 
-                              : "bg-red-400";
-                          
-                          return (
-                            <>
-                              <div className={`text-center text-2xl font-bold ${colorClass}`}>{data.reopeningRate.toFixed(2)}%</div>
-                              <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
-                                <div 
-                                  className={reopeningIndicatorClass + " h-full rounded-full"} 
-                                  style={{ width: `${data.reopeningRate}%` }}
-                                />
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                    
-                    {/* Seção BASE TV */}
-                    <BaseMetricsSection
-                      type="tv"
-                      metrics={baseMetrics}
-                      title="Base de Clientes TV"
-                    />
-                  </div>
-                  
-                  {/* Ponto Principal TV */}
-                  <div className="border rounded-md p-4 shadow-sm">
-                    <h3 className="text-lg font-medium text-center mb-3">Ponto Principal TV</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <div className="text-sm text-muted-foreground text-center">Tempo de Atendimento</div>
-                        {(() => {
-                          const metrics = Object.entries(timeMetrics.servicesByType)
-                            .filter(([type]) => type === 'Ponto Principal TV')
-                            .map(([_, data]) => data)[0];
-                          
-                          if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
-                          
-                          const goalPercent = metrics.percentWithinGoal;
-                          // Usar funções de coloração baseadas no tipo de serviço
-                          const progressClass = getTimeAttendanceBackgroundColorByServiceType("Ponto Principal TV", goalPercent);
-                          const indicatorClass = getTimeAttendanceIndicatorColorByServiceType("Ponto Principal TV", goalPercent);
-                          const textColorClass = getTimeAttendanceColorByServiceType("Ponto Principal TV", goalPercent);
-                          
-                          return (
-                            <>
-                              <div className={`text-center text-2xl font-bold ${textColorClass}`}>{goalPercent.toFixed(2)}%</div>
-                              <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
-                                <div 
-                                  className={indicatorClass + " h-full rounded-full"} 
-                                  style={{ width: `${goalPercent}%` }}
-                                />
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                      <div className="space-y-2">
-                        <div className="text-sm text-muted-foreground text-center">Reaberturas</div>
-                        {(() => {
-                          const data = getReopeningMetrics.reopeningsByOriginalType["Ponto Principal"];
-                          
-                          if (!data) return <div className="text-center text-2xl font-bold">-</div>;
-                          
-                          // Critérios para Reaberturas de Ponto Principal TV usando colorUtils
-                          const colorClass = getReopeningColorByServiceType("Ponto Principal", data.reopeningRate);
-                          const reopeningClass = data.reopeningRate < 2
-                            ? "bg-green-100" 
-                            : data.reopeningRate < 5
-                              ? "bg-yellow-100"
-                              : "bg-red-100";
-                          const reopeningIndicatorClass = data.reopeningRate < 2
-                            ? "bg-green-400" 
-                            : data.reopeningRate < 5
-                              ? "bg-yellow-400"
-                              : "bg-red-400";
-                          
-                          return (
-                            <>
-                              <div className={`text-center text-2xl font-bold ${colorClass}`}>{data.reopeningRate.toFixed(2)}%</div>
-                              <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
-                                <div 
-                                  className={reopeningIndicatorClass + " h-full rounded-full"} 
-                                  style={{ width: `${data.reopeningRate}%` }}
-                                />
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Assistência Técnica FIBRA */}
-                  <div className="border rounded-md p-4 shadow-sm">
-                    <h3 className="text-lg font-medium text-center mb-3">Assistência Técnica FIBRA</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <div className="text-sm text-muted-foreground text-center">Tempo de Atendimento</div>
-                        {(() => {
-                          const metrics = Object.entries(timeMetrics.servicesByType)
-                            .filter(([type]) => type === 'Assistência Técnica FIBRA')
-                            .map(([_, data]) => data)[0];
-                          
-                          if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
-                          
-                          const goalPercent = metrics.percentWithinGoal;
-                          // Usar funções de coloração baseadas no tipo de serviço
-                          const progressClass = getTimeAttendanceBackgroundColorByServiceType("Assistência Técnica FIBRA", goalPercent);
-                          const indicatorClass = getTimeAttendanceIndicatorColorByServiceType("Assistência Técnica FIBRA", goalPercent);
-                          const textColorClass = getTimeAttendanceColorByServiceType("Assistência Técnica FIBRA", goalPercent);
-                          
-                          return (
-                            <>
-                              <div className={`text-center text-2xl font-bold ${textColorClass}`}>{goalPercent.toFixed(2)}%</div>
-                              <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
-                                <div 
-                                  className={indicatorClass + " h-full rounded-full"} 
-                                  style={{ width: `${goalPercent}%` }}
-                                />
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                      <div className="space-y-2">
-                        <div className="text-sm text-muted-foreground text-center">Reaberturas</div>
-                        {(() => {
-                          const data = getReopeningMetrics.reopeningsByOriginalType["Corretiva BL"];
-                          
-                          if (!data) return <div className="text-center text-2xl font-bold">-</div>;
-                          
-                          // Critérios para Reaberturas de Assistência Técnica FIBRA usando colorUtils
-                          const colorClass = getReopeningColorByServiceType("Corretiva BL", data.reopeningRate);
-                          const reopeningClass = data.reopeningRate < 8
-                            ? "bg-green-100" 
-                            : data.reopeningRate < 16
-                              ? "bg-yellow-100" 
-                              : "bg-red-100";
-                          const reopeningIndicatorClass = data.reopeningRate < 8
-                            ? "bg-green-400" 
-                            : data.reopeningRate < 16
-                              ? "bg-yellow-400" 
-                              : "bg-red-400";
-                          
-                          return (
-                            <>
-                              <div className={`text-center text-2xl font-bold ${colorClass}`}>{data.reopeningRate.toFixed(2)}%</div>
-                              <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
-                                <div 
-                                  className={reopeningIndicatorClass + " h-full rounded-full"} 
-                                  style={{ width: `${data.reopeningRate}%` }}
-                                />
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                    
-                    {/* Seção BASE FIBRA */}
-                    <BaseMetricsSection
-                      type="fibra"
-                      metrics={baseMetrics}
-                      title="Base de Clientes FIBRA"
-                    />
-                  </div>
-                  
-                  {/* Ponto Principal FIBRA */}
-                  <div className="border rounded-md p-4 shadow-sm">
-                    <h3 className="text-lg font-medium text-center mb-3">Ponto Principal FIBRA</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <div className="text-sm text-muted-foreground text-center">Tempo de Atendimento</div>
-                        {(() => {
-                          const metrics = Object.entries(timeMetrics.servicesByType)
-                            .filter(([type]) => type === 'Ponto Principal FIBRA')
-                            .map(([_, data]) => data)[0];
-                          
-                          if (!metrics) return <div className="text-center text-2xl font-bold">-</div>;
-                          
-                          const goalPercent = metrics.percentWithinGoal;
-                          // Usar funções de coloração baseadas no tipo de serviço
-                          const progressClass = getTimeAttendanceBackgroundColorByServiceType("Ponto Principal FIBRA", goalPercent);
-                          const indicatorClass = getTimeAttendanceIndicatorColorByServiceType("Ponto Principal FIBRA", goalPercent);
-                          const textColorClass = getTimeAttendanceColorByServiceType("Ponto Principal FIBRA", goalPercent);
-                          
-                          return (
-                            <>
-                              <div className={`text-center text-2xl font-bold ${textColorClass}`}>{goalPercent.toFixed(2)}%</div>
-                              <div className={progressClass + " rounded-full h-2 overflow-hidden"}>
-                                <div 
-                                  className={indicatorClass + " h-full rounded-full"} 
-                                  style={{ width: `${goalPercent}%` }}
-                                />
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                      <div className="space-y-2">
-                        <div className="text-sm text-muted-foreground text-center">Reaberturas</div>
-                        {(() => {
-                          const data = getReopeningMetrics.reopeningsByOriginalType["Ponto Principal BL"];
-                          
-                          if (!data) return <div className="text-center text-2xl font-bold">-</div>;
-                          
-                          // Critérios para Reaberturas de Ponto Principal FIBRA usando colorUtils
-                          const colorClass = getReopeningColorByServiceType("Ponto Principal BL", data.reopeningRate);
-                          const reopeningClass = data.reopeningRate < 5
-                            ? "bg-green-100" 
-                            : data.reopeningRate < 10
-                              ? "bg-yellow-100"
-                              : "bg-red-100";
-                          const reopeningIndicatorClass = data.reopeningRate < 5
-                            ? "bg-green-400" 
-                            : data.reopeningRate < 10
-                              ? "bg-yellow-400"
-                              : "bg-red-400";
-                          
-                          return (
-                            <>
-                              <div className={`text-center text-2xl font-bold ${colorClass}`}>{data.reopeningRate.toFixed(2)}%</div>
-                              <div className={reopeningClass + " rounded-full h-2 overflow-hidden"}>
-                                <div 
-                                  className={reopeningIndicatorClass + " h-full rounded-full"} 
-                                  style={{ width: `${data.reopeningRate}%` }}
-                                />
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Painel de Faixas de Desempenho e Bonificações */}
-            <ProtectedCard 
-              title="Faixas de Desempenho e Bonificações - Serviços" 
-              storageKey="indicadores_faixas_desempenho"
-              className="w-full mt-4"
-            >
-              <Card className="w-full mt-4">
-                <CardHeader>
-                  <CardTitle>
-                    <div className="flex items-center">
-                      <BarChart2 className="mr-2 h-5 w-5" />
-                      Faixas de Desempenho e Bonificações - Serviços
                     </div>
                   </CardTitle>
-                  <CardDescription>
-                    Associação entre TA e Reabertura e resultados de bonificação
-                  </CardDescription>
                 </CardHeader>
-                <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  {/* A) Assistência Técnica TV ↔ Corretiva */}
+                <CardContent className="p-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {/* Coluna 1: Assistência Técnica TV */}
                   {(() => {
                     // Obter o percentual de TA para Assistência Técnica TV
-                    const taPercentage = Object.entries(timeMetrics.servicesByType)
+                      const metricsATTV = Object.entries(timeMetrics.servicesByType)
                       .filter(([type]) => type === 'Assistência Técnica TV')
-                      .map(([_, metrics]) => metrics.percentWithinGoal)[0] || 0;
+                        .map(([_, data]) => data)[0];
+                      const taPercentage = metricsATTV?.percentWithinGoal || 0;
                     
                     // Obter o percentual de Reabertura para Corretiva
                     const reopeningRate = getReopeningMetrics.reopeningsByOriginalType["Corretiva"]?.reopeningRate || 0;
+                      
+                      // Cores para TA e Reaberturas (sem barras, apenas números)
+                      const textColorTA = getTimeAttendanceColorByServiceType("Assistência Técnica TV", taPercentage);
+                      const colorClassReab = getReopeningColorByServiceType("Corretiva", reopeningRate);
                     
                     // Determinar a bonificação com base nas tabelas
                     let bonusPercentage = 0;
@@ -3871,61 +4219,81 @@ export function MetricsOverview() {
                     const diferencaValor = totalAtual - totalAnterior;
                     const diferencaPercentual = totalAnterior > 0 ? (diferencaValor / totalAnterior) * 100 : 0;
                     
-                    const cardClass = bonusPercentage > 0 ? "bg-green-50" : "bg-red-50";
-                    const textClass = bonusPercentage > 0 ? "text-green-700" : "text-red-700";
+                      const cardClass = bonusPercentage > 0 
+                        ? "border-2 border-green-300 bg-gradient-to-br from-white to-green-50/50 shadow-md hover:shadow-lg transition-all" 
+                        : "border-2 border-red-300 bg-gradient-to-br from-white to-red-50/50 shadow-md hover:shadow-lg transition-all";
                     
                     return (
-                      <Card className={cardClass}>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">
-                            Assistência Técnica TV
-                          </CardTitle>
-                          <CardDescription>
-                            TA: {taPercentage.toFixed(2)}% | Reabertura: {reopeningRate.toFixed(2)}%
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className={`text-xl font-bold ${textClass}`}>
-                            {bonusPercentage > 0 ? `${bonusPercentage}% bonificação` : "Não Elegível"}
+                        <div className="border-2 border-blue-200 bg-gradient-to-br from-white to-blue-50/50 rounded-lg shadow-sm hover:shadow-md transition-all">
+                          <div className="bg-gradient-to-r from-blue-100 to-indigo-100 border-b-2 p-2 rounded-t-lg">
+                            <h3 className="text-sm font-bold text-center text-gray-800">Assistência Técnica TV</h3>
                           </div>
+                          <div className="p-2 space-y-2">
+                            {/* Métricas: TA e Reaberturas */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="text-center">
+                                <div className="text-[10px] font-semibold text-gray-700 mb-1">Tempo de Atendimento</div>
+                                <div className={`text-xl font-bold ${textColorTA}`}>
+                                  {taPercentage.toFixed(2)}%
+                                </div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-[10px] font-semibold text-gray-700 mb-1">Reaberturas</div>
+                                <div className={`text-xl font-bold ${colorClassReab}`}>
+                                  {reopeningRate.toFixed(2)}%
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Base de Clientes TV */}
                           {baseMetrics && (
-                            <div className="mt-2 pt-2 border-t border-gray-200">
-                              <div className="grid grid-cols-2 gap-3">
-                                {/* Ganho Base */}
-                                <div>
-                                  <div className="text-sm text-gray-600 mb-1">Ganho Base</div>
-                                  <div className="text-lg font-semibold text-blue-700">
+                              <div className="pt-1.5 border-t border-gray-200">
+                                <BaseMetricsSection
+                                  type="tv"
+                                  metrics={baseMetrics}
+                                  title="Base de Clientes TV"
+                                />
+                              </div>
+                            )}
+                            
+                            {/* Bonificação */}
+                            <div className="pt-1.5 border-t border-gray-200">
+                              <div className={`text-center text-sm font-bold mb-1.5 ${bonusPercentage > 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                {bonusPercentage > 0 ? `${bonusPercentage}% bonificação` : "Não Elegível"}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="text-center">
+                                  <div className="text-[10px] text-gray-600 mb-0.5">Ganho Base</div>
+                                  <div className="text-base font-semibold text-blue-700">
                                     {ganhoMonetario.toLocaleString('pt-BR', { 
                                       style: 'currency', 
                                       currency: 'BRL' 
                                     })}
                                   </div>
-                                  <div className="text-xs text-gray-500">
+                                  <div className="text-[9px] text-gray-500">
                                     {baseTV.toLocaleString('pt-BR')} × R$ {alianca.toFixed(2)}
                                   </div>
                                 </div>
-                                
-                                {/* Bônus Aliança */}
-                                <div>
-                                  <div className="text-sm text-gray-600 mb-1">Bônus Aliança</div>
+                                <div className="text-center">
+                                  <div className="text-[10px] text-gray-600 mb-0.5">Bônus Aliança</div>
                                   {bonusPercentage > 0 ? (
                                     <>
-                                      <div className="text-lg font-semibold text-green-700">
+                                      <div className="text-base font-semibold text-green-700">
                                         {bonusAlianca.toLocaleString('pt-BR', { 
                                           style: 'currency', 
                                           currency: 'BRL' 
                                         })}
                                       </div>
-                                      <div className="text-xs text-gray-500">
+                                      <div className="text-[9px] text-gray-500">
                                         {bonusPercentage}% do ganho base
                                       </div>
                                     </>
                                   ) : (
                                     <>
-                                      <div className="text-lg font-semibold text-red-600">
+                                      <div className="text-base font-semibold text-red-600">
                                         Não Vigente
                                       </div>
-                                      <div className="text-xs text-gray-500">
+                                      <div className="text-[9px] text-gray-500">
                                         Não elegível
                                       </div>
                                     </>
@@ -3933,36 +4301,25 @@ export function MetricsOverview() {
                                 </div>
                               </div>
                               
-                              {/* Total: Ganho Base + Bônus Aliança */}
-                              <div className="mt-3 pt-2 border-t border-gray-200">
-                                <div className="text-sm text-gray-600 mb-1">Total (Ganho Base + Bônus)</div>
-                                <div className="text-xl font-bold text-purple-700">
+                              {/* Total */}
+                              <div className="mt-1.5 pt-1.5 border-t border-gray-200">
+                                <div className="text-[10px] text-gray-600 mb-0.5 text-center">Total (Ganho Base + Bônus)</div>
+                                <div className="text-lg font-bold text-purple-700 text-center">
                                   {totalAtual.toLocaleString('pt-BR', { 
-                                    style: 'currency', 
-                                    currency: 'BRL' 
-                                  })}
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                  {ganhoMonetario.toLocaleString('pt-BR', { 
-                                    style: 'currency', 
-                                    currency: 'BRL' 
-                                  })} + {bonusAlianca.toLocaleString('pt-BR', { 
                                     style: 'currency', 
                                     currency: 'BRL' 
                                   })}
                                 </div>
                               </div>
                               
-                              {/* Tendência vs Mês Anterior */}
+                              {/* Tendência */}
                               {totalAnterior > 0 && (
-                                <div className="mt-3 pt-2 border-t border-gray-100">
-                                  <div className="text-sm text-gray-600 mb-1">Tendência vs Mês Anterior</div>
-                                  <div className={`text-sm font-medium flex items-center gap-1 ${
+                                <div className="mt-1.5 pt-1.5 border-t border-gray-100">
+                                  <div className="text-xs text-gray-600 mb-0.5 text-center">Tendência vs Mês Anterior</div>
+                                  <div className={`text-xs font-medium flex items-center justify-center gap-1 ${
                                     diferencaValor > 0 ? 'text-green-600' : diferencaValor < 0 ? 'text-red-600' : 'text-gray-600'
                                   }`}>
-                                    <span className="text-base">
-                                      {diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}
-                                    </span>
+                                    <span className="text-sm">{diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}</span>
                                     {diferencaValor > 0 ? '+' : ''}{diferencaPercentual.toFixed(1)}% 
                                     ({diferencaValor > 0 ? '+' : ''}{diferencaValor.toLocaleString('pt-BR', { 
                                       style: 'currency', 
@@ -3972,21 +4329,25 @@ export function MetricsOverview() {
                                 </div>
                               )}
                             </div>
-                          )}
-                        </CardContent>
-                      </Card>
+                          </div>
+                        </div>
                     );
                   })()}
                   
-                  {/* B) Assistência Técnica FIBRA ↔ Corretiva BL */}
+                    {/* Coluna 2: Assistência Técnica FIBRA */}
                   {(() => {
                     // Obter o percentual de TA para Assistência Técnica FIBRA
-                    const taPercentage = Object.entries(timeMetrics.servicesByType)
+                      const metricsATFIBRA = Object.entries(timeMetrics.servicesByType)
                       .filter(([type]) => type === 'Assistência Técnica FIBRA')
-                      .map(([_, metrics]) => metrics.percentWithinGoal)[0] || 0;
+                        .map(([_, data]) => data)[0];
+                      const taPercentage = metricsATFIBRA?.percentWithinGoal || 0;
                     
                     // Obter o percentual de Reabertura para Corretiva BL
                     const reopeningRate = getReopeningMetrics.reopeningsByOriginalType["Corretiva BL"]?.reopeningRate || 0;
+                      
+                      // Cores para TA e Reaberturas (sem barras, apenas números)
+                      const textColorTA = getTimeAttendanceColorByServiceType("Assistência Técnica FIBRA", taPercentage);
+                      const colorClassReab = getReopeningColorByServiceType("Corretiva BL", reopeningRate);
                     
                     // Determinar a bonificação com base nas tabelas
                     let bonusPercentage = 0;
@@ -4032,61 +4393,77 @@ export function MetricsOverview() {
                     const diferencaValor = totalAtual - totalAnterior;
                     const diferencaPercentual = totalAnterior > 0 ? (diferencaValor / totalAnterior) * 100 : 0;
                     
-                    const cardClass = bonusPercentage > 0 ? "bg-green-50" : "bg-red-50";
-                    const textClass = bonusPercentage > 0 ? "text-green-700" : "text-red-700";
-                    
                     return (
-                      <Card className={cardClass}>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">
-                            Assistência Técnica FIBRA
-                          </CardTitle>
-                          <CardDescription>
-                            TA: {taPercentage.toFixed(2)}% | Reabertura: {reopeningRate.toFixed(2)}%
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className={`text-xl font-bold ${textClass}`}>
-                            {bonusPercentage > 0 ? `${bonusPercentage}% bonificação` : "Não Elegível"}
+                        <div className="border-2 border-cyan-200 bg-gradient-to-br from-white to-cyan-50/50 rounded-lg shadow-sm hover:shadow-md transition-all">
+                          <div className="bg-gradient-to-r from-cyan-100 to-teal-100 border-b-2 p-2 rounded-t-lg">
+                            <h3 className="text-sm font-bold text-center text-gray-800">Assistência Técnica FIBRA</h3>
                           </div>
+                          <div className="p-2 space-y-2">
+                            {/* Métricas: TA e Reaberturas */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="text-center">
+                                <div className="text-[10px] font-semibold text-gray-700 mb-1">Tempo de Atendimento</div>
+                                <div className={`text-xl font-bold ${textColorTA}`}>
+                                  {taPercentage.toFixed(2)}%
+                                </div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-[10px] font-semibold text-gray-700 mb-1">Reaberturas</div>
+                                <div className={`text-xl font-bold ${colorClassReab}`}>
+                                  {reopeningRate.toFixed(2)}%
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Base de Clientes FIBRA */}
                           {baseMetrics && (
-                            <div className="mt-2 pt-2 border-t border-gray-200">
-                              <div className="grid grid-cols-2 gap-3">
-                                {/* Ganho Base */}
-                                <div>
-                                  <div className="text-sm text-gray-600 mb-1">Ganho Base</div>
-                                  <div className="text-lg font-semibold text-blue-700">
+                              <div className="pt-1.5 border-t border-gray-200">
+                                <BaseMetricsSection
+                                  type="fibra"
+                                  metrics={baseMetrics}
+                                  title="Base de Clientes FIBRA"
+                                />
+                              </div>
+                            )}
+                            
+                            {/* Bonificação */}
+                            <div className="pt-1.5 border-t border-gray-200">
+                              <div className={`text-center text-sm font-bold mb-1.5 ${bonusPercentage > 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                {bonusPercentage > 0 ? `${bonusPercentage}% bonificação` : "Não Elegível"}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="text-center">
+                                  <div className="text-[10px] text-gray-600 mb-0.5">Ganho Base</div>
+                                  <div className="text-base font-semibold text-blue-700">
                                     {ganhoMonetario.toLocaleString('pt-BR', { 
                                       style: 'currency', 
                                       currency: 'BRL' 
                                     })}
                                   </div>
-                                  <div className="text-xs text-gray-500">
+                                  <div className="text-[9px] text-gray-500">
                                     {baseFIBRA.toLocaleString('pt-BR')} × R$ {alianca.toFixed(2)}
                                   </div>
                                 </div>
-                                
-                                {/* Bônus Aliança */}
-                                <div>
-                                  <div className="text-sm text-gray-600 mb-1">Bônus Aliança</div>
+                                <div className="text-center">
+                                  <div className="text-[10px] text-gray-600 mb-0.5">Bônus Aliança</div>
                                   {bonusPercentage > 0 ? (
                                     <>
-                                      <div className="text-lg font-semibold text-green-700">
+                                      <div className="text-base font-semibold text-green-700">
                                         {bonusAlianca.toLocaleString('pt-BR', { 
                                           style: 'currency', 
                                           currency: 'BRL' 
                                         })}
                                       </div>
-                                      <div className="text-xs text-gray-500">
+                                      <div className="text-[9px] text-gray-500">
                                         {bonusPercentage}% do ganho base
                                       </div>
                                     </>
                                   ) : (
                                     <>
-                                      <div className="text-lg font-semibold text-red-600">
+                                      <div className="text-base font-semibold text-red-600">
                                         Não Vigente
                                       </div>
-                                      <div className="text-xs text-gray-500">
+                                      <div className="text-[9px] text-gray-500">
                                         Não elegível
                                       </div>
                                     </>
@@ -4094,36 +4471,25 @@ export function MetricsOverview() {
                                 </div>
                               </div>
                               
-                              {/* Total: Ganho Base + Bônus Aliança */}
-                              <div className="mt-3 pt-2 border-t border-gray-200">
-                                <div className="text-sm text-gray-600 mb-1">Total (Ganho Base + Bônus)</div>
-                                <div className="text-xl font-bold text-purple-700">
+                              {/* Total */}
+                              <div className="mt-1.5 pt-1.5 border-t border-gray-200">
+                                <div className="text-[10px] text-gray-600 mb-0.5 text-center">Total (Ganho Base + Bônus)</div>
+                                <div className="text-lg font-bold text-purple-700 text-center">
                                   {totalAtual.toLocaleString('pt-BR', { 
-                                    style: 'currency', 
-                                    currency: 'BRL' 
-                                  })}
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                  {ganhoMonetario.toLocaleString('pt-BR', { 
-                                    style: 'currency', 
-                                    currency: 'BRL' 
-                                  })} + {bonusAlianca.toLocaleString('pt-BR', { 
                                     style: 'currency', 
                                     currency: 'BRL' 
                                   })}
                                 </div>
                               </div>
                               
-                              {/* Tendência vs Mês Anterior */}
+                              {/* Tendência */}
                               {totalAnterior > 0 && (
-                                <div className="mt-3 pt-2 border-t border-gray-100">
-                                  <div className="text-sm text-gray-600 mb-1">Tendência vs Mês Anterior</div>
-                                  <div className={`text-sm font-medium flex items-center gap-1 ${
+                                <div className="mt-1.5 pt-1.5 border-t border-gray-100">
+                                  <div className="text-xs text-gray-600 mb-0.5 text-center">Tendência vs Mês Anterior</div>
+                                  <div className={`text-xs font-medium flex items-center justify-center gap-1 ${
                                     diferencaValor > 0 ? 'text-green-600' : diferencaValor < 0 ? 'text-red-600' : 'text-gray-600'
                                   }`}>
-                                    <span className="text-base">
-                                      {diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}
-                                    </span>
+                                    <span className="text-sm">{diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}</span>
                                     {diferencaValor > 0 ? '+' : ''}{diferencaPercentual.toFixed(1)}% 
                                     ({diferencaValor > 0 ? '+' : ''}{diferencaValor.toLocaleString('pt-BR', { 
                                       style: 'currency', 
@@ -4133,21 +4499,25 @@ export function MetricsOverview() {
                                 </div>
                               )}
                             </div>
-                          )}
-                        </CardContent>
-                      </Card>
+                          </div>
+                        </div>
                     );
                   })()}
                   
-                  {/* C) Ponto Principal TV ↔ Ponto Principal */}
+                    {/* Coluna 3: Ponto Principal TV */}
                   {(() => {
                     // Obter o percentual de TA para Ponto Principal TV
-                    const taPercentage = Object.entries(timeMetrics.servicesByType)
+                      const metricsPPTV = Object.entries(timeMetrics.servicesByType)
                       .filter(([type]) => type === 'Ponto Principal TV')
-                      .map(([_, metrics]) => metrics.percentWithinGoal)[0] || 0;
+                        .map(([_, data]) => data)[0];
+                      const taPercentage = metricsPPTV?.percentWithinGoal || 0;
                     
                     // Obter o percentual de Reabertura para Ponto Principal
                     const reopeningRate = getReopeningMetrics.reopeningsByOriginalType["Ponto Principal"]?.reopeningRate || 0;
+                      
+                      // Cores para TA e Reaberturas (sem barras, apenas números)
+                      const textColorTA = getTimeAttendanceColorByServiceType("Ponto Principal TV", taPercentage);
+                      const colorClassReab = getReopeningColorByServiceType("Ponto Principal", reopeningRate);
                     
                     // Contar serviços finalizados de Ponto Principal TV
                     const servicosFinalizados = filteredServiceOrdersByFinalization.filter(o => {
@@ -4188,219 +4558,93 @@ export function MetricsOverview() {
                       isEligible = true;
                     }
                     
-                    const cardClass = isEligible ? "bg-green-50" : "bg-red-50";
                     const textClass = isEligible ? "text-green-700" : "text-red-700";
                     
                     return (
-                      <Card className={cardClass}>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">
-                            Ponto Principal TV
-                          </CardTitle>
-                          <CardDescription>
-                            TA: {taPercentage.toFixed(2)}% | Reabertura: {reopeningRate.toFixed(2)}%
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className={`text-xl font-bold ${textClass}`}>
+                        <div className={`border-2 rounded-lg shadow-sm hover:shadow-md transition-all ${
+                          isEligible 
+                            ? "border-green-300 bg-gradient-to-br from-white to-green-50/50" 
+                            : "border-red-300 bg-gradient-to-br from-white to-red-50/50"
+                        }`}>
+                          <div className="bg-gradient-to-r from-purple-100 to-indigo-100 border-b-2 p-2 rounded-t-lg">
+                            <h3 className="text-sm font-bold text-center text-gray-800">Ponto Principal TV</h3>
+                          </div>
+                          <div className="p-2 space-y-2">
+                            {/* Métricas: TA e Reaberturas */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="text-center">
+                                <div className="text-[10px] font-semibold text-gray-700 mb-1">Tempo de Atendimento</div>
+                                <div className={`text-xl font-bold ${textColorTA}`}>
+                                  {taPercentage.toFixed(2)}%
+                              </div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-[10px] font-semibold text-gray-700 mb-1">Reaberturas</div>
+                                <div className={`text-xl font-bold ${colorClassReab}`}>
+                                  {reopeningRate.toFixed(2)}%
+                                  </div>
+                                  </div>
+                                </div>
+                            
+                            {/* Bonificação */}
+                            <div className="pt-1.5 border-t border-gray-200">
+                              <div className={`text-center text-sm font-bold mb-1.5 ${textClass}`}>
                             {result}
                           </div>
                           {servicosFinalizados > 0 && (
-                            <div className="mt-2 pt-2 border-t border-gray-200">
-                              <div className="text-sm text-gray-600 mb-1">Ganho por Serviços</div>
-                              <div className="text-lg font-semibold text-blue-700">
+                                <>
+                                  <div className="text-[10px] text-gray-600 mb-0.5 text-center">Ganho por Serviços</div>
+                                  <div className="text-base font-semibold text-blue-700 text-center">
                                 {ganhoTotal.toLocaleString('pt-BR', { 
                                   style: 'currency', 
                                   currency: 'BRL' 
                                 })}
                               </div>
-                              <div className="text-xs text-gray-500">
+                                  <div className="text-[9px] text-gray-500 text-center">
                                 {servicosFinalizados} serviços × R$ {valorPorServico.toFixed(2)}
                               </div>
                               
-                              {/* Tendência vs Mês Anterior */}
+                                  {/* Tendência */}
                               {ganhoAnterior > 0 && (
-                                <div className="mt-2 pt-2 border-t border-gray-100">
-                                  <div className="text-sm text-gray-600 mb-1">Tendência vs Mês Anterior</div>
-                                  <div className={`text-sm font-medium flex items-center gap-1 ${
+                                    <div className="mt-1.5 pt-1.5 border-t border-gray-100">
+                                      <div className="text-xs text-gray-600 mb-0.5 text-center">Tendência vs Mês Anterior</div>
+                                      <div className={`text-xs font-medium flex items-center justify-center gap-1 ${
                                     diferencaValor > 0 ? 'text-green-600' : diferencaValor < 0 ? 'text-red-600' : 'text-gray-600'
                                   }`}>
-                                    <span className="text-base">
-                                      {diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}
-                                    </span>
+                                        <span className="text-sm">{diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}</span>
                                     {diferencaValor > 0 ? '+' : ''}{diferencaPercentual.toFixed(1)}% 
                                     ({diferencaValor > 0 ? '+' : ''}{diferencaValor.toLocaleString('pt-BR', { 
                                       style: 'currency', 
                                       currency: 'BRL' 
                                     })})
                                   </div>
-                                  <div className="text-xs text-gray-500">
+                                      <div className="text-[10px] text-gray-500 text-center">
                                     {servicosFinalizadosAnterior} serviços no mês anterior
                                   </div>
                                 </div>
                               )}
-                            </div>
+                                </>
                           )}
-                        </CardContent>
-                      </Card>
+                            </div>
+                          </div>
+                        </div>
                     );
                   })()}
                   
-                  {/* D) Ponto Principal FIBRA ↔ Ponto Principal BL */}
-                  {(() => {
-                    // Obter o percentual de TA para Ponto Principal FIBRA
-                    const taPercentage = Object.entries(timeMetrics.servicesByType)
-                      .filter(([type]) => type === 'Ponto Principal FIBRA')
-                      .map(([_, metrics]) => metrics.percentWithinGoal)[0] || 0;
-                    
-                    // Obter o percentual de Reabertura para Ponto Principal BL
-                    const reopeningRate = getReopeningMetrics.reopeningsByOriginalType["Ponto Principal BL"]?.reopeningRate || 0;
-                    
-                    // Contar serviços finalizados de Ponto Principal FIBRA
-                    const servicosFinalizados = filteredServiceOrdersByFinalization.filter(o => {
-                      const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                      return category === "Ponto Principal FIBRA" && o.include_in_metrics;
-                    }).length;
-                    
-                    // Valor vigente por serviço
-                    const valorPorServico = 40.00;
-                    const ganhoTotal = servicosFinalizados * valorPorServico;
-                    
-                    // Calcular tendência - buscar serviços do mês anterior baseado nos filtros aplicados
-                    const mesAtualFiltro = selectedMonth ? parseInt(selectedMonth) : new Date().getMonth() + 1;
-                    const anoAtualFiltro = selectedYear ? parseInt(selectedYear) : new Date().getFullYear();
-                    const mesAnterior = mesAtualFiltro === 1 ? 12 : mesAtualFiltro - 1;
-                    const anoAnterior = mesAtualFiltro === 1 ? anoAtualFiltro - 1 : anoAtualFiltro;
-                    
-                    // Buscar nos dados completos (sem filtro de período) para pegar o mês anterior
-                    const servicosFinalizadosAnterior = serviceOrders.filter(o => {
-                      const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                      const dataFinalizacao = new Date(o.data_finalizacao);
-                      return category === "Ponto Principal FIBRA" && 
-                             o.include_in_metrics &&
-                             dataFinalizacao.getMonth() + 1 === mesAnterior &&
-                             dataFinalizacao.getFullYear() === anoAnterior;
-                    }).length;
-                    
-                    const ganhoAnterior = servicosFinalizadosAnterior * valorPorServico;
-                    const diferencaValor = ganhoTotal - ganhoAnterior;
-                    const diferencaPercentual = ganhoAnterior > 0 ? (diferencaValor / ganhoAnterior) * 100 : 0;
-                    
-                    // Determinar a bonificação com base nas tabelas
-                    let result = "Não Elegível";
-                    let isEligible = false;
-                    
-                    if (taPercentage >= 75 && reopeningRate <= 5) {
-                      result = "R$40,00";
-                      isEligible = true;
-                    }
-                    
-                    const cardClass = isEligible ? "bg-green-50" : "bg-red-50";
-                    const textClass = isEligible ? "text-green-700" : "text-red-700";
-                    
-                    return (
-                      <Card className={cardClass}>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">
-                            Ponto Principal FIBRA
-                          </CardTitle>
-                          <CardDescription>
-                            TA: {taPercentage.toFixed(2)}% | Reabertura: {reopeningRate.toFixed(2)}%
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className={`text-xl font-bold ${textClass}`}>
-                            {result}
-                          </div>
-                          {servicosFinalizados > 0 && (
-                            <div className="mt-2 pt-2 border-t border-gray-200">
-                              <div className="text-sm text-gray-600 mb-1">Ganho por Serviços</div>
-                              <div className="text-lg font-semibold text-blue-700">
-                                {ganhoTotal.toLocaleString('pt-BR', { 
-                                  style: 'currency', 
-                                  currency: 'BRL' 
-                                })}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {servicosFinalizados} serviços × R$ {valorPorServico.toFixed(2)}
-                              </div>
-                              
-                              {/* Tendência vs Mês Anterior */}
-                              {ganhoAnterior > 0 && (
-                                <div className="mt-2 pt-2 border-t border-gray-100">
-                                  <div className="text-sm text-gray-600 mb-1">Tendência vs Mês Anterior</div>
-                                  <div className={`text-sm font-medium flex items-center gap-1 ${
-                                    diferencaValor > 0 ? 'text-green-600' : diferencaValor < 0 ? 'text-red-600' : 'text-gray-600'
-                                  }`}>
-                                    <span className="text-base">
-                                      {diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}
-                                    </span>
-                                    {diferencaValor > 0 ? '+' : ''}{diferencaPercentual.toFixed(1)}% 
-                                    ({diferencaValor > 0 ? '+' : ''}{diferencaValor.toLocaleString('pt-BR', { 
-                                      style: 'currency', 
-                                      currency: 'BRL' 
-                                    })})
-                                  </div>
-                                  <div className="text-xs text-gray-500">
-                                    {servicosFinalizadosAnterior} serviços no mês anterior
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })()}
-                </div>
-              </CardContent>
-            </Card>
-            </ProtectedCard>
-            
-            {/* Quadro Por Tipo de Serviço — Detalhamento por tipo (POS e BL-DGO) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              {/* Quadro de Permanência POS */}
-              <Card className="w-full">
-                <CardHeader>
-                  <CardTitle>
-                    <div className="flex items-center">
-                      <MapPin className="mr-2 h-5 w-5" />
-                      Permanência POS
                     </div>
-                  </CardTitle>
-                  <CardDescription>
-                    Informações de permanência para serviços POS
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <PermanenciaPorTipoServico sigla="POS" datasHabilitacaoFiltradas={filtroDataHabilitacao} vendasFiltradas={vendasFiltradasPermanenciaIndicadores} />
                 </CardContent>
               </Card>
               
-              {/* Quadro de Permanência Fibra */}
-              <Card className="w-full">
-                <CardHeader>
-                  <CardTitle>
-                    <div className="flex items-center">
-                      <MapPin className="mr-2 h-5 w-5" />
-                      Permanência Fibra
-                    </div>
-                  </CardTitle>
-                  <CardDescription>
-                    Informações de permanência para serviços FIBRA
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <PermanenciaPorTipoServico sigla="BL-DGO" datasHabilitacaoFiltradas={filtroDataHabilitacao} vendasFiltradas={vendasFiltradasPermanenciaIndicadores} />
-                </CardContent>
-              </Card>
-            </div>
-            
-            {/* Novo quadro de Faixas de Desempenho e Bonificações - Vendas */}
+            {/* Novo quadro modernizado de Bonificações */}
             <div className="mb-6">
-              <ValorDeFaceVendas vendasFiltradas={vendasFiltradasPermanenciaIndicadores} />
+              <BonificacoesVendas 
+                vendasFiltradas={buscarVendasDoPeriodoBonificacoes}
+                vendasParaPermanencia={vendasFiltradasPermanenciaIndicadores}
+                isMesAtual={isPeriodoMesAtual}
+              />
             </div>
           </>
+          </ProtectedCard>
         )}
       </TabsContent>
       
@@ -4412,45 +4656,191 @@ export function MetricsOverview() {
           <NoDataMessage />
         ) : technicians.length > 0 ? (
           <>
+            {/* Ranking de Excelência - Top 3 Técnicos */}
+            {technicianExcellenceRanking.length > 0 && (
+              <Card className="shadow-xl border-2 border-yellow-200 bg-gradient-to-br from-yellow-50 via-amber-50 to-orange-50">
+                  <CardHeader className="pb-4 bg-gradient-to-r from-yellow-400 via-amber-400 to-orange-400 rounded-t-lg">
+                    <CardTitle className="flex items-center text-lg font-bold text-gray-900 drop-shadow-sm">
+                      <Trophy className="mr-2 h-6 w-6 text-gray-900" />
+                      Ranking de Excelência - Top 3 Técnicos
+                    </CardTitle>
+                    <CardDescription className="text-gray-800 text-xs mt-2 space-y-1 font-medium">
+                      <div className="font-semibold text-gray-900">Critérios de Avaliação:</div>
+                      <div>• Score Final: 40% Reabertura AT + 40% Reabertura Ponto Principal + 20% Otimização</div>
+                      <div>• Em caso de empate: maior volume de serviços</div>
+                      <div>• Excluídos da contagem: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto</div>
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {technicianExcellenceRanking.map((tech, index) => {
+                          const position = index + 1;
+                          const medalColors = [
+                            { bg: "from-yellow-400 to-yellow-600", border: "border-yellow-500", text: "text-yellow-700", icon: "🥇" },
+                            { bg: "from-gray-300 to-gray-500", border: "border-gray-400", text: "text-gray-700", icon: "🥈" },
+                            { bg: "from-orange-300 to-orange-500", border: "border-orange-400", text: "text-orange-700", icon: "🥉" }
+                          ];
+                          const colors = medalColors[index];
+                          
+                          return (
+                            <div
+                              key={tech.nome}
+                              className={`relative bg-gradient-to-br ${colors.bg} rounded-xl p-4 shadow-lg border-2 ${colors.border} transform transition-all hover:scale-105`}
+                            >
+                              <div className="flex flex-col items-center text-center">
+                                <div className="text-4xl mb-2">{colors.icon}</div>
+                                <div className={`text-2xl font-bold ${colors.text} mb-1`}>
+                                  {position}º Lugar
+                                </div>
+                                <div className="text-lg font-semibold text-gray-900 mb-3">
+                                  {tech.nome}
+                                </div>
+                                
+                                <div className="w-full space-y-2 mt-3">
+                                  <div className="bg-white/80 rounded-lg p-2">
+                                    <div className="text-xs font-semibold text-gray-600 mb-1">Score Final</div>
+                                    <div className={`text-xl font-bold ${colors.text}`}>
+                                      {tech.scoreFinal.toFixed(2)} pts
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div className="bg-white/80 rounded p-2">
+                                      <div className="text-gray-600 font-semibold">Reab. AT</div>
+                                      <div className={`font-bold ${tech.atRate <= 5 ? 'text-green-600' : tech.atRate <= 10 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                        {tech.atRate.toFixed(2)}%
+                                      </div>
+                                    </div>
+                                    <div className="bg-white/80 rounded p-2">
+                                      <div className="text-gray-600 font-semibold">Reab. Ponto</div>
+                                      <div className={`font-bold ${tech.pontoTVRate <= 5 ? 'text-green-600' : tech.pontoTVRate <= 10 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                        {tech.pontoTVRate.toFixed(2)}%
+                                      </div>
+                                    </div>
+                                    <div className="bg-white/80 rounded p-2">
+                                      <div className="text-gray-600 font-semibold">Consumo</div>
+                                      <div className={`font-bold ${tech.percentualConsumo <= 50 ? 'text-green-600' : tech.percentualConsumo <= 70 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                        {tech.percentualConsumo.toFixed(2)}%
+                                      </div>
+                                    </div>
+                                    <div className="bg-white/80 rounded p-2">
+                                      <div className="text-gray-600 font-semibold">Serviços</div>
+                                      <div className="font-bold text-blue-600">
+                                        {tech.totalServices}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </CardContent>
+                </Card>
+            )}
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Technicians Reopening Table */}
-              <Card className="col-span-1 md:col-span-2">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <AlertTriangle className="mr-2 h-5 w-5" />
-                    Reabertura por Técnico
-                  </CardTitle>
-                  <CardDescription>
-                    Quantidade e percentual de reaberturas por técnico, por tipo de serviço e segmento (TV/Fibra), ordenados pelo menor % de reabertura total e maior volume de serviços
-                  </CardDescription>
+              {/* Technicians Reopening Table - Modernizado */}
+              <Card className="col-span-1 md:col-span-2 shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
+                <CardHeader className="pb-3 bg-gradient-to-r from-red-600 to-orange-600 text-white rounded-t-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <CardTitle className="flex items-center text-base">
+                        <AlertTriangle className="mr-2 h-5 w-5" />
+                        Reabertura por Técnico
+                      </CardTitle>
+                      <CardDescription className="text-red-100 text-xs">
+                        Análise de reaberturas por técnico, ordenados pelo menor % de reabertura total e maior volume de serviços
+                      </CardDescription>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="bg-white/20 hover:bg-white/30 border-white/30 text-white">
+                          <Columns className="h-4 w-4 mr-2" />
+                          Colunas
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56">
+                        <DropdownMenuLabel>Exibir Colunas</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuCheckboxItem
+                          checked={reopeningVisibleColumns.pontoTV}
+                          onCheckedChange={(checked) => 
+                            setReopeningVisibleColumns(prev => ({ ...prev, pontoTV: checked as boolean }))
+                          }
+                        >
+                          Ponto Principal TV
+                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuCheckboxItem
+                          checked={reopeningVisibleColumns.assistenciaTV}
+                          onCheckedChange={(checked) => 
+                            setReopeningVisibleColumns(prev => ({ ...prev, assistenciaTV: checked as boolean }))
+                          }
+                        >
+                          Assistência Técnica TV
+                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuCheckboxItem
+                          checked={reopeningVisibleColumns.assistenciaFibra}
+                          onCheckedChange={(checked) => 
+                            setReopeningVisibleColumns(prev => ({ ...prev, assistenciaFibra: checked as boolean }))
+                          }
+                        >
+                          Assistência Técnica FIBRA
+                        </DropdownMenuCheckboxItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-4">
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
-                        <TableRow className="bg-muted">
-                          <TableHead rowSpan={2} className="align-middle">Técnico</TableHead>
-                          <TableHead rowSpan={2} className="text-center align-middle">Total<br/>OS</TableHead>
-                          <TableHead rowSpan={2} className="text-center align-middle">Total<br/>Reab.</TableHead>
-                          <TableHead rowSpan={2} className="text-center align-middle">Taxa<br/>Total %</TableHead>
-                          <TableHead className="text-center" colSpan={3}>Ponto Principal TV</TableHead>
-                          <TableHead className="text-center" colSpan={3}>Ponto Principal FIBRA</TableHead>
-                          <TableHead className="text-center" colSpan={3}>Assistência Técnica TV</TableHead>
-                          <TableHead className="text-center" colSpan={3}>Assistência Técnica FIBRA</TableHead>
+                        <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
+                          <TableHead className="text-center font-bold text-gray-900 w-16 sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50">Pos</TableHead>
+                          <TableHead className="sticky left-16 z-10 bg-gradient-to-r from-gray-100 to-gray-50 min-w-[150px] font-bold text-gray-900 border-r-2 border-gray-300">
+                            Técnico
+                          </TableHead>
+                          {reopeningVisibleColumns.pontoTV && (
+                            <TableHead className="text-center font-bold text-blue-700 bg-blue-50 border-l-2 border-blue-200" colSpan={3}>
+                              Ponto Principal TV
+                            </TableHead>
+                          )}
+                          {reopeningVisibleColumns.assistenciaTV && (
+                            <TableHead className="text-center font-bold text-green-700 bg-green-50 border-l-2 border-green-200" colSpan={3}>
+                              Assistência Técnica TV
+                            </TableHead>
+                          )}
+                          {reopeningVisibleColumns.assistenciaFibra && (
+                            <TableHead className="text-center font-bold text-purple-700 bg-purple-50 border-l-2 border-purple-200" colSpan={3}>
+                              Assistência Técnica FIBRA
+                            </TableHead>
+                          )}
                         </TableRow>
-                        <TableRow className="bg-muted">
-                          <TableHead className="text-center py-2">Serv.</TableHead>
-                          <TableHead className="text-center py-2">Reab.</TableHead>
-                          <TableHead className="text-center py-2">%</TableHead>
-                          <TableHead className="text-center py-2">Serv.</TableHead>
-                          <TableHead className="text-center py-2">Reab.</TableHead>
-                          <TableHead className="text-center py-2">%</TableHead>
-                          <TableHead className="text-center py-2">Serv.</TableHead>
-                          <TableHead className="text-center py-2">Reab.</TableHead>
-                          <TableHead className="text-center py-2">%</TableHead>
-                          <TableHead className="text-center py-2">Serv.</TableHead>
-                          <TableHead className="text-center py-2">Reab.</TableHead>
-                          <TableHead className="text-center py-2">%</TableHead>
+                        <TableRow className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                          <TableHead className="sticky left-0 z-10 bg-gradient-to-r from-gray-50 to-gray-100"></TableHead>
+                          <TableHead className="sticky left-16 z-10 bg-gradient-to-r from-gray-50 to-gray-100 border-r-2 border-gray-300"></TableHead>
+                          {reopeningVisibleColumns.pontoTV && (
+                            <>
+                              <TableHead className="text-center text-xs py-2 bg-blue-50 border-l-2 border-blue-200">Serv.</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-blue-50">Reab.</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-blue-50">%</TableHead>
+                            </>
+                          )}
+                          {reopeningVisibleColumns.assistenciaTV && (
+                            <>
+                              <TableHead className="text-center text-xs py-2 bg-green-50 border-l-2 border-green-200">Serv.</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-green-50">Reab.</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-green-50">%</TableHead>
+                            </>
+                          )}
+                          {reopeningVisibleColumns.assistenciaFibra && (
+                            <>
+                              <TableHead className="text-center text-xs py-2 bg-purple-50 border-l-2 border-purple-200">Serv.</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-purple-50">Reab.</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-purple-50">%</TableHead>
+                            </>
+                          )}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -4461,15 +4851,13 @@ export function MetricsOverview() {
                             const totalOrders = techOrders.length;
                             const reopenings = getReopeningMetrics.reopeningsByTechnician[name] || 0;
                             
-                            // Contadores específicos por tipo
+                            // Contadores específicos por tipo (removido Ponto Principal FIBRA)
                             let pontoTVReopenings = 0;
-                            let pontoFibraReopenings = 0;
                             let assistenciaTVReopenings = 0;
                             let assistenciaFibraReopenings = 0;
                             
-                            // Contadores de serviços por tipo
+                            // Contadores de serviços por tipo (removido Ponto Principal FIBRA)
                             let pontoPrincipalTVServices = 0;
-                            let pontoPrincipalFibraServices = 0;
                             let assistenciaTecnicaTVServices = 0;
                             let assistenciaTecnicaFibraServices = 0;
                             
@@ -4482,8 +4870,6 @@ export function MetricsOverview() {
                               
                               if (category.includes("Ponto Principal TV")) {
                                 pontoPrincipalTVServices++;
-                              } else if (category.includes("Ponto Principal FIBRA")) {
-                                pontoPrincipalFibraServices++;
                               } else if (category.includes("Assistência Técnica TV")) {
                                 assistenciaTecnicaTVServices++;
                               } else if (category.includes("Assistência Técnica FIBRA")) {
@@ -4491,7 +4877,7 @@ export function MetricsOverview() {
                               }
                             });
                             
-                            // Contagem por tipo de reabertura usando os pares
+                            // Contagem por tipo de reabertura usando os pares (removido Ponto Principal FIBRA)
                             const techReopeningPairs = getFilteredReopeningPairs.filter(
                               pair => pair.originalOrder.nome_tecnico === name
                             );
@@ -4500,8 +4886,6 @@ export function MetricsOverview() {
                               const originalCategory = pair.originalServiceCategory;
                               if (originalCategory?.includes("Ponto Principal TV")) {
                                 pontoTVReopenings++;
-                              } else if (originalCategory?.includes("Ponto Principal FIBRA")) {
-                                pontoFibraReopenings++;
                               } else if (originalCategory?.includes("Assistência Técnica TV")) {
                                 assistenciaTVReopenings++;
                               } else if (originalCategory?.includes("Assistência Técnica FIBRA")) {
@@ -4511,12 +4895,11 @@ export function MetricsOverview() {
                             
                             // Calcular os percentuais para cada tipo de serviço
                             const pontoTVRate = pontoPrincipalTVServices > 0 ? (pontoTVReopenings / pontoPrincipalTVServices) * 100 : 0;
-                            const pontoFibraRate = pontoPrincipalFibraServices > 0 ? (pontoFibraReopenings / pontoPrincipalFibraServices) * 100 : 0;
                             const assistenciaTVRate = assistenciaTecnicaTVServices > 0 ? (assistenciaTVReopenings / assistenciaTecnicaTVServices) * 100 : 0;
                             const assistenciaFibraRate = assistenciaTecnicaFibraServices > 0 ? (assistenciaFibraReopenings / assistenciaTecnicaFibraServices) * 100 : 0;
                             
                             // Calcular a taxa de reabertura total com base na soma dos serviços por tipo
-                            const totalServices = pontoPrincipalTVServices + pontoPrincipalFibraServices + 
+                            const totalServices = pontoPrincipalTVServices + 
                                                 assistenciaTecnicaTVServices + assistenciaTecnicaFibraServices;
                             const totalReopeningRate = totalServices > 0 ? (reopenings / totalServices) * 100 : 0;
                             
@@ -4531,9 +4914,6 @@ export function MetricsOverview() {
                               pontoPrincipalTVServices,
                               pontoTVReopenings,
                               pontoTVRate,
-                              pontoPrincipalFibraServices,
-                              pontoFibraReopenings,
-                              pontoFibraRate,
                               assistenciaTecnicaTVServices,
                               assistenciaTVReopenings,
                               assistenciaTVRate,
@@ -4544,205 +4924,341 @@ export function MetricsOverview() {
                           })
                           .filter(Boolean)
                           .sort((a, b) => {
-                            // Primeiro critério: menor % de reabertura total
-                            if (a.totalReopeningRate !== b.totalReopeningRate) {
-                              return a.totalReopeningRate - b.totalReopeningRate;
+                            // Função para calcular percentual de reabertura considerando apenas colunas visíveis
+                            const calcVisibleReopeningRate = (tech: {
+                              pontoTVRate: number;
+                              assistenciaTVRate: number;
+                              assistenciaFibraRate: number;
+                              pontoPrincipalTVServices: number;
+                              assistenciaTecnicaTVServices: number;
+                              assistenciaTecnicaFibraServices: number;
+                            }) => {
+                              const visibleColumns = [
+                                reopeningVisibleColumns.pontoTV ? {
+                                  rate: tech.pontoTVRate,
+                                  services: tech.pontoPrincipalTVServices
+                                } : null,
+                                reopeningVisibleColumns.assistenciaTV ? {
+                                  rate: tech.assistenciaTVRate,
+                                  services: tech.assistenciaTecnicaTVServices
+                                } : null,
+                                reopeningVisibleColumns.assistenciaFibra ? {
+                                  rate: tech.assistenciaFibraRate,
+                                  services: tech.assistenciaTecnicaFibraServices
+                                } : null
+                              ].filter(Boolean) as Array<{ rate: number; services: number }>;
+
+                              // Se nenhuma coluna visível, usar todas (fallback)
+                              if (visibleColumns.length === 0) {
+                                const totalServices = tech.pontoPrincipalTVServices + 
+                                                     tech.assistenciaTecnicaTVServices + 
+                                                     tech.assistenciaTecnicaFibraServices;
+                                const totalReopenings = (tech.pontoTVRate * tech.pontoPrincipalTVServices / 100) +
+                                                        (tech.assistenciaTVRate * tech.assistenciaTecnicaTVServices / 100) +
+                                                        (tech.assistenciaFibraRate * tech.assistenciaTecnicaFibraServices / 100);
+                                return totalServices > 0 ? (totalReopenings / totalServices) * 100 : 0;
+                              }
+
+                              // Se apenas 1 coluna visível, usar o percentual direto
+                              if (visibleColumns.length === 1) {
+                                return visibleColumns[0].rate;
+                              }
+
+                              // Se 2 ou 3 colunas visíveis, calcular média ponderada
+                              const totalServices = visibleColumns.reduce((sum, col) => sum + col.services, 0);
+                              if (totalServices === 0) return 0;
+                              
+                              const weightedSum = visibleColumns.reduce((sum, col) => {
+                                return sum + (col.rate * col.services / 100);
+                              }, 0);
+                              
+                              return (weightedSum / totalServices) * 100;
+                            };
+
+                            const rateA = calcVisibleReopeningRate(a);
+                            const rateB = calcVisibleReopeningRate(b);
+
+                            // Primeiro critério: menor % de reabertura (considerando apenas colunas visíveis)
+                            if (rateA !== rateB) {
+                              return rateA - rateB;
                             }
-                            // Segundo critério: maior quantidade de serviços total
-                            const aTotal = a.pontoPrincipalTVServices + a.pontoPrincipalFibraServices + 
-                                          a.assistenciaTecnicaTVServices + a.assistenciaTecnicaFibraServices;
-                            const bTotal = b.pontoPrincipalTVServices + b.pontoPrincipalFibraServices + 
-                                          b.assistenciaTecnicaTVServices + b.assistenciaTecnicaFibraServices;
+
+                            // Segundo critério: maior quantidade de serviços (considerando apenas colunas visíveis)
+                            const getVisibleServices = (tech: {
+                              pontoPrincipalTVServices: number;
+                              assistenciaTecnicaTVServices: number;
+                              assistenciaTecnicaFibraServices: number;
+                            }) => {
+                              let total = 0;
+                              if (reopeningVisibleColumns.pontoTV) total += tech.pontoPrincipalTVServices;
+                              if (reopeningVisibleColumns.assistenciaTV) total += tech.assistenciaTecnicaTVServices;
+                              if (reopeningVisibleColumns.assistenciaFibra) total += tech.assistenciaTecnicaFibraServices;
+                              
+                              // Se nenhuma coluna visível, usar todas (fallback)
+                              if (total === 0) {
+                                return tech.pontoPrincipalTVServices + 
+                                       tech.assistenciaTecnicaTVServices + 
+                                       tech.assistenciaTecnicaFibraServices;
+                              }
+                              
+                              return total;
+                            };
+
+                            const aTotal = getVisibleServices(a);
+                            const bTotal = getVisibleServices(b);
                             return bTotal - aTotal;
                           })
                           .map((tech, index) => {
-                            // Funções para colorir percentuais conforme as regras específicas por tipo
-                            const getPontoPrincipalFibraColor = (rate: number) => {
-                              if (rate < 5.00) return "text-green-600";
-                              return "text-red-600";
+                            // Funções para obter cores e badges conforme as regras específicas por tipo
+                            const getPontoPrincipalTVBadge = (rate: number) => {
+                              if (rate < 2.00) {
+                                return "bg-green-100 text-green-800 border-green-300";
+                              }
+                              return "bg-red-100 text-red-800 border-red-300";
                             };
                             
-                            const getPontoPrincipalTVColor = (rate: number) => {
-                              if (rate < 2.00) return "text-green-600";
-                              return "text-red-600";
+                            const getAssistenciaTVBadge = (rate: number) => {
+                              if (rate < 3.50) {
+                                return "bg-green-100 text-green-800 border-green-300";
+                              }
+                              if (rate < 10.50) {
+                                return "bg-yellow-100 text-yellow-800 border-yellow-300";
+                              }
+                              return "bg-red-100 text-red-800 border-red-300";
                             };
                             
-                            const getAssistenciaTVColor = (rate: number) => {
-                              if (rate < 3.50) return "text-green-600";
-                              if (rate < 10.50) return "text-amber-600";
-                              return "text-red-600";
+                            const getAssistenciaFibraBadge = (rate: number) => {
+                              if (rate < 8.00) {
+                                return "bg-green-100 text-green-800 border-green-300";
+                              }
+                              if (rate < 16.00) {
+                                return "bg-yellow-100 text-yellow-800 border-yellow-300";
+                              }
+                              return "bg-red-100 text-red-800 border-red-300";
                             };
                             
-                            const getAssistenciaFibraColor = (rate: number) => {
-                              if (rate < 8.00) return "text-green-600";
-                              if (rate < 16.00) return "text-amber-600";
-                              return "text-red-600";
+                            // Função para badge da taxa total
+                            const getTotalReopeningBadge = (rate: number) => {
+                              if (rate < 5.00) {
+                                return "bg-green-100 text-green-800 border-green-300";
+                              }
+                              if (rate < 10.00) {
+                                return "bg-yellow-100 text-yellow-800 border-yellow-300";
+                              }
+                              return "bg-red-100 text-red-800 border-red-300";
                             };
                             
-                            // Função para colorir taxa total
-                            const getTotalReopeningColor = (rate: number) => {
-                              if (rate < 5.00) return "text-green-600";
-                              if (rate < 10.00) return "text-amber-600";
-                              return "text-red-600";
+                            // Renderizar posição com medalhas ou número
+                            const renderPosition = () => {
+                              const position = index + 1;
+                              if (position === 1) {
+                                return (
+                                  <div className="flex items-center justify-center">
+                                    <Medal className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                                  </div>
+                                );
+                              } else if (position === 2) {
+                                return (
+                                  <div className="flex items-center justify-center">
+                                    <Medal className="h-5 w-5 text-gray-400 fill-gray-400" />
+                                  </div>
+                                );
+                              } else if (position === 3) {
+                                return (
+                                  <div className="flex items-center justify-center">
+                                    <Medal className="h-5 w-5 text-amber-600 fill-amber-600" />
+                                  </div>
+                                );
+                              } else {
+                                return (
+                                  <span className="text-gray-700 font-semibold text-sm">
+                                    {position}°
+                                  </span>
+                                );
+                              }
                             };
                               
                             return (
                               <TableRow 
                                 key={tech.name} 
-                                className={index % 2 === 0 ? "bg-sky-50" : "bg-white"}
+                                className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}
                               >
-                                <TableCell className="font-medium">{tech.name}</TableCell>
-                                <TableCell className="text-center">
-                                  {tech.pontoPrincipalTVServices + tech.pontoPrincipalFibraServices + 
-                                   tech.assistenciaTecnicaTVServices + tech.assistenciaTecnicaFibraServices}
+                                <TableCell className={`text-center sticky left-0 z-10 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
+                                  {renderPosition()}
                                 </TableCell>
-                                <TableCell className="text-center font-bold">{tech.reopenings}</TableCell>
-                                <TableCell className={`text-center font-medium ${getTotalReopeningColor(tech.totalReopeningRate)}`}>
-                                  {tech.totalReopeningRate.toFixed(2)}%
+                                <TableCell className={`sticky left-16 z-10 font-semibold border-r-2 border-gray-200 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
+                                  {tech.name}
                                 </TableCell>
-                                <TableCell className="text-center">{tech.pontoPrincipalTVServices}</TableCell>
-                                <TableCell className="text-center">{tech.pontoTVReopenings}</TableCell>
-                                <TableCell className={`text-center ${getPontoPrincipalTVColor(tech.pontoTVRate)}`}>
-                                  {tech.pontoTVRate.toFixed(2)}%
-                                </TableCell>
-                                <TableCell className="text-center">{tech.pontoPrincipalFibraServices}</TableCell>
-                                <TableCell className="text-center">{tech.pontoFibraReopenings}</TableCell>
-                                <TableCell className={`text-center ${getPontoPrincipalFibraColor(tech.pontoFibraRate)}`}>
-                                  {tech.pontoFibraRate.toFixed(2)}%
-                                </TableCell>
-                                <TableCell className="text-center">{tech.assistenciaTecnicaTVServices}</TableCell>
-                                <TableCell className="text-center">{tech.assistenciaTVReopenings}</TableCell>
-                                <TableCell className={`text-center ${getAssistenciaTVColor(tech.assistenciaTVRate)}`}>
-                                  {tech.assistenciaTVRate.toFixed(2)}%
-                                </TableCell>
-                                <TableCell className="text-center">{tech.assistenciaTecnicaFibraServices}</TableCell>
-                                <TableCell className="text-center">{tech.assistenciaFibraReopenings}</TableCell>
-                                <TableCell className={`text-center ${getAssistenciaFibraColor(tech.assistenciaFibraRate)}`}>
-                                  {tech.assistenciaFibraRate.toFixed(2)}%
-                                </TableCell>
+                                {/* Ponto Principal TV */}
+                                {reopeningVisibleColumns.pontoTV && (
+                                  <>
+                                    <TableCell className="text-center bg-blue-50/30">{tech.pontoPrincipalTVServices}</TableCell>
+                                    <TableCell className="text-center bg-blue-50/30">{tech.pontoTVReopenings}</TableCell>
+                                    <TableCell className="text-center bg-blue-50/30">
+                                      <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${getPontoPrincipalTVBadge(tech.pontoTVRate)}`}>
+                                      {tech.pontoTVRate.toFixed(2)}%
+                                      </span>
+                                    </TableCell>
+                                  </>
+                                )}
+                                {/* Assistência Técnica TV */}
+                                {reopeningVisibleColumns.assistenciaTV && (
+                                  <>
+                                    <TableCell className="text-center bg-green-50/30 border-l-2 border-green-200">{tech.assistenciaTecnicaTVServices}</TableCell>
+                                    <TableCell className="text-center bg-green-50/30">{tech.assistenciaTVReopenings}</TableCell>
+                                    <TableCell className="text-center bg-green-50/30">
+                                      <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${getAssistenciaTVBadge(tech.assistenciaTVRate)}`}>
+                                      {tech.assistenciaTVRate.toFixed(2)}%
+                                      </span>
+                                    </TableCell>
+                                  </>
+                                )}
+                                {/* Assistência Técnica FIBRA */}
+                                {reopeningVisibleColumns.assistenciaFibra && (
+                                  <>
+                                    <TableCell className="text-center bg-purple-50/30 border-l-2 border-purple-200">{tech.assistenciaTecnicaFibraServices}</TableCell>
+                                    <TableCell className="text-center bg-purple-50/30">{tech.assistenciaFibraReopenings}</TableCell>
+                                    <TableCell className="text-center bg-purple-50/30">
+                                      <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${getAssistenciaFibraBadge(tech.assistenciaFibraRate)}`}>
+                                      {tech.assistenciaFibraRate.toFixed(2)}%
+                                      </span>
+                                    </TableCell>
+                                  </>
+                                )}
                               </TableRow>
                           )})}
                         
                         {technicians.filter(name => name && filteredServiceOrders.some(o => o.nome_tecnico === name)).length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={16} className="text-center py-4 text-muted-foreground">
+                            <TableCell colSpan={2 + (reopeningVisibleColumns.pontoTV ? 3 : 0) + (reopeningVisibleColumns.assistenciaTV ? 3 : 0) + (reopeningVisibleColumns.assistenciaFibra ? 3 : 0)} className="text-center py-4 text-muted-foreground">
                               Nenhum técnico encontrado no período selecionado
                             </TableCell>
                           </TableRow>
                         )}
                       </TableBody>
                       <TableFooter>
-                        <TableRow>
-                          <TableCell className="font-bold text-left border-r border-muted">Total Geral</TableCell>
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrders.length}
+                        <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-t-2 border-gray-300 font-bold">
+                          <TableCell className="sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50"></TableCell>
+                          <TableCell className="sticky left-16 z-10 font-bold bg-gradient-to-r from-gray-100 to-gray-50 border-r-2 border-gray-300">
+                            Total Geral
                           </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {getReopeningMetrics.reopenedOrders}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {getReopeningMetrics.reopeningRate.toFixed(2)}%
-                          </TableCell>
-                          
                           {/* Ponto Principal TV */}
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrders.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Ponto Principal TV";
-                            }).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {getFilteredReopeningPairs.filter(pair => 
-                              pair.originalServiceCategory?.includes("Ponto Principal TV")
-                            ).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {(() => {
-                              const services = filteredServiceOrders.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Ponto Principal TV";
-                              }).length;
-                              const reopenings = getFilteredReopeningPairs.filter(pair => 
-                                pair.originalServiceCategory?.includes("Ponto Principal TV")
-                              ).length;
-                              return services > 0 ? ((reopenings / services) * 100).toFixed(2) + "%" : "0.00%";
-                            })()}
-                          </TableCell>
-
-                          {/* Ponto Principal FIBRA */}
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrders.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Ponto Principal FIBRA";
-                            }).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {getFilteredReopeningPairs.filter(pair => 
-                              pair.originalServiceCategory?.includes("Ponto Principal FIBRA")
-                            ).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {(() => {
-                              const services = filteredServiceOrders.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Ponto Principal FIBRA";
-                              }).length;
-                              const reopenings = getFilteredReopeningPairs.filter(pair => 
-                                pair.originalServiceCategory?.includes("Ponto Principal FIBRA")
-                              ).length;
-                              return services > 0 ? ((reopenings / services) * 100).toFixed(2) + "%" : "0.00%";
-                            })()}
-                          </TableCell>
+                          {reopeningVisibleColumns.pontoTV && (
+                            <>
+                              <TableCell className="text-center font-medium bg-blue-50/30">
+                                {filteredServiceOrders.filter(o => {
+                                  const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                  return category === "Ponto Principal TV";
+                                }).length}
+                              </TableCell>
+                              <TableCell className="text-center font-medium bg-blue-50/30">
+                                {getFilteredReopeningPairs.filter(pair => 
+                                  pair.originalServiceCategory?.includes("Ponto Principal TV")
+                                ).length}
+                              </TableCell>
+                              <TableCell className="text-center bg-blue-50/30">
+                                {(() => {
+                                  const services = filteredServiceOrders.filter(o => {
+                                    const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                    return category === "Ponto Principal TV";
+                                  }).length;
+                                  const reopenings = getFilteredReopeningPairs.filter(pair => 
+                                    pair.originalServiceCategory?.includes("Ponto Principal TV")
+                                  ).length;
+                                  const rate = services > 0 ? ((reopenings / services) * 100) : 0;
+                                  return (
+                                    <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${
+                                      rate < 2.00 
+                                        ? "bg-green-100 text-green-800 border-green-300" 
+                                        : "bg-red-100 text-red-800 border-red-300"
+                                    }`}>
+                                      {rate.toFixed(2)}%
+                                    </span>
+                                  );
+                                })()}
+                              </TableCell>
+                            </>
+                          )}
 
                           {/* Assistência Técnica TV */}
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrders.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Assistência Técnica TV";
-                            }).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {getFilteredReopeningPairs.filter(pair => 
-                              pair.originalServiceCategory?.includes("Assistência Técnica TV")
-                            ).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {(() => {
-                              const services = filteredServiceOrders.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Assistência Técnica TV";
-                              }).length;
-                              const reopenings = getFilteredReopeningPairs.filter(pair => 
-                                pair.originalServiceCategory?.includes("Assistência Técnica TV")
-                              ).length;
-                              return services > 0 ? ((reopenings / services) * 100).toFixed(2) + "%" : "0.00%";
-                            })()}
-                          </TableCell>
+                          {reopeningVisibleColumns.assistenciaTV && (
+                            <>
+                              <TableCell className="text-center font-medium bg-green-50/30 border-l-2 border-green-200">
+                                {filteredServiceOrders.filter(o => {
+                                  const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                  return category === "Assistência Técnica TV";
+                                }).length}
+                              </TableCell>
+                              <TableCell className="text-center font-medium bg-green-50/30">
+                                {getFilteredReopeningPairs.filter(pair => 
+                                  pair.originalServiceCategory?.includes("Assistência Técnica TV")
+                                ).length}
+                              </TableCell>
+                              <TableCell className="text-center bg-green-50/30">
+                                {(() => {
+                                  const services = filteredServiceOrders.filter(o => {
+                                    const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                    return category === "Assistência Técnica TV";
+                                  }).length;
+                                  const reopenings = getFilteredReopeningPairs.filter(pair => 
+                                    pair.originalServiceCategory?.includes("Assistência Técnica TV")
+                                  ).length;
+                                  const rate = services > 0 ? ((reopenings / services) * 100) : 0;
+                                  return (
+                                    <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${
+                                      rate < 3.50 
+                                        ? "bg-green-100 text-green-800 border-green-300" 
+                                        : rate < 10.50 
+                                        ? "bg-yellow-100 text-yellow-800 border-yellow-300" 
+                                        : "bg-red-100 text-red-800 border-red-300"
+                                    }`}>
+                                      {rate.toFixed(2)}%
+                                    </span>
+                                  );
+                                })()}
+                              </TableCell>
+                            </>
+                          )}
 
                           {/* Assistência Técnica FIBRA */}
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrders.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Assistência Técnica FIBRA";
-                            }).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {getFilteredReopeningPairs.filter(pair => 
-                              pair.originalServiceCategory?.includes("Assistência Técnica FIBRA")
-                            ).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {(() => {
-                              const services = filteredServiceOrders.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Assistência Técnica FIBRA";
-                              }).length;
-                              const reopenings = getFilteredReopeningPairs.filter(pair => 
-                                pair.originalServiceCategory?.includes("Assistência Técnica FIBRA")
-                              ).length;
-                              return services > 0 ? ((reopenings / services) * 100).toFixed(2) + "%" : "0.00%";
-                            })()}
-                          </TableCell>
+                          {reopeningVisibleColumns.assistenciaFibra && (
+                            <>
+                              <TableCell className="text-center font-medium bg-purple-50/30 border-l-2 border-purple-200">
+                                {filteredServiceOrders.filter(o => {
+                                  const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                  return category === "Assistência Técnica FIBRA";
+                                }).length}
+                              </TableCell>
+                              <TableCell className="text-center font-medium bg-purple-50/30">
+                                {getFilteredReopeningPairs.filter(pair => 
+                                  pair.originalServiceCategory?.includes("Assistência Técnica FIBRA")
+                                ).length}
+                              </TableCell>
+                              <TableCell className="text-center bg-purple-50/30">
+                                {(() => {
+                                  const services = filteredServiceOrders.filter(o => {
+                                    const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                    return category === "Assistência Técnica FIBRA";
+                                  }).length;
+                                  const reopenings = getFilteredReopeningPairs.filter(pair => 
+                                    pair.originalServiceCategory?.includes("Assistência Técnica FIBRA")
+                                  ).length;
+                                  const rate = services > 0 ? ((reopenings / services) * 100) : 0;
+                                  return (
+                                    <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${
+                                      rate < 8.00 
+                                        ? "bg-green-100 text-green-800 border-green-300" 
+                                        : rate < 16.00 
+                                        ? "bg-yellow-100 text-yellow-800 border-yellow-300" 
+                                        : "bg-red-100 text-red-800 border-red-300"
+                                    }`}>
+                                      {rate.toFixed(2)}%
+                                    </span>
+                                  );
+                                })()}
+                              </TableCell>
+                            </>
+                          )}
                         </TableRow>
                       </TableFooter>
                     </Table>
@@ -4750,51 +5266,106 @@ export function MetricsOverview() {
                 </CardContent>
               </Card>
               
-              {/* Novo Card - Tempo de Atendimento por Técnico */}
-              <Card className="col-span-1 md:col-span-2">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Clock className="mr-2 h-5 w-5" />
-                    Tempo de Atendimento por Técnico
-                  </CardTitle>
-                  <CardDescription>
-                    Quantidade de OS finalizadas por técnico, por segmento (TV/Fibra), categorizadas por tempo de atendimento atingido ou perdido
-                  </CardDescription>
+              {/* Card - Tempo de Atendimento por Técnico - Modernizado */}
+              <Card className="col-span-1 md:col-span-2 shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
+                <CardHeader className="pb-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <CardTitle className="flex items-center text-base">
+                        <Clock className="mr-2 h-5 w-5" />
+                        Tempo de Atendimento por Técnico
+                      </CardTitle>
+                      <CardDescription className="text-blue-100 text-xs">
+                        Quantidade de OS finalizadas por técnico, categorizadas por tempo de atendimento atingido ou perdido
+                      </CardDescription>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="bg-white/20 hover:bg-white/30 border-white/30 text-white">
+                          <Columns className="h-4 w-4 mr-2" />
+                          Colunas
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56">
+                        <DropdownMenuLabel>Exibir Colunas</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuCheckboxItem
+                          checked={timeVisibleColumns.pontoTV}
+                          onCheckedChange={(checked) => 
+                            setTimeVisibleColumns(prev => ({ ...prev, pontoTV: checked as boolean }))
+                          }
+                        >
+                          Ponto Principal TV
+                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuCheckboxItem
+                          checked={timeVisibleColumns.assistenciaTV}
+                          onCheckedChange={(checked) => 
+                            setTimeVisibleColumns(prev => ({ ...prev, assistenciaTV: checked as boolean }))
+                          }
+                        >
+                          Assistência Técnica TV
+                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuCheckboxItem
+                          checked={timeVisibleColumns.assistenciaFibra}
+                          onCheckedChange={(checked) => 
+                            setTimeVisibleColumns(prev => ({ ...prev, assistenciaFibra: checked as boolean }))
+                          }
+                        >
+                          Assistência Técnica FIBRA
+                        </DropdownMenuCheckboxItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-4">
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
-                        <TableRow className="bg-muted">
-                          <TableHead rowSpan={2} className="align-middle">Técnico</TableHead>
-                          <TableHead rowSpan={2} className="text-center align-middle">Total</TableHead>
-                          <TableHead rowSpan={2} className="text-center align-middle">% Meta</TableHead>
-                          
-                          <TableHead className="text-center border-b border-muted" colSpan={3}>Assist. TV</TableHead>
-                          <TableHead className="text-center border-b border-muted" colSpan={3}>Assist. FIBRA</TableHead>
-                          <TableHead className="text-center border-b border-muted" colSpan={3}>Ponto TV</TableHead>
-                          <TableHead className="text-center border-b border-muted" colSpan={3}>Ponto FIBRA</TableHead>
+                        <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
+                          <TableHead className="text-center font-bold text-gray-900 w-16 sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50">Pos</TableHead>
+                          <TableHead className="sticky left-16 z-10 bg-gradient-to-r from-gray-100 to-gray-50 min-w-[150px] font-bold text-gray-900 border-r-2 border-gray-300">
+                            Técnico
+                          </TableHead>
+                          {timeVisibleColumns.pontoTV && (
+                            <TableHead className="text-center font-bold text-blue-700 bg-blue-50 border-l-2 border-blue-200" colSpan={3}>
+                              Ponto Principal TV
+                            </TableHead>
+                          )}
+                          {timeVisibleColumns.assistenciaTV && (
+                            <TableHead className="text-center font-bold text-green-700 bg-green-50 border-l-2 border-green-200" colSpan={3}>
+                              Assistência Técnica TV
+                            </TableHead>
+                          )}
+                          {timeVisibleColumns.assistenciaFibra && (
+                            <TableHead className="text-center font-bold text-purple-700 bg-purple-50 border-l-2 border-purple-200" colSpan={3}>
+                              Assistência Técnica FIBRA
+                            </TableHead>
+                          )}
                         </TableRow>
-                        <TableRow className="bg-muted">
-                          {/* Assistência Técnica TV */}
-                          <TableHead className="text-center py-1 bg-muted/40">Na Meta</TableHead>
-                          <TableHead className="text-center py-1 bg-muted/40">Fora</TableHead>
-                          <TableHead className="text-center py-1 bg-muted/40">%</TableHead>
-                          
-                          {/* Assistência Técnica Fibra */}
-                          <TableHead className="text-center py-1">Na Meta</TableHead>
-                          <TableHead className="text-center py-1">Fora</TableHead>
-                          <TableHead className="text-center py-1">%</TableHead>
-                          
-                          {/* Ponto Principal TV */}
-                          <TableHead className="text-center py-1 bg-muted/40">Na Meta</TableHead>
-                          <TableHead className="text-center py-1 bg-muted/40">Fora</TableHead>
-                          <TableHead className="text-center py-1 bg-muted/40">%</TableHead>
-                          
-                          {/* Ponto Principal Fibra */}
-                          <TableHead className="text-center py-1">Na Meta</TableHead>
-                          <TableHead className="text-center py-1">Fora</TableHead>
-                          <TableHead className="text-center py-1">%</TableHead>
+                        <TableRow className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                          <TableHead className="sticky left-0 z-10 bg-gradient-to-r from-gray-50 to-gray-100"></TableHead>
+                          <TableHead className="sticky left-16 z-10 bg-gradient-to-r from-gray-50 to-gray-100 border-r-2 border-gray-300"></TableHead>
+                          {timeVisibleColumns.pontoTV && (
+                            <>
+                              <TableHead className="text-center text-xs py-2 bg-blue-50 border-l-2 border-blue-200">Na Meta</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-blue-50">Fora</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-blue-50">%</TableHead>
+                            </>
+                          )}
+                          {timeVisibleColumns.assistenciaTV && (
+                            <>
+                              <TableHead className="text-center text-xs py-2 bg-green-50 border-l-2 border-green-200">Na Meta</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-green-50">Fora</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-green-50">%</TableHead>
+                            </>
+                          )}
+                          {timeVisibleColumns.assistenciaFibra && (
+                            <>
+                              <TableHead className="text-center text-xs py-2 bg-purple-50 border-l-2 border-purple-200">Na Meta</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-purple-50">Fora</TableHead>
+                              <TableHead className="text-center text-xs py-2 bg-purple-50">%</TableHead>
+                            </>
+                          )}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -4809,7 +5380,7 @@ export function MetricsOverview() {
                             // Total de ordens finalizadas
                             const totalFinalized = techOrders.length;
                             
-                            // Contadores por categoria e status de meta
+                            // Contadores por categoria e status de meta (removido Ponto Principal FIBRA)
                             const assistTvWithinGoal = techOrders.filter(o => {
                               const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
                               return category === "Assistência Técnica TV" && o.atingiu_meta === true;
@@ -4840,20 +5411,6 @@ export function MetricsOverview() {
                               return category === "Ponto Principal TV" && o.atingiu_meta === false;
                             }).length;
                             
-                            const pontoFibraWithinGoal = techOrders.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Ponto Principal FIBRA" && o.atingiu_meta === true;
-                            }).length;
-                            
-                            const pontoFibraOutsideGoal = techOrders.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Ponto Principal FIBRA" && o.atingiu_meta === false;
-                            }).length;
-                            
-                            // Total dentro da meta (todos os tipos)
-                            const totalWithinGoal = assistTvWithinGoal + assistFibraWithinGoal + 
-                                                  pontoTvWithinGoal + pontoFibraWithinGoal;
-                            
                             // Calcular percentuais para cada tipo
                             const totalAssistTv = assistTvWithinGoal + assistTvOutsideGoal;
                             const percentAssistTv = totalAssistTv > 0 
@@ -4869,322 +5426,367 @@ export function MetricsOverview() {
                             const percentPontoTv = totalPontoTv > 0 
                               ? (pontoTvWithinGoal / totalPontoTv) * 100 
                               : 0;
-                              
-                            const totalPontoFibra = pontoFibraWithinGoal + pontoFibraOutsideGoal;
-                            const percentPontoFibra = totalPontoFibra > 0 
-                              ? (pontoFibraWithinGoal / totalPontoFibra) * 100 
-                              : 0;
-                            
-                            // Percentual geral
-                            const percentWithinGoal = totalFinalized > 0 
-                              ? (totalWithinGoal / totalFinalized) * 100 
-                              : 0;
                             
                             // Só exibir técnicos que têm dados no período filtrado
                             if (totalFinalized === 0) return null;
                             
                             return {
                               name,
-                              totalFinalized,
-                              totalWithinGoal,
-                              percentWithinGoal,
+                              pontoTvWithinGoal,
+                              pontoTvOutsideGoal,
+                              percentPontoTv,
                               assistTvWithinGoal,
                               assistTvOutsideGoal,
                               percentAssistTv,
                               assistFibraWithinGoal,
                               assistFibraOutsideGoal,
-                              percentAssistFibra,
-                              pontoTvWithinGoal,
-                              pontoTvOutsideGoal,
-                              percentPontoTv,
-                              pontoFibraWithinGoal,
-                              pontoFibraOutsideGoal,
-                              percentPontoFibra
+                              percentAssistFibra
                             };
                           })
                           .filter(Boolean)
                           .sort((a, b) => {
-                            // Ordenar pelo percentual dentro da meta (maior primeiro)
-                            const percentComparison = b.percentWithinGoal - a.percentWithinGoal;
+                            // Calcular média ponderada dos percentuais para ordenação (considerando apenas colunas visíveis)
+                            const calcAveragePercent = (tech: {
+                              pontoTvWithinGoal: number;
+                              pontoTvOutsideGoal: number;
+                              assistTvWithinGoal: number;
+                              assistTvOutsideGoal: number;
+                              assistFibraWithinGoal: number;
+                              assistFibraOutsideGoal: number;
+                              percentPontoTv: number;
+                              percentAssistTv: number;
+                              percentAssistFibra: number;
+                            }) => {
+                              const visibleColumns = [
+                                timeVisibleColumns.pontoTV ? {
+                                  percent: tech.percentPontoTv,
+                                  total: tech.pontoTvWithinGoal + tech.pontoTvOutsideGoal
+                                } : null,
+                                timeVisibleColumns.assistenciaTV ? {
+                                  percent: tech.percentAssistTv,
+                                  total: tech.assistTvWithinGoal + tech.assistTvOutsideGoal
+                                } : null,
+                                timeVisibleColumns.assistenciaFibra ? {
+                                  percent: tech.percentAssistFibra,
+                                  total: tech.assistFibraWithinGoal + tech.assistFibraOutsideGoal
+                                } : null
+                              ].filter(Boolean) as Array<{ percent: number; total: number }>;
+
+                              // Se nenhuma coluna visível, usar todas (fallback)
+                              if (visibleColumns.length === 0) {
+                                const totalPontoTv = tech.pontoTvWithinGoal + tech.pontoTvOutsideGoal;
+                                const totalAssistTv = tech.assistTvWithinGoal + tech.assistTvOutsideGoal;
+                                const totalAssistFibra = tech.assistFibraWithinGoal + tech.assistFibraOutsideGoal;
+                                const total = totalPontoTv + totalAssistTv + totalAssistFibra;
+                                
+                                if (total === 0) return 0;
+                                const weightedSum = (tech.percentPontoTv * totalPontoTv) + 
+                                                   (tech.percentAssistTv * totalAssistTv) + 
+                                                   (tech.percentAssistFibra * totalAssistFibra);
+                                return weightedSum / total;
+                              }
+
+                              // Se apenas 1 coluna visível, usar o percentual direto
+                              if (visibleColumns.length === 1) {
+                                return visibleColumns[0].percent;
+                              }
+
+                              // Se 2 ou 3 colunas visíveis, calcular média ponderada
+                              const total = visibleColumns.reduce((sum, col) => sum + col.total, 0);
+                              if (total === 0) return 0;
+                              
+                              const weightedSum = visibleColumns.reduce((sum, col) => {
+                                return sum + (col.percent * col.total);
+                              }, 0);
+                              
+                              return weightedSum / total;
+                            };
                             
-                            // Em caso de empate, ordenar pelo volume total de OS (maior primeiro)
+                            const avgA = calcAveragePercent(a);
+                            const avgB = calcAveragePercent(b);
+                            
+                            // Ordenar pelo percentual médio (maior primeiro)
+                            const percentComparison = avgB - avgA;
+                            
+                            // Em caso de empate, ordenar pelo volume total (considerando apenas colunas visíveis)
                             if (percentComparison === 0) {
-                              return b.totalFinalized - a.totalFinalized;
+                              const getVisibleTotal = (tech: {
+                                pontoTvWithinGoal: number;
+                                pontoTvOutsideGoal: number;
+                                assistTvWithinGoal: number;
+                                assistTvOutsideGoal: number;
+                                assistFibraWithinGoal: number;
+                                assistFibraOutsideGoal: number;
+                              }) => {
+                                let total = 0;
+                                if (timeVisibleColumns.pontoTV) {
+                                  total += tech.pontoTvWithinGoal + tech.pontoTvOutsideGoal;
+                                }
+                                if (timeVisibleColumns.assistenciaTV) {
+                                  total += tech.assistTvWithinGoal + tech.assistTvOutsideGoal;
+                                }
+                                if (timeVisibleColumns.assistenciaFibra) {
+                                  total += tech.assistFibraWithinGoal + tech.assistFibraOutsideGoal;
+                                }
+                                
+                                // Se nenhuma coluna visível, usar todas (fallback)
+                                if (total === 0) {
+                                  return tech.pontoTvWithinGoal + tech.pontoTvOutsideGoal + 
+                                         tech.assistTvWithinGoal + tech.assistTvOutsideGoal + 
+                                         tech.assistFibraWithinGoal + tech.assistFibraOutsideGoal;
+                                }
+                                
+                                return total;
+                              };
+
+                              const totalA = getVisibleTotal(a);
+                              const totalB = getVisibleTotal(b);
+                              return totalB - totalA;
                             }
                             
                             return percentComparison;
                           })
                           .map((tech, index) => {
-                            // Funções para colorir percentuais
-                            const getMetaColor = (rate: number) => 
-                              rate >= 75 ? "text-green-600 font-medium" : rate >= 50 ? "text-yellow-600 font-medium" : "text-red-600 font-medium";
+                            // Funções para badges de percentuais
+                            const getMetaBadge = (rate: number) => {
+                              if (rate >= 75) {
+                                return "bg-green-100 text-green-800 border-green-300";
+                              } else if (rate >= 50) {
+                                return "bg-yellow-100 text-yellow-800 border-yellow-300";
+                              }
+                              return "bg-red-100 text-red-800 border-red-300";
+                            };
+
+                            // Renderizar posição com medalhas ou número
+                            const renderPosition = () => {
+                              const position = index + 1;
+                              if (position === 1) {
+                            return (
+                                  <div className="flex items-center justify-center">
+                                    <Medal className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                                  </div>
+                                );
+                              } else if (position === 2) {
+                                return (
+                                  <div className="flex items-center justify-center">
+                                    <Medal className="h-5 w-5 text-gray-400 fill-gray-400" />
+                                  </div>
+                                );
+                              } else if (position === 3) {
+                                return (
+                                  <div className="flex items-center justify-center">
+                                    <Medal className="h-5 w-5 text-amber-600 fill-amber-600" />
+                                  </div>
+                                );
+                              } else {
+                                return (
+                                  <span className="text-gray-700 font-semibold text-sm">
+                                    {position}°
+                                  </span>
+                                );
+                              }
+                            };
                             
                             return (
-                              <TableRow key={tech.name}>
-                                <TableCell className="font-medium py-2">{tech.name}</TableCell>
-                                <TableCell className="text-center py-2">{tech.totalFinalized}</TableCell>
-                                <TableCell className={`text-center py-2 ${getMetaColor(tech.percentWithinGoal)}`}>
-                                  {tech.percentWithinGoal.toFixed(2)}%
+                              <TableRow 
+                                key={tech.name}
+                                className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}
+                              >
+                                <TableCell className={`text-center sticky left-0 z-10 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
+                                  {renderPosition()}
+                                </TableCell>
+                                <TableCell className={`sticky left-16 z-10 font-semibold border-r-2 border-gray-200 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
+                                  {tech.name}
                                 </TableCell>
                                 
-                                <TableCell className="text-center py-2">{tech.assistTvWithinGoal}</TableCell>
-                                <TableCell className="text-center py-2">{tech.assistTvOutsideGoal}</TableCell>
-                                <TableCell className={`text-center py-2 ${getMetaColor(tech.percentAssistTv)}`}>
-                                  {tech.percentAssistTv.toFixed(2)}%
-                                </TableCell>
+                                {/* Ponto Principal TV */}
+                                {timeVisibleColumns.pontoTV && (
+                                  <>
+                                    <TableCell className="text-center bg-blue-50/30 border-l-2 border-blue-200">{tech.pontoTvWithinGoal}</TableCell>
+                                    <TableCell className="text-center bg-blue-50/30">{tech.pontoTvOutsideGoal}</TableCell>
+                                    <TableCell className="text-center bg-blue-50/30">
+                                      <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${getMetaBadge(tech.percentPontoTv)}`}>
+                                      {tech.percentPontoTv.toFixed(2)}%
+                                      </span>
+                                    </TableCell>
+                                  </>
+                                )}
                                 
-                                <TableCell className="text-center py-2">{tech.assistFibraWithinGoal}</TableCell>
-                                <TableCell className="text-center py-2">{tech.assistFibraOutsideGoal}</TableCell>
-                                <TableCell className={`text-center py-2 ${getMetaColor(tech.percentAssistFibra)}`}>
-                                  {tech.percentAssistFibra.toFixed(2)}%
-                                </TableCell>
+                                {/* Assistência Técnica TV */}
+                                {timeVisibleColumns.assistenciaTV && (
+                                  <>
+                                    <TableCell className="text-center bg-green-50/30 border-l-2 border-green-200">{tech.assistTvWithinGoal}</TableCell>
+                                    <TableCell className="text-center bg-green-50/30">{tech.assistTvOutsideGoal}</TableCell>
+                                    <TableCell className="text-center bg-green-50/30">
+                                      <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${getMetaBadge(tech.percentAssistTv)}`}>
+                                        {tech.percentAssistTv.toFixed(2)}%
+                                      </span>
+                                    </TableCell>
+                                  </>
+                                )}
                                 
-                                <TableCell className="text-center py-2">{tech.pontoTvWithinGoal}</TableCell>
-                                <TableCell className="text-center py-2">{tech.pontoTvOutsideGoal}</TableCell>
-                                <TableCell className={`text-center py-2 ${getMetaColor(tech.percentPontoTv)}`}>
-                                  {tech.percentPontoTv.toFixed(2)}%
-                                </TableCell>
-                                
-                                <TableCell className="text-center py-2">{tech.pontoFibraWithinGoal}</TableCell>
-                                <TableCell className="text-center py-2">{tech.pontoFibraOutsideGoal}</TableCell>
-                                <TableCell className={`text-center py-2 ${getMetaColor(tech.percentPontoFibra)}`}>
-                                  {tech.percentPontoFibra.toFixed(2)}%
-                                </TableCell>
+                                {/* Assistência Técnica FIBRA */}
+                                {timeVisibleColumns.assistenciaFibra && (
+                                  <>
+                                    <TableCell className="text-center bg-purple-50/30 border-l-2 border-purple-200">{tech.assistFibraWithinGoal}</TableCell>
+                                    <TableCell className="text-center bg-purple-50/30">{tech.assistFibraOutsideGoal}</TableCell>
+                                    <TableCell className="text-center bg-purple-50/30">
+                                      <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${getMetaBadge(tech.percentAssistFibra)}`}>
+                                        {tech.percentAssistFibra.toFixed(2)}%
+                                      </span>
+                                    </TableCell>
+                                  </>
+                                )}
                               </TableRow>
                             );
                           })}
                         
                         {technicians.filter(name => name && filteredServiceOrdersByFinalization.some(o => o.nome_tecnico === name)).length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={15} className="text-center py-2 text-muted-foreground">
+                            <TableCell colSpan={2 + (timeVisibleColumns.pontoTV ? 3 : 0) + (timeVisibleColumns.assistenciaTV ? 3 : 0) + (timeVisibleColumns.assistenciaFibra ? 3 : 0)} className="text-center py-4 text-muted-foreground">
                               Nenhum técnico encontrado no período selecionado
                             </TableCell>
                           </TableRow>
                         )}
                       </TableBody>
                       <TableFooter>
-                        <TableRow>
-                          <TableCell className="font-bold text-left border-r border-muted">Total Geral</TableCell>
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics).length}
-                          </TableCell>
-                          <TableCell className={`text-center font-medium ${
-                            (() => {
-                              const percentWithinGoal = filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics).length > 0 
-                                ? (filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics && o.atingiu_meta === true).length / 
-                                   filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics).length) * 100 
-                                : 0;
-                              return percentWithinGoal >= 75 
-                                ? "text-green-600" 
-                                : percentWithinGoal >= 50 
-                                  ? "text-yellow-600" 
-                                  : "text-red-600";
-                            })()
-                          }`}>
-                            {(() => {
-                              const percentWithinGoal = filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics).length > 0 
-                                ? (filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics && o.atingiu_meta === true).length / 
-                                   filteredServiceOrdersByFinalization.filter(o => o.include_in_metrics).length) * 100 
-                                : 0;
-                              return percentWithinGoal.toFixed(2) + "%";
-                            })()}
+                        <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-t-2 border-gray-300 font-bold">
+                          <TableCell className="sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50"></TableCell>
+                          <TableCell className="sticky left-16 z-10 font-bold bg-gradient-to-r from-gray-100 to-gray-50 border-r-2 border-gray-300">
+                            Total Geral
                           </TableCell>
 
-                          {/* Assistência Técnica TV */}
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrdersByFinalization.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Assistência Técnica TV" && o.atingiu_meta === true && o.include_in_metrics;
-                            }).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrdersByFinalization.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Assistência Técnica TV" && o.atingiu_meta === false && o.include_in_metrics;
-                            }).length}
-                          </TableCell>
-                          <TableCell className={`text-center font-medium ${
-                            (() => {
-                              const total = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Assistência Técnica TV" && o.include_in_metrics;
-                              }).length;
-                              
-                              const within = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Assistência Técnica TV" && o.atingiu_meta === true && o.include_in_metrics;
-                              }).length;
-                              
-                              const percent = total > 0 ? (within / total) * 100 : 0;
-                              return percent >= 75 
-                                ? "text-green-600" 
-                                : percent >= 50 
-                                  ? "text-yellow-600" 
-                                  : "text-red-600";
-                            })()
-                          }`}>
-                            {(() => {
-                              const total = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Assistência Técnica TV" && o.include_in_metrics;
-                              }).length;
-                              
-                              const within = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Assistência Técnica TV" && o.atingiu_meta === true && o.include_in_metrics;
-                              }).length;
-                              
-                              const percent = total > 0 ? (within / total) * 100 : 0;
-                              return percent.toFixed(2) + "%";
-                            })()}
-                          </TableCell>
-                          
-                          {/* Assistência Técnica Fibra */}
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrdersByFinalization.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Assistência Técnica FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
-                            }).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrdersByFinalization.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Assistência Técnica FIBRA" && o.atingiu_meta === false && o.include_in_metrics;
-                            }).length}
-                          </TableCell>
-                          <TableCell className={`text-center font-medium ${
-                            (() => {
-                              const total = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Assistência Técnica FIBRA" && o.include_in_metrics;
-                              }).length;
-                              
-                              const within = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Assistência Técnica FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
-                              }).length;
-                              
-                              const percent = total > 0 ? (within / total) * 100 : 0;
-                              return percent >= 75 
-                                ? "text-green-600" 
-                                : percent >= 50 
-                                  ? "text-yellow-600" 
-                                  : "text-red-600";
-                            })()
-                          }`}>
-                            {(() => {
-                              const total = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Assistência Técnica FIBRA" && o.include_in_metrics;
-                              }).length;
-                              
-                              const within = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Assistência Técnica FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
-                              }).length;
-                              
-                              const percent = total > 0 ? (within / total) * 100 : 0;
-                              return percent.toFixed(2) + "%";
-                            })()}
-                          </TableCell>
-                          
                           {/* Ponto Principal TV */}
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrdersByFinalization.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Ponto Principal TV" && o.atingiu_meta === true && o.include_in_metrics;
-                            }).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrdersByFinalization.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Ponto Principal TV" && o.atingiu_meta === false && o.include_in_metrics;
-                            }).length}
-                          </TableCell>
-                          <TableCell className={`text-center font-medium ${
-                            (() => {
-                              const total = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Ponto Principal TV" && o.include_in_metrics;
-                              }).length;
-                              
-                              const within = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Ponto Principal TV" && o.atingiu_meta === true && o.include_in_metrics;
-                              }).length;
-                              
-                              const percent = total > 0 ? (within / total) * 100 : 0;
-                              return percent >= 75 
-                                ? "text-green-600" 
-                                : percent >= 50 
-                                  ? "text-yellow-600" 
-                                  : "text-red-600";
-                            })()
-                          }`}>
-                            {(() => {
-                              const total = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Ponto Principal TV" && o.include_in_metrics;
-                              }).length;
-                              
-                              const within = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Ponto Principal TV" && o.atingiu_meta === true && o.include_in_metrics;
-                              }).length;
-                              
-                              const percent = total > 0 ? (within / total) * 100 : 0;
-                              return percent.toFixed(2) + "%";
-                            })()}
-                          </TableCell>
+                          {timeVisibleColumns.pontoTV && (
+                            <>
+                              <TableCell className="text-center font-medium bg-blue-50/30 border-l-2 border-blue-200">
+                                {filteredServiceOrdersByFinalization.filter(o => {
+                                  const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                  return category === "Ponto Principal TV" && o.atingiu_meta === true && o.include_in_metrics;
+                                }).length}
+                              </TableCell>
+                              <TableCell className="text-center font-medium bg-blue-50/30">
+                                {filteredServiceOrdersByFinalization.filter(o => {
+                                  const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                  return category === "Ponto Principal TV" && o.atingiu_meta === false && o.include_in_metrics;
+                                }).length}
+                              </TableCell>
+                              <TableCell className="text-center bg-blue-50/30">
+                                {(() => {
+                                  const total = filteredServiceOrdersByFinalization.filter(o => {
+                                    const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                    return category === "Ponto Principal TV" && o.include_in_metrics;
+                                  }).length;
+                                  
+                                  const within = filteredServiceOrdersByFinalization.filter(o => {
+                                    const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                    return category === "Ponto Principal TV" && o.atingiu_meta === true && o.include_in_metrics;
+                                  }).length;
+                                  
+                                  const percent = total > 0 ? (within / total) * 100 : 0;
+                                  return (
+                                    <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${
+                                      percent >= 75 
+                                        ? "bg-green-100 text-green-800 border-green-300" 
+                                      : percent >= 50 
+                                        ? "bg-yellow-100 text-yellow-800 border-yellow-300" 
+                                        : "bg-red-100 text-red-800 border-red-300"
+                                    }`}>
+                                      {percent.toFixed(2)}%
+                                    </span>
+                                  );
+                                })()}
+                              </TableCell>
+                            </>
+                          )}
                           
-                          {/* Ponto Principal Fibra */}
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrdersByFinalization.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Ponto Principal FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
-                            }).length}
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrdersByFinalization.filter(o => {
-                              const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                              return category === "Ponto Principal FIBRA" && o.atingiu_meta === false && o.include_in_metrics;
-                            }).length}
-                          </TableCell>
-                          <TableCell className={`text-center font-medium ${
-                            (() => {
-                              const total = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Ponto Principal FIBRA" && o.include_in_metrics;
-                              }).length;
-                              
-                              const within = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Ponto Principal FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
-                              }).length;
-                              
-                              const percent = total > 0 ? (within / total) * 100 : 0;
-                              return percent >= 75 
-                                ? "text-green-600" 
-                                : percent >= 50 
-                                  ? "text-yellow-600" 
-                                  : "text-red-600";
-                            })()
-                          }`}>
-                            {(() => {
-                              const total = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Ponto Principal FIBRA" && o.include_in_metrics;
-                              }).length;
-                              
-                              const within = filteredServiceOrdersByFinalization.filter(o => {
-                                const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
-                                return category === "Ponto Principal FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
-                              }).length;
-                              
-                              const percent = total > 0 ? (within / total) * 100 : 0;
-                              return percent.toFixed(2) + "%";
-                            })()}
-                          </TableCell>
+                          {/* Assistência Técnica TV */}
+                          {timeVisibleColumns.assistenciaTV && (
+                            <>
+                              <TableCell className="text-center font-medium bg-green-50/30 border-l-2 border-green-200">
+                                {filteredServiceOrdersByFinalization.filter(o => {
+                                  const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                  return category === "Assistência Técnica TV" && o.atingiu_meta === true && o.include_in_metrics;
+                                }).length}
+                              </TableCell>
+                              <TableCell className="text-center font-medium bg-green-50/30">
+                                {filteredServiceOrdersByFinalization.filter(o => {
+                                  const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                  return category === "Assistência Técnica TV" && o.atingiu_meta === false && o.include_in_metrics;
+                                }).length}
+                              </TableCell>
+                              <TableCell className="text-center bg-green-50/30">
+                                {(() => {
+                                  const total = filteredServiceOrdersByFinalization.filter(o => {
+                                    const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                    return category === "Assistência Técnica TV" && o.include_in_metrics;
+                                  }).length;
+                                  
+                                  const within = filteredServiceOrdersByFinalization.filter(o => {
+                                    const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                    return category === "Assistência Técnica TV" && o.atingiu_meta === true && o.include_in_metrics;
+                                  }).length;
+                                  
+                                  const percent = total > 0 ? (within / total) * 100 : 0;
+                                  return (
+                                    <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${
+                                      percent >= 75 
+                                        ? "bg-green-100 text-green-800 border-green-300" 
+                                      : percent >= 50 
+                                        ? "bg-yellow-100 text-yellow-800 border-yellow-300" 
+                                        : "bg-red-100 text-red-800 border-red-300"
+                                    }`}>
+                                      {percent.toFixed(2)}%
+                                    </span>
+                                  );
+                                })()}
+                              </TableCell>
+                            </>
+                          )}
+                          
+                          {/* Assistência Técnica FIBRA */}
+                          {timeVisibleColumns.assistenciaFibra && (
+                            <>
+                              <TableCell className="text-center font-medium bg-purple-50/30 border-l-2 border-purple-200">
+                                {filteredServiceOrdersByFinalization.filter(o => {
+                                  const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                  return category === "Assistência Técnica FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
+                                }).length}
+                              </TableCell>
+                              <TableCell className="text-center font-medium bg-purple-50/30">
+                                {filteredServiceOrdersByFinalization.filter(o => {
+                                  const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                  return category === "Assistência Técnica FIBRA" && o.atingiu_meta === false && o.include_in_metrics;
+                                }).length}
+                              </TableCell>
+                              <TableCell className="text-center bg-purple-50/30">
+                                {(() => {
+                                  const total = filteredServiceOrdersByFinalization.filter(o => {
+                                    const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                    return category === "Assistência Técnica FIBRA" && o.include_in_metrics;
+                                  }).length;
+                                  
+                                  const within = filteredServiceOrdersByFinalization.filter(o => {
+                                    const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+                                    return category === "Assistência Técnica FIBRA" && o.atingiu_meta === true && o.include_in_metrics;
+                                  }).length;
+                                  
+                                  const percent = total > 0 ? (within / total) * 100 : 0;
+                                  return (
+                                    <span className={`inline-block px-2 py-1 rounded-md border text-xs font-bold ${
+                                      percent >= 75 
+                                        ? "bg-green-100 text-green-800 border-green-300" 
+                                      : percent >= 50 
+                                        ? "bg-yellow-100 text-yellow-800 border-yellow-300" 
+                                        : "bg-red-100 text-red-800 border-red-300"
+                                    }`}>
+                                      {percent.toFixed(2)}%
+                                    </span>
+                                  );
+                                })()}
+                              </TableCell>
+                            </>
+                          )}
                         </TableRow>
                       </TableFooter>
                     </Table>
@@ -5192,39 +5794,46 @@ export function MetricsOverview() {
                 </CardContent>
               </Card>
               
-              {/* Quantidade de Serviços por Técnico */}
-              <Card className="col-span-1 md:col-span-2">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
+              {/* Quantidade de Serviços por Técnico - Modernizado */}
+              <Card className="col-span-1 md:col-span-2 shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
+                <CardHeader className="pb-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-t-lg">
+                  <CardTitle className="flex items-center text-base">
                     <Users className="mr-2 h-5 w-5" />
                     Quantidade de Serviços por Técnico
                   </CardTitle>
-                  <CardDescription>
+                  <CardDescription className="text-indigo-100 text-xs">
                     Total de serviços realizados por cada técnico por tipo
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-4">
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
-                        <TableRow>
-                          <TableHead rowSpan={2} className="align-middle text-left border-r border-muted">Técnico</TableHead>
-                          <TableHead className="text-center border-b border-muted" colSpan={12}>Tipo de Serviço</TableHead>
-                          <TableHead rowSpan={2} className="align-middle text-center font-bold border-l border-muted">Total</TableHead>
+                        <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
+                          <TableHead className="text-center font-bold text-gray-900 w-16 sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50">Pos</TableHead>
+                          <TableHead className="sticky left-16 z-10 bg-gradient-to-r from-gray-100 to-gray-50 min-w-[150px] font-bold text-gray-900 border-r-2 border-gray-300">
+                            Técnico
+                          </TableHead>
+                          <TableHead className="text-center font-bold text-gray-900 border-l-2 border-gray-300" colSpan={11}>Tipo de Serviço</TableHead>
+                          <TableHead className="sticky right-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50 text-center font-bold text-gray-900 border-l-2 border-gray-300 min-w-[80px]">
+                            Total
+                          </TableHead>
                         </TableRow>
-                        <TableRow>
-                          <TableHead className="text-center py-1">Corretiva</TableHead>
-                          <TableHead className="text-center py-1">Corr.<br/>BL</TableHead>
-                          <TableHead className="text-center py-1">Ponto<br/>Princ.</TableHead>
-                          <TableHead className="text-center py-1">Ponto<br/>Princ. BL</TableHead>
-                          <TableHead className="text-center py-1">Prest.<br/>Serviço</TableHead>
-                          <TableHead className="text-center py-1">Prest.<br/>Serviço BL</TableHead>
-                          <TableHead className="text-center py-1">Prev.</TableHead>
-                          <TableHead className="text-center py-1">Prev.<br/>BL</TableHead>
-                          <TableHead className="text-center py-1">Sist.<br/>Opc.</TableHead>
-                          <TableHead className="text-center py-1">Canc.<br/>Vol.</TableHead>
-                          <TableHead className="text-center py-1">Kit<br/>TVRO</TableHead>
-                          <TableHead className="text-center py-1">Substituição</TableHead>
+                        <TableRow className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                          <TableHead className="sticky left-0 z-10 bg-gradient-to-r from-gray-50 to-gray-100"></TableHead>
+                          <TableHead className="sticky left-16 z-10 bg-gradient-to-r from-gray-50 to-gray-100 border-r-2 border-gray-300"></TableHead>
+                          <TableHead className="text-center text-xs py-2 border-l-2 border-gray-300">Corretiva</TableHead>
+                          <TableHead className="text-center text-xs py-2">Corr. BL</TableHead>
+                          <TableHead className="text-center text-xs py-2">Ponto Princ.</TableHead>
+                          <TableHead className="text-center text-xs py-2">Prest. Serviço</TableHead>
+                          <TableHead className="text-center text-xs py-2">Prest. Serviço BL</TableHead>
+                          <TableHead className="text-center text-xs py-2">Preventiva</TableHead>
+                          <TableHead className="text-center text-xs py-2">Prev. BL</TableHead>
+                          <TableHead className="text-center text-xs py-2">Sist. Opc.</TableHead>
+                          <TableHead className="text-center text-xs py-2">Canc. Vol.</TableHead>
+                          <TableHead className="text-center text-xs py-2">Kit TVRO</TableHead>
+                          <TableHead className="text-center text-xs py-2">Substituição</TableHead>
+                          <TableHead className="sticky right-0 z-10 bg-gradient-to-r from-gray-50 to-gray-100 text-center text-xs py-2 border-l-2 border-gray-300"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -5243,12 +5852,11 @@ export function MetricsOverview() {
                             // Só exibir técnicos que têm dados no período filtrado
                             if (totalOrders === 0) return null;
                             
-                            // Contar serviços por tipo
+                            // Contar serviços por tipo (removido Ponto Principal BL)
                             const servicesByType = {
                               'Corretiva': techOrders.filter(o => o.subtipo_servico?.includes('Corretiva') && !o.subtipo_servico?.includes('BL')).length,
                               'Corretiva BL': techOrders.filter(o => o.subtipo_servico?.includes('Corretiva BL')).length,
                               'Ponto Principal': techOrders.filter(o => o.subtipo_servico?.includes('Ponto Principal') && !o.subtipo_servico?.includes('BL')).length,
-                              'Ponto Principal BL': techOrders.filter(o => o.subtipo_servico?.includes('Ponto Principal BL')).length,
                               'Prestação de Serviço': techOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço') && !o.subtipo_servico?.includes('BL')).length,
                               'Prestação de Serviço BL': techOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço BL')).length,
                               'Preventiva': techOrders.filter(o => o.subtipo_servico?.includes('Preventiva') && !o.subtipo_servico?.includes('BL')).length,
@@ -5259,22 +5867,70 @@ export function MetricsOverview() {
                               'Substituição': techOrders.filter(o => o.subtipo_servico?.includes('Substituição')).length,
                             };
 
+                            return {
+                              name,
+                              totalOrders,
+                              servicesByType
+                            };
+                          })
+                          .filter(Boolean)
+                          .sort((a, b) => b.totalOrders - a.totalOrders) // Ordenar por total (decrescente)
+                          .map((tech, index) => {
+                            // Renderizar posição com medalhas ou número
+                            const renderPosition = () => {
+                              const position = index + 1;
+                              if (position === 1) {
                             return (
-                              <TableRow key={name} className="hover:bg-muted/50">
-                                <TableCell className="font-medium text-left border-r border-muted">{name}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Corretiva']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Corretiva BL']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Ponto Principal']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Ponto Principal BL']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Prestação de Serviço']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Prestação de Serviço BL']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Preventiva']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Preventiva BL']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Sistema Opcional']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Cancelamento Voluntário']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Kit TVRO']}</TableCell>
-                                <TableCell className="text-center">{servicesByType['Substituição']}</TableCell>
-                                <TableCell className="text-center font-bold border-l border-muted">{totalOrders}</TableCell>
+                                  <div className="flex items-center justify-center">
+                                    <Medal className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                                  </div>
+                                );
+                              } else if (position === 2) {
+                                return (
+                                  <div className="flex items-center justify-center">
+                                    <Medal className="h-5 w-5 text-gray-400 fill-gray-400" />
+                                  </div>
+                                );
+                              } else if (position === 3) {
+                                return (
+                                  <div className="flex items-center justify-center">
+                                    <Medal className="h-5 w-5 text-amber-600 fill-amber-600" />
+                                  </div>
+                                );
+                              } else {
+                                return (
+                                  <span className="text-gray-700 font-semibold text-sm">
+                                    {position}°
+                                  </span>
+                                );
+                              }
+                            };
+
+                            return (
+                              <TableRow 
+                                key={tech.name} 
+                                className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}
+                              >
+                                <TableCell className={`text-center sticky left-0 z-10 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
+                                  {renderPosition()}
+                                </TableCell>
+                                <TableCell className={`sticky left-16 z-10 font-semibold border-r-2 border-gray-200 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
+                                  {tech.name}
+                                </TableCell>
+                                <TableCell className="text-center border-l-2 border-gray-300">{tech.servicesByType['Corretiva']}</TableCell>
+                                <TableCell className="text-center">{tech.servicesByType['Corretiva BL']}</TableCell>
+                                <TableCell className="text-center">{tech.servicesByType['Ponto Principal']}</TableCell>
+                                <TableCell className="text-center">{tech.servicesByType['Prestação de Serviço']}</TableCell>
+                                <TableCell className="text-center">{tech.servicesByType['Prestação de Serviço BL']}</TableCell>
+                                <TableCell className="text-center">{tech.servicesByType['Preventiva']}</TableCell>
+                                <TableCell className="text-center">{tech.servicesByType['Preventiva BL']}</TableCell>
+                                <TableCell className="text-center">{tech.servicesByType['Sistema Opcional']}</TableCell>
+                                <TableCell className="text-center">{tech.servicesByType['Cancelamento Voluntário']}</TableCell>
+                                <TableCell className="text-center">{tech.servicesByType['Kit TVRO']}</TableCell>
+                                <TableCell className="text-center">{tech.servicesByType['Substituição']}</TableCell>
+                                <TableCell className={`sticky right-0 z-10 text-center font-bold border-l-2 border-gray-300 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
+                                  {tech.totalOrders}
+                                </TableCell>
                               </TableRow>
                             );
                         }).filter(Boolean)}
@@ -5288,45 +5944,45 @@ export function MetricsOverview() {
                         )}
                       </TableBody>
                       <TableFooter>
-                        <TableRow>
-                          <TableCell className="font-bold text-left border-r border-muted">Total Geral</TableCell>
-                          <TableCell className="text-center">
+                        <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-t-2 border-gray-300 font-bold">
+                          <TableCell className="sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50"></TableCell>
+                          <TableCell className="sticky left-16 z-10 font-bold bg-gradient-to-r from-gray-100 to-gray-50 border-r-2 border-gray-300">
+                            Total Geral
+                          </TableCell>
+                          <TableCell className="text-center font-medium border-l-2 border-gray-300">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Corretiva') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Corretiva BL') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Ponto Principal') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Ponto Principal BL') && o.status !== "Cancelada").length}
-                          </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço BL') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Preventiva') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Preventiva BL') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Sistema Opcional') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Cancelamento Voluntário') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Kit TVRO') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Substituição') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center font-bold border-l border-muted">
+                          <TableCell className="sticky right-0 z-10 text-center font-bold bg-gradient-to-r from-gray-100 to-gray-50 border-l-2 border-gray-300">
                             {filteredServiceOrders.filter(o => o.status !== "Cancelada").length}
                           </TableCell>
                         </TableRow>
@@ -5369,7 +6025,10 @@ export function MetricsOverview() {
     {/* Mostrar a tabela de ordens de serviço apenas para as guias principais quando um filtro está aplicado */}
     {activeTab !== "users" && activeTab !== "import" && activeTab !== "reopening" && activeTab !== "technicians" && activeTab !== "vendedor" && activeTab !== "permanencia" && activeTab !== "indicadores" && showData && (
       <div className="mt-6">
-        <ServiceOrderTable filteredOrders={filteredServiceOrders} />
+        <ServiceOrderTable 
+          filteredOrders={filteredServiceOrders} 
+          onFiltersChange={setTableFilters}
+        />
       </div>
     )}
   </>
@@ -5557,7 +6216,7 @@ function UserManagement({
         name: (u.name as string) || '',
         email: (u.email as string) || '',
         role: ((u.role as string) || 'user') as 'admin' | 'user',
-        empresa: (u.empresa as string) || 'SysGest Insight',
+        empresa: (u.empresa as string) || 'InsightPro',
         data_adesao: (u.data_adesao as string) || new Date().toISOString(),
         acesso_liberado: u.acesso_liberado === undefined ? true : Boolean(u.acesso_liberado)
       }));
@@ -5587,12 +6246,14 @@ function UserManagement({
   // Verificar se o usuário atual tem permissão de administrador
   if (!user || user.role !== 'admin') {
     return (
-      <Card className="w-full h-64">
+      <Card className="w-full h-64 shadow-lg border-2 border-red-100 bg-gradient-to-br from-white via-red-50/30 to-orange-50/30">
         <CardContent className="flex items-center justify-center h-full">
           <div className="text-center">
-            <UserCog className="mx-auto h-10 w-10 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium">Acesso Restrito</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <div className="mx-auto mb-4 w-16 h-16 bg-gradient-to-br from-red-100 to-orange-100 rounded-full flex items-center justify-center">
+              <UserCog className="h-8 w-8 text-red-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">Acesso Restrito</h3>
+            <p className="mt-2 text-sm text-gray-600 max-w-sm">
               Você precisa ter permissões de administrador para acessar esta área.
             </p>
           </div>
@@ -5669,65 +6330,87 @@ function UserManagement({
       {/* Configuração de Mensagem de Atualização */}
       <MessageConfiguration getSetting={getSetting} updateSetting={updateSetting} />
       
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Users className="mr-2 h-5 w-5" />
+      <Card className="shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
+        <CardHeader className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg pb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-white text-xl">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <Users className="h-6 w-6" />
+                </div>
             Gerenciamento de Usuários
           </CardTitle>
-          <CardDescription>
+              <CardDescription className="text-blue-100 mt-2">
             Gerencie os usuários que podem acessar o sistema.
           </CardDescription>
           {user?.empresa && (
-            <div className="mt-2">
-              <Badge variant="outline">
+                <div className="mt-3">
+                  <Badge variant="outline" className="bg-white/20 text-white border-white/30 hover:bg-white/30">
+                    <Building2 className="mr-1 h-3 w-3" />
                 Empresa: {user.empresa}
               </Badge>
             </div>
           )}
-          <div className="flex justify-end">
+            </div>
             <Button 
-              variant="outline" 
+              variant="default" 
               size="sm" 
               onClick={() => setIsCreateUserOpen(true)}
-              className="bg-sysgest-blue text-white hover:bg-sysgest-teal"
+              className="bg-white text-blue-600 hover:bg-blue-50 hover:text-blue-700 shadow-md hover:shadow-lg transition-all"
             >
               <UserPlus className="mr-2 h-4 w-4" />
               Criar Usuário
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-6">
           <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Usuário</TableHead>
-                <TableHead>Nome</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>Papel</TableHead>
-                  <TableHead>Data de Pagamento</TableHead>
-                  <TableHead>Status</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
+              <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
+                <TableHead className="font-bold text-gray-900">Usuário</TableHead>
+                <TableHead className="font-bold text-gray-900">Nome</TableHead>
+                <TableHead className="font-bold text-gray-900">Email</TableHead>
+                <TableHead className="font-bold text-gray-900">Empresa</TableHead>
+                <TableHead className="font-bold text-gray-900">Papel</TableHead>
+                <TableHead className="font-bold text-gray-900">Data de Adesão</TableHead>
+                <TableHead className="font-bold text-gray-900">Status</TableHead>
+                <TableHead className="text-right font-bold text-gray-900">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-                {filteredUsers.map(user => (
-                <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.username}</TableCell>
-                  <TableCell>{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>{user.empresa}</TableCell>
+                {filteredUsers.map((user, index) => (
+                <TableRow 
+                  key={user.id}
+                  className={`hover:bg-blue-50/50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
+                >
+                  <TableCell className="font-semibold text-gray-900">{user.username}</TableCell>
+                  <TableCell className="text-gray-700">{user.name}</TableCell>
+                  <TableCell className="text-gray-700">{user.email}</TableCell>
+                  <TableCell className="text-gray-700">{user.empresa}</TableCell>
                     <TableCell>
-                      <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
-                        {user.role === 'admin' ? 'Administrador' : 'Usuário'}
+                    <Badge 
+                      variant={user.role === 'admin' ? 'default' : 'secondary'}
+                      className={user.role === 'admin' 
+                        ? 'bg-purple-100 text-purple-800 border-purple-300 hover:bg-purple-200' 
+                        : 'bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200'
+                      }
+                    >
+                      {user.role === 'admin' ? '👑 Administrador' : '👤 Usuário'}
                       </Badge>
                     </TableCell>
-                    <TableCell>{user.data_adesao ? new Date(user.data_adesao).toLocaleDateString() : 'N/A'}</TableCell>
+                  <TableCell className="text-gray-700">
+                    {user.data_adesao ? new Date(user.data_adesao).toLocaleDateString('pt-BR') : 'N/A'}
+                  </TableCell>
                     <TableCell>
-                      <Badge variant={user.acesso_liberado ? 'default' : 'destructive'} className={user.acesso_liberado ? 'bg-green-100 text-green-800 hover:bg-green-100' : ''}>
-                        {user.acesso_liberado ? 'Ativo' : 'Inativo'}
+                    <Badge 
+                      variant={user.acesso_liberado ? 'default' : 'destructive'} 
+                      className={user.acesso_liberado 
+                        ? 'bg-green-100 text-green-800 border-green-300 hover:bg-green-200' 
+                        : 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200'
+                      }
+                    >
+                      {user.acesso_liberado ? '✓ Ativo' : '✗ Inativo'}
                       </Badge>
                     </TableCell>
                   <TableCell className="text-right">
@@ -5735,7 +6418,7 @@ function UserManagement({
                         variant="ghost" 
                         size="icon" 
                         onClick={() => handleEditUser(user)}
-                        className="text-blue-600 hover:bg-blue-100"
+                        className="text-blue-600 hover:bg-blue-100 hover:text-blue-700 transition-colors"
                         title="Editar usuário"
                       >
                         <Pencil className="h-4 w-4" />
@@ -5745,8 +6428,14 @@ function UserManagement({
               ))}
                 {filteredUsers.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-4 text-muted-foreground">
-                      Nenhum usuário encontrado
+                    <TableCell colSpan={8} className="text-center py-12">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                          <Users className="h-8 w-8 text-gray-400" />
+                        </div>
+                        <p className="text-gray-500 font-medium">Nenhum usuário encontrado</p>
+                        <p className="text-sm text-gray-400">Crie um novo usuário para começar</p>
+                      </div>
                     </TableCell>
                   </TableRow>
                 )}
@@ -5756,109 +6445,177 @@ function UserManagement({
         </CardContent>
       </Card>
       
+      <Dialog open={!!editingUser} onOpenChange={(open) => {
+        if (!open) setEditingUser(null);
+      }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto p-0 border-2 border-blue-100 shadow-2xl">
       {editingUser && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              Editar Usuário: {editingUser.username}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="username" className="text-right">
-                  Usuário
-                </Label>
+            <>
+              <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg p-6">
+                <DialogHeader className="text-left">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <Pencil className="h-6 w-6" />
+                    </div>
+                    <DialogTitle className="text-2xl font-bold text-white">Editar Usuário: {editingUser.username}</DialogTitle>
+                  </div>
+                  <DialogDescription className="text-blue-100 text-base">
+                    Atualize as informações do usuário abaixo
+                  </DialogDescription>
+                </DialogHeader>
+              </div>
+              <div className="p-6 bg-white">
+                <div className="space-y-5">
+                  <div className="space-y-3">
+                    <Label htmlFor="username" className="text-gray-700 font-semibold text-sm">Nome de Usuário</Label>
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+                        <UserCog className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+                      </div>
                 <Input
                   id="username"
                   value={editingUser.username}
                   onChange={e => setEditingUser({...editingUser, username: e.target.value})}
-                  className="col-span-3"
+                        className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
                 />
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="name" className="text-right">
-                  Nome
-                </Label>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label htmlFor="name" className="text-gray-700 font-semibold text-sm">Nome Completo</Label>
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+                        <UserIcon className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+                      </div>
                 <Input
                   id="name"
                   value={editingUser.name}
                   onChange={e => setEditingUser({...editingUser, name: e.target.value})}
-                  className="col-span-3"
+                        className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
                 />
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="empresa" className="text-right">
-                  Empresa
-                </Label>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label htmlFor="email" className="text-gray-700 font-semibold text-sm">Email</Label>
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+                        <Mail className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+                      </div>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={editingUser.email}
+                        onChange={e => setEditingUser({...editingUser, email: e.target.value})}
+                        className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label htmlFor="empresa" className="text-gray-700 font-semibold text-sm">Empresa</Label>
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+                        <Building2 className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+                      </div>
                 <Input
                   id="empresa"
                   value={editingUser.empresa}
                   onChange={e => setEditingUser({...editingUser, empresa: e.target.value})}
-                  className="col-span-3"
+                        className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
                 />
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="role" className="text-right">
-                  Perfil
-                </Label>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label htmlFor="role" className="text-gray-700 font-semibold text-sm">Tipo de Usuário</Label>
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+                        <UserCog className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+                      </div>
                 <Select
                   value={editingUser.role}
                   onValueChange={(value: 'admin' | 'user') => setEditingUser({...editingUser, role: value})}
                 >
-                  <SelectTrigger className="col-span-3">
-                    <SelectValue placeholder="Selecione um perfil" />
+                        <SelectTrigger 
+                          className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+                        >
+                          <SelectValue placeholder="Selecione o tipo de usuário" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="user">Usuário</SelectItem>
-                    <SelectItem value="admin">Administrador</SelectItem>
+                          <SelectItem value="user">👤 Usuário</SelectItem>
+                          <SelectItem value="admin">👑 Administrador</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="acesso" className="text-right">
-                  Status de Acesso
-                </Label>
-                <div className="col-span-3 flex items-center space-x-2">
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label htmlFor="acesso" className="text-gray-700 font-semibold text-sm">Status de Acesso</Label>
+                    <div className="flex items-center space-x-3 p-4 bg-gray-50/50 rounded-xl border-2 border-gray-200">
                   <Switch 
                     id="acesso"
                     checked={editingUser.acesso_liberado}
                     onCheckedChange={(checked) => 
                       setEditingUser({...editingUser, acesso_liberado: checked})
                     }
+                        className="data-[state=checked]:bg-green-600"
                   />
-                  <Label htmlFor="acesso" className="cursor-pointer">
-                    {editingUser.acesso_liberado ? 'Ativo' : 'Inativo'}
+                      <Label htmlFor="acesso" className="cursor-pointer flex items-center gap-2">
+                        <Badge 
+                          variant="outline"
+                          className={editingUser.acesso_liberado 
+                            ? "bg-green-100 text-green-800 border-green-300" 
+                            : "bg-red-100 text-red-800 border-red-300"
+                          }
+                        >
+                          {editingUser.acesso_liberado ? '✓ Ativo' : '✗ Inativo'}
+                        </Badge>
                   </Label>
                 </div>
               </div>
             </div>
-          </CardContent>
-          <CardFooter className="flex justify-end gap-2">
+              </div>
+              <DialogFooter className="p-6 bg-gray-50/50 border-t border-gray-200 gap-3">
             <Button 
               variant="outline"
               onClick={() => {
                 setEditingUser(null);
               }}
+                  className="border-gray-300 hover:bg-gray-100"
             >
+                  <X className="mr-2 h-4 w-4" />
               Cancelar
             </Button>
-            <Button onClick={handleSaveUser} className="bg-green-600 hover:bg-green-700">
+                <Button 
+                  onClick={handleSaveUser} 
+                  className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transition-all"
+                >
+                  <Check className="mr-2 h-4 w-4" />
               Salvar Alterações
             </Button>
-          </CardFooter>
-        </Card>
+              </DialogFooter>
+            </>
       )}
+        </DialogContent>
+      </Dialog>
       
       <Dialog open={isCreateUserOpen} onOpenChange={setIsCreateUserOpen}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Criar Novo Usuário</DialogTitle>
-            <DialogDescription>
-              Preencha os campos abaixo para criar um novo usuário.
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto p-0 border-2 border-blue-100 shadow-2xl">
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg p-6">
+            <DialogHeader className="text-left">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <UserPlus className="h-6 w-6" />
+                </div>
+                <DialogTitle className="text-2xl font-bold text-white">Criar Novo Usuário</DialogTitle>
+              </div>
+              <DialogDescription className="text-blue-100 text-base">
+                Preencha os campos abaixo para criar um novo usuário no sistema.
             </DialogDescription>
           </DialogHeader>
-          <div className="px-1">
+          </div>
+          <div className="p-6 bg-white">
             <RegisterForm onRegisterSuccess={() => {
               // Atualizar a lista de usuários após o registro bem-sucedido
               setIsCreateUserOpen(false);
@@ -5904,7 +6661,7 @@ function PaymentsManagement() {
         name: (u.name as string) || '',
         email: (u.email as string) || '',
         role: ((u.role as string) || 'user') as 'admin' | 'user',
-        empresa: (u.empresa as string) || 'SysGest Insight',
+        empresa: (u.empresa as string) || 'InsightPro',
         data_adesao: (u.data_adesao as string) || new Date().toISOString(),
         acesso_liberado: u.acesso_liberado === undefined ? true : Boolean(u.acesso_liberado)
       }));
@@ -5923,12 +6680,14 @@ function PaymentsManagement() {
   // Verificar se o usuário atual tem permissão de administrador
   if (!user || user.role !== 'admin') {
     return (
-      <Card className="w-full h-64">
+      <Card className="w-full h-64 shadow-lg border-2 border-red-100 bg-gradient-to-br from-white via-red-50/30 to-orange-50/30">
         <CardContent className="flex items-center justify-center h-full">
           <div className="text-center">
-            <CreditCard className="mx-auto h-10 w-10 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium">Acesso Restrito</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <div className="mx-auto mb-4 w-16 h-16 bg-gradient-to-br from-red-100 to-orange-100 rounded-full flex items-center justify-center">
+              <CreditCard className="h-8 w-8 text-red-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">Acesso Restrito</h3>
+            <p className="mt-2 text-sm text-gray-600 max-w-sm">
               Você precisa ter permissões de administrador para acessar esta área.
             </p>
           </div>
@@ -6093,50 +6852,70 @@ function PaymentsManagement() {
   
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Gerenciamento de Pagamentos</CardTitle>
-          <CardDescription>
+      <Card className="shadow-lg border-2 border-emerald-100 bg-gradient-to-br from-white via-emerald-50/30 to-green-50/30">
+        <CardHeader className="bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-t-lg pb-4">
+          <CardTitle className="flex items-center gap-2 text-white text-xl">
+            <div className="p-2 bg-white/20 rounded-lg">
+              <CreditCard className="h-6 w-6" />
+            </div>
+            Gerenciamento de Pagamentos
+          </CardTitle>
+          <CardDescription className="text-emerald-100 mt-2">
             Gerencie os pagamentos e o acesso dos usuários ao sistema
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-6">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Nome do Cliente</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Data de Pagamento</TableHead>
-                <TableHead>Próximo Vencimento</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Acesso</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
+              <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
+                <TableHead className="font-bold text-gray-900">Nome do Cliente</TableHead>
+                <TableHead className="font-bold text-gray-900">Email</TableHead>
+                <TableHead className="font-bold text-gray-900">Data de Pagamento</TableHead>
+                <TableHead className="font-bold text-gray-900">Próximo Vencimento</TableHead>
+                <TableHead className="font-bold text-gray-900">Status</TableHead>
+                <TableHead className="font-bold text-gray-900">Acesso</TableHead>
+                <TableHead className="text-right font-bold text-gray-900">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map(user => {
+              {users.map((user, index) => {
                 const status = getStatus(user.data_adesao || '');
-                const statusColor = getStatusColor(status);
                 
                 return (
-                  <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>{formatDate(user.data_adesao || '')}</TableCell>
-                    <TableCell>{formatDate(getNextDueDate(user.data_adesao || '').toISOString())}</TableCell>
+                  <TableRow 
+                    key={user.id}
+                    className={`hover:bg-emerald-50/50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
+                  >
+                    <TableCell className="font-semibold text-gray-900">{user.name}</TableCell>
+                    <TableCell className="text-gray-700">{user.email}</TableCell>
+                    <TableCell className="text-gray-700">{formatDate(user.data_adesao || '')}</TableCell>
+                    <TableCell className="text-gray-700">{formatDate(getNextDueDate(user.data_adesao || '').toISOString())}</TableCell>
                     <TableCell>
-                      <span className={statusColor + " font-medium"}>
+                      <Badge 
+                        variant="outline"
+                        className={
+                          status === "Em dia"
+                            ? "bg-green-100 text-green-800 border-green-300 hover:bg-green-200"
+                            : status === "Aberto"
+                            ? "bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
+                            : "bg-red-100 text-red-800 border-red-300 hover:bg-red-200"
+                        }
+                      >
+                        {status === "Em dia" && "✓ "}
+                        {status === "Aberto" && "⚠ "}
+                        {status === "Vencido" && "✗ "}
                         {status}
-                      </span>
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       {user.acesso_liberado ? (
-                        <Badge variant="outline" className="bg-green-50 text-green-600 border-green-200">
-                          Ativo
+                        <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 hover:bg-green-200">
+                          ✓ Ativo
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">
-                          Pausado
+                        <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300 hover:bg-red-200">
+                          ✗ Pausado
                         </Badge>
                       )}
                     </TableCell>
@@ -6146,17 +6925,31 @@ function PaymentsManagement() {
                           variant="outline" 
                           size="sm"
                           onClick={() => handleRenewSubscription(user.id)}
-                          className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 whitespace-nowrap px-2 mr-1"
+                          className="bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100 hover:text-blue-900 whitespace-nowrap transition-colors"
                         >
-                          <RefreshCcw className="h-3.5 w-3.5 mr-1" />
-                          Data de Pagamento
+                          <RefreshCcw className="h-4 w-4 mr-1.5" />
+                          Renovar
                         </Button>
                         <Button 
                           variant={user.acesso_liberado ? "destructive" : "default"}
                           size="sm"
                           onClick={() => toggleAccess(user.id)}
+                          className={user.acesso_liberado 
+                            ? "bg-red-600 hover:bg-red-700 text-white shadow-md hover:shadow-lg transition-all"
+                            : "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transition-all"
+                          }
                         >
-                          {user.acesso_liberado ? 'Pausar Acesso' : 'Reativar Acesso'}
+                          {user.acesso_liberado ? (
+                            <>
+                              <X className="h-4 w-4 mr-1.5" />
+                              Pausar
+                            </>
+                          ) : (
+                            <>
+                              <Check className="h-4 w-4 mr-1.5" />
+                              Reativar
+                            </>
+                          )}
                         </Button>
                       </div>
                     </TableCell>
@@ -6165,13 +6958,20 @@ function PaymentsManagement() {
               })}
               {users.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-4 text-muted-foreground">
-                    Nenhum usuário encontrado
+                  <TableCell colSpan={7} className="text-center py-12">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                        <CreditCard className="h-8 w-8 text-gray-400" />
+                      </div>
+                      <p className="text-gray-500 font-medium">Nenhum usuário encontrado</p>
+                      <p className="text-sm text-gray-400">Nenhum registro de pagamento disponível</p>
+                    </div>
                   </TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
       
@@ -6179,52 +6979,65 @@ function PaymentsManagement() {
         <Dialog open={!!userToUpdate} onOpenChange={(open) => {
           if (!open) setUserToUpdate(null);
         }}>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Atualizar Data de Pagamento</DialogTitle>
-              <DialogDescription>
+          <DialogContent className="sm:max-w-[500px] p-0 border-2 border-emerald-100 shadow-2xl">
+            <div className="bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-t-lg p-6">
+              <DialogHeader className="text-left">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-white/20 rounded-lg">
+                    <CalendarDays className="h-6 w-6" />
+                  </div>
+                  <DialogTitle className="text-2xl font-bold text-white">Atualizar Data de Pagamento</DialogTitle>
+                </div>
+                <DialogDescription className="text-emerald-100 text-base">
                 Selecione a nova data de pagamento para o usuário.
               </DialogDescription>
             </DialogHeader>
-            <div className="py-4">
-              <div className="space-y-2">
-                <Label>Nova Data de Pagamento</Label>
-                <div className="border rounded-md p-2 bg-white">
+            </div>
+            <div className="p-6 bg-white">
+              <div className="space-y-4">
+                <Label className="text-gray-700 font-semibold text-sm">Nova Data de Pagamento</Label>
+                <div className="border-2 border-gray-200 rounded-xl p-4 bg-gray-50/50 hover:bg-white transition-colors">
                   <Calendar
                     mode="single"
                     selected={selectedDate}
                     onSelect={(date) => setSelectedDate(date)}
                     initialFocus
-                    className="mx-auto"
+                    className="mx-auto rounded-lg"
                   />
                 </div>
-                <div className="mt-2 text-center">
+                <div className="mt-4 p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-lg border border-emerald-200">
                   {selectedDate ? (
-                    <p className="text-sm text-muted-foreground">
-                      Data selecionada: <strong>{formatDate(selectedDate.toISOString())}</strong>
+                    <div className="text-center">
+                      <p className="text-sm text-gray-600 mb-1">Data selecionada:</p>
+                      <p className="text-lg font-bold text-emerald-700">
+                        {formatDate(selectedDate.toISOString())}
                     </p>
+                    </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-center text-gray-500">
                       Selecione uma data no calendário acima
                     </p>
                   )}
                 </div>
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="p-6 bg-gray-50/50 border-t border-gray-200 gap-3">
               <Button 
                 variant="outline" 
                 onClick={() => setUserToUpdate(null)}
                 type="button"
+                className="border-gray-300 hover:bg-gray-100"
               >
+                <X className="mr-2 h-4 w-4" />
                 Cancelar
               </Button>
               <Button 
                 onClick={confirmDateSelection} 
                 disabled={!selectedDate}
                 type="button"
-                className="bg-green-600 hover:bg-green-700"
+                className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
+                <Check className="mr-2 h-4 w-4" />
                 Confirmar
               </Button>
             </DialogFooter>
@@ -6368,10 +7181,47 @@ function ImportData() {
               const totalNovos = novasVendasPermanencia + novasVendasMeta + novasMetas;
               
               toast({
-                title: "Importação de Metas concluída",
-                description: totalNovos > 0 
-                  ? `Foram adicionadas:\n${detalhes.join('\n')}`
-                  : "Nenhum novo registro foi adicionado (todos já existiam)."
+                title: (
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-green-100 rounded-lg">
+                      <Target className="h-4 w-4 text-green-600" />
+                    </div>
+                    <span className="font-semibold">Importação Comercial Concluída</span>
+                  </div>
+                ) as unknown as string,
+                description: totalNovos > 0 ? (
+                  <div className="space-y-2 mt-2">
+                    {novasVendasPermanencia > 0 && (
+                      <div className="flex items-center justify-between p-2 bg-green-50 rounded-lg border border-green-200">
+                        <span className="text-sm text-green-800">Novas vendas de permanência</span>
+                        <span className="font-bold text-green-700 text-base">{novasVendasPermanencia.toLocaleString('pt-BR')}</span>
+                      </div>
+                    )}
+                    {novasVendasMeta > 0 && (
+                      <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200">
+                        <span className="text-sm text-blue-800">Novas vendas de meta</span>
+                        <span className="font-bold text-blue-700 text-base">{novasVendasMeta.toLocaleString('pt-BR')}</span>
+                      </div>
+                    )}
+                    {novasMetas > 0 && (
+                      <div className="flex items-center justify-between p-2 bg-purple-50 rounded-lg border border-purple-200">
+                        <span className="text-sm text-purple-800">Novas metas</span>
+                        <span className="font-bold text-purple-700 text-base">{novasMetas.toLocaleString('pt-BR')}</span>
+                      </div>
+                    )}
+                    <div className="pt-2 border-t border-gray-200 mt-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-gray-700">Total processado</span>
+                        <span className="font-bold text-gray-900 text-lg">{totalNovos.toLocaleString('pt-BR')}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-sm text-gray-600">Nenhum novo registro foi adicionado (todos já existiam).</p>
+                  </div>
+                ),
+                className: "border-2 border-green-200 bg-white"
               });
               
               setProgress(100);
@@ -6491,9 +7341,20 @@ function ImportData() {
             
             if (totalProcessados === 0 && (totalProcessedServices > 0 || totalProcessedBase > 0)) {
               toast({
-                title: "Importação de Serviços e Base concluída!",
-                description: "Nenhum novo registro foi adicionado (todos já existiam).",
-                variant: "default"
+                title: (
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-purple-100 rounded-lg">
+                      <FileIcon className="h-4 w-4 text-purple-600" />
+                    </div>
+                    <span className="font-semibold">Importação Operacional Concluída</span>
+                  </div>
+                ) as unknown as string,
+                description: (
+                  <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-sm text-gray-600">Nenhum novo registro foi adicionado (todos já existiam).</p>
+                  </div>
+                ),
+                className: "border-2 border-purple-200 bg-white"
               });
               
               setProgress(100);
@@ -6515,10 +7376,47 @@ function ImportData() {
             }
             
             toast({
-              title: "Importação de Serviços + BASE concluída",
-              description: detalhes.length > 0 
-                ? `Processados:\n${detalhes.join('\n')}`
-                : "Nenhum novo registro foi adicionado (todos já existiam)."
+              title: (
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-purple-100 rounded-lg">
+                    <FileIcon className="h-4 w-4 text-purple-600" />
+                  </div>
+                  <span className="font-semibold">Importação Operacional Concluída</span>
+                </div>
+              ) as unknown as string,
+              description: detalhes.length > 0 ? (
+                <div className="space-y-2 mt-2">
+                  {processedServiceOrders > 0 && (
+                    <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200">
+                      <span className="text-sm text-blue-800">Novas ordens de serviço</span>
+                      <span className="font-bold text-blue-700 text-base">{processedServiceOrders.toLocaleString('pt-BR')}</span>
+                    </div>
+                  )}
+                  {processedBaseData > 0 && (
+                    <div className="flex items-center justify-between p-2 bg-indigo-50 rounded-lg border border-indigo-200">
+                      <span className="text-sm text-indigo-800">Novas bases</span>
+                      <span className="font-bold text-indigo-700 text-base">{processedBaseData.toLocaleString('pt-BR')}</span>
+                    </div>
+                  )}
+                  {processedBaseUpdated > 0 && (
+                    <div className="flex items-center justify-between p-2 bg-amber-50 rounded-lg border border-amber-200">
+                      <span className="text-sm text-amber-800">Bases atualizadas</span>
+                      <span className="font-bold text-amber-700 text-base">{processedBaseUpdated.toLocaleString('pt-BR')}</span>
+                    </div>
+                  )}
+                  <div className="pt-2 border-t border-gray-200 mt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-gray-700">Total processado</span>
+                      <span className="font-bold text-gray-900 text-lg">{totalProcessados.toLocaleString('pt-BR')}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-600">Nenhum novo registro foi adicionado (todos já existiam).</p>
+                </div>
+              ),
+              className: "border-2 border-purple-200 bg-white"
             });
             
             setProgress(100);
@@ -6572,9 +7470,45 @@ function ImportData() {
                 return messages.join(" • ");
               };
 
+              const hasNewRecords = result.newRecords > 0;
+              const hasUpdatedRecords = result.updatedRecords > 0;
+
               toast({
-                title: "Importação concluída",
-                description: buildDescription()
+                title: (
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-blue-100 rounded-lg">
+                      <CreditCard className="h-4 w-4 text-blue-600" />
+                    </div>
+                    <span className="font-semibold">Importação de Pagamentos Concluída</span>
+                  </div>
+                ) as unknown as string,
+                description: hasNewRecords || hasUpdatedRecords ? (
+                  <div className="space-y-2 mt-2">
+                    {hasNewRecords && (
+                      <div className="flex items-center justify-between p-2 bg-green-50 rounded-lg border border-green-200">
+                        <span className="text-sm text-green-800">Novas informações de Pagamentos adicionadas</span>
+                        <span className="font-bold text-green-700 text-base">{result.newRecords.toLocaleString('pt-BR')}</span>
+                      </div>
+                    )}
+                    {hasUpdatedRecords && (
+                      <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200">
+                        <span className="text-sm text-blue-800">Informações de pagamentos atualizados</span>
+                        <span className="font-bold text-blue-700 text-base">{result.updatedRecords.toLocaleString('pt-BR')}</span>
+                      </div>
+                    )}
+                    <div className="pt-2 border-t border-gray-200 mt-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-gray-700">Total processado</span>
+                        <span className="font-bold text-gray-900 text-lg">{(result.newRecords + result.updatedRecords).toLocaleString('pt-BR')}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-sm text-gray-600">Nenhum registro novo ou atualizado foi encontrado.</p>
+                  </div>
+                ),
+                className: "border-2 border-blue-200 bg-white"
               });
             }
             
@@ -6609,6 +7543,26 @@ function ImportData() {
       setProcessing(false);
       setProgress(0);
     }
+  };
+
+  // Função para processar materiais de uma linha
+  const processarMateriais = (row: Record<string, unknown>) => {
+    const materiais: { nome: string; quantidade: number }[] = [];
+    
+    TODOS_MATERIAIS.forEach(material => {
+      const quantidade = row[material];
+      if (quantidade !== undefined && quantidade !== null && quantidade !== '') {
+        const qtd = parseInt(String(quantidade)) || 0;
+        if (qtd > 0) {
+          materiais.push({
+            nome: material,
+            quantidade: qtd
+          });
+        }
+      }
+    });
+    
+    return materiais.length > 0 ? materiais : undefined;
   };
 
   // Função original para processar ordens de serviço
@@ -6804,6 +7758,7 @@ function ImportData() {
       
       const order: ServiceOrder = {
         codigo_os: String(row["Código OS"]),
+        codigo_item: String(row["Código Item"] || ""), // Código do item específico
         id_tecnico: row["ID Técnico"] ? String(row["ID Técnico"]) : "",
         nome_tecnico: nomeTecnico,
         sigla_tecnico: String(row["SGL"]),
@@ -6824,13 +7779,19 @@ function ImportData() {
         info_endereco_completo: row["Info: info_endereco_completo"] as string | null || null,
         info_empresa_parceira: row["Info: info_empresa_parceira"] as string | null || null,
         acao_tomada: acaoTomada,
-        telefone_celular: row["Tel. Cel"] as string | null || null
+        telefone_celular: row["Tel. Cel"] as string | null || null,
+        
+        // Processar materiais
+        materiais: processarMateriais(row)
       };
       
       return order;
     });
     
-    return processedOrders;
+    // Consolidar materiais de OSs duplicadas
+    const consolidatedOrders = consolidateMaterials(processedOrders);
+    
+    return consolidatedOrders;
   };
   
   // Nova função para processar dados de vendas
@@ -7592,247 +8553,233 @@ function ImportData() {
     return processedMetas;
   };
 
+  const importOptionBaseClasses =
+    "group relative flex transform-gpu flex-col gap-3 rounded-2xl border border-blue-200 bg-white/60 px-5 py-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-blue-300 hover:shadow-[0_28px_55px_-38px_rgba(37,99,235,0.55)]";
+  const importOptionSelectedClasses =
+    "border-transparent bg-gradient-to-br from-blue-200/80 via-white to-blue-100/70 shadow-[0_32px_60px_-36px_rgba(37,99,235,0.7)] ring-2 ring-blue-300/70";
+
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Importar Dados</CardTitle>
-          <CardDescription>Importe diferentes tipos de dados para análise</CardDescription>
+      {/* Card Principal de Importação */}
+      <Card className="relative overflow-hidden rounded-3xl border border-white/60 bg-gradient-to-br from-blue-50/30 via-white to-slate-50/50 shadow-[0_32px_70px_-40px_rgba(37,99,235,0.55)] backdrop-blur-sm">
+        <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b-2 border-blue-200 pb-4 backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-gradient-to-br from-blue-100 via-white to-blue-50 p-3 shadow-inner">
+              <FileUp className="h-6 w-6 text-blue-500" />
+            </div>
+            <div>
+              <CardTitle className="text-3xl font-semibold text-slate-800">Importar Dados</CardTitle>
+              <CardDescription className="mt-2 text-sm text-slate-500">Selecione o tipo de importação e faça upload do arquivo</CardDescription>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="grid gap-4">
-              <div className="mb-4">
-                <Label className="mb-2 block">Tipo de Importação</Label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  <Button
-                    onClick={() => setImportType('pagamentos')}
-                    variant={importType === 'pagamentos' ? 'default' : 'outline'}
-                    className="text-xs px-2 py-1.5 h-auto"
-                    size="sm"
-                  >
-                    <FileIcon className="mr-1 h-3 w-3" />
-                    Primeiro Pagamento (Icare)
-                  </Button>
-                  <Button
-                    onClick={() => setImportType('metas')}
-                    variant={importType === 'metas' ? 'default' : 'outline'}
-                    className="text-xs px-2 py-1.5 h-auto"
-                    size="sm"
-                  >
-                    <Target className="mr-1 h-3 w-3" />
-                    Comercial (Vendas Permanencia, Vendas Atual e Metas)
-                  </Button>
-                  <Button
-                    onClick={() => setImportType('servicos-base')}
-                    variant={importType === 'servicos-base' ? 'default' : 'outline'}
-                    className="text-xs px-2 py-1.5 h-auto"
-                    size="sm"
-                  >
-                    <FileIcon className="mr-1 h-3 w-3" />
-                    Operacional (Serviços e Base)
-                  </Button>
+        <CardContent className="pt-6">
+          <div className="space-y-0">
+            {/* Etapa 1 - Seleção de Tipo de Importação */}
+            <section className="space-y-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 via-white to-blue-200 text-lg font-semibold text-blue-600 shadow-inner">
+                  1
+                </div>
+                <div className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-500">Etapa 1</span>
+                  <h3 className="text-xl font-semibold text-slate-800">Escolha o tipo de importação</h3>
+                  <p className="text-sm text-slate-500">Selecione o cenário que deseja atualizar antes de enviar o arquivo.</p>
                 </div>
               </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <button
+                    type="button"
+                    onClick={() => setImportType('pagamentos')}
+                  className={`${importOptionBaseClasses} ${
+                    importType === 'pagamentos' ? importOptionSelectedClasses : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-100 via-white to-blue-50 text-blue-600 shadow-inner transition-transform duration-200 group-hover:scale-105">
+                        <CreditCard className="h-6 w-6" />
+                    </div>
+                      <div className="space-y-1">
+                        <div className={`text-base font-semibold ${importType === 'pagamentos' ? 'text-blue-700' : 'text-slate-700'}`}>
+                        Primeiro Pagamento
+                      </div>
+                        <div className="text-sm text-slate-500">Arquivo Icare</div>
+                      </div>
+                    </div>
+                    {importType === 'pagamentos' && (
+                      <CheckCircle className="h-5 w-5 text-blue-500 transition-all duration-200 group-hover:scale-110" />
+                    )}
+                  </div>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setImportType('metas')}
+                  className={`${importOptionBaseClasses} ${
+                    importType === 'metas' ? importOptionSelectedClasses : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-100 via-white to-blue-50 text-blue-600 shadow-inner transition-transform duration-200 group-hover:scale-105">
+                        <Target className="h-6 w-6" />
+                    </div>
+                      <div className="space-y-1">
+                        <div className={`text-base font-semibold ${importType === 'metas' ? 'text-blue-700' : 'text-slate-700'}`}>
+                        Comercial
+                      </div>
+                        <div className="text-sm text-slate-500">Vendas e Metas</div>
+                      </div>
+                    </div>
+                    {importType === 'metas' && (
+                      <CheckCircle className="h-5 w-5 text-blue-500 transition-all duration-200 group-hover:scale-110" />
+                    )}
+                  </div>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setImportType('servicos-base')}
+                  className={`${importOptionBaseClasses} ${
+                    importType === 'servicos-base' ? importOptionSelectedClasses : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-100 via-white to-blue-50 text-blue-600 shadow-inner transition-transform duration-200 group-hover:scale-105">
+                        <FileIcon className="h-6 w-6" />
+                    </div>
+                      <div className="space-y-1">
+                        <div className={`text-base font-semibold ${importType === 'servicos-base' ? 'text-blue-700' : 'text-slate-700'}`}>
+                        Operacional
+                      </div>
+                        <div className="text-sm text-slate-500">Serviços e Base</div>
+                      </div>
+                    </div>
+                    {importType === 'servicos-base' && (
+                      <CheckCircle className="h-5 w-5 text-blue-500 transition-all duration-200 group-hover:scale-110" />
+                    )}
+                  </div>
+                </button>
+                </div>
+            </section>
               
-              <Label htmlFor="file">Arquivo Excel ou CSV</Label>
+            {/* Divisória entre Etapa 1 e 2 */}
+            <div className="border-t border-gray-200 pt-8">
+              {/* Etapa 2 - Upload de Arquivo */}
+              <section className="space-y-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 via-white to-blue-200 text-lg font-semibold text-blue-600 shadow-inner">
+                  2
+                </div>
+                <div className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-500">Etapa 2</span>
+                  <h3 className="text-xl font-semibold text-slate-800">Faça o upload do arquivo</h3>
+                  <p className="text-sm text-slate-500">Envie planilhas nos formatos .xlsx, .xls ou .csv com as colunas necessárias.</p>
+                </div>
+              </div>
+              <div className="relative">
               <Input
                 id="file"
                 type="file"
                 accept=".xlsx,.xls,.csv"
                 onChange={handleFileChange}
                 disabled={processing}
-              />
-              {file && (
-                <p className="text-sm text-muted-foreground">
-                  Arquivo selecionado: {file.name} ({Math.round(file.size / 1024)} KB)
-                </p>
+                  className="hidden"
+                />
+                <label
+                  htmlFor="file"
+                  className={`group relative flex w-full transform-gpu flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed px-6 py-8 text-center shadow-sm transition-all duration-200 before:absolute before:inset-0 before:-z-10 before:rounded-2xl before:bg-gradient-to-br before:from-white/70 before:to-transparent before:opacity-0 before:transition-all before:duration-200 ${
+                    file
+                      ? 'border-blue-400 bg-gradient-to-br from-blue-100/70 via-white to-blue-50/80 shadow-[0_20px_50px_-30px_rgba(37,99,235,0.5)]'
+                      : processing
+                      ? 'cursor-not-allowed border-slate-200 bg-slate-100/80 text-slate-400 opacity-80'
+                      : 'border-blue-200 bg-white/60 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50/40 hover:shadow-[0_20px_50px_-30px_rgba(37,99,235,0.5)] group-hover:before:opacity-100'
+                  }`}
+                >
+                  {file ? (
+                    <>
+                      <CheckCircle className="mb-2 h-8 w-8 text-blue-500" />
+                      <p className="text-sm font-semibold text-blue-700">{file.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">{Math.round(file.size / 1024)} KB</p>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="mb-2 h-8 w-8 text-blue-400 transition-transform duration-200 group-hover:scale-105" />
+                      <p className="text-sm font-semibold text-blue-700">
+                        Arraste ou <span className="text-blue-500 underline decoration-dotted underline-offset-2">clique para enviar</span>
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">Suporta arquivos .xlsx, .xls e .csv</p>
+                    </>
               )}
-              
-              {importType === 'pagamentos' && (
-                <div className="text-sm text-muted-foreground mt-2">
-                  <p className="font-medium">Dica:</p>
-                  <p>O arquivo deve conter as seguintes colunas obrigatórias:</p>
-                  <ul className="list-disc ml-6 mb-2">
-                    <li>Proposta</li>
-                    <li>Passo</li>
-                    <li>Vencimento da Fatura</li>
-                    <li>Status do Pacote</li>
-                  </ul>
-                  <p>As seguintes colunas são opcionais:</p>
-                  <ul className="list-disc ml-6 mb-2">
-                    <li>Data Passo de Cobrança</li>
-                    <li>Data de Importação (se não existir, a data atual será usada)</li>
-                  </ul>
-                  <p>Ao importar, os registros com a mesma proposta serão atualizados apenas se a nova data de importação for mais recente.</p>
-                </div>
-              )}
-              
-              {error && <p className="text-sm text-red-500">{error}</p>}
-              
-              {processing && (
-                <div className="space-y-2">
-                  <Progress value={progress} />
-                  <p className="text-sm text-muted-foreground">
-                    Processando arquivo... {progress}%
-                  </p>
-                </div>
-              )}
+                </label>
+              </div>
+              </section>
             </div>
             
-            <div className="flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-2">
+            {/* Divisória entre Etapa 2 e 3 */}
+            <div className="border-t border-gray-200 pt-8">
+              {/* Etapa 3 - Importação */}
+              <section className="space-y-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 via-white to-blue-200 text-lg font-semibold text-blue-600 shadow-inner">
+                  3
+            </div>
+                      <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-500">Etapa 3</p>
+                  <h3 className="text-xl font-semibold text-slate-800">Importe e acompanhe o progresso</h3>
+                  <p className="text-sm text-slate-500">Inicie o processo e acompanhe o andamento na barra de progresso.</p>
+                        </div>
+                      </div>
+              
+            {error && (
+                <div className="rounded-2xl border border-red-200/70 bg-red-50/80 p-4 backdrop-blur-sm">
+                <div className="flex items-center gap-2">
+                  <X className="h-5 w-5 text-red-600" />
+                  <p className="text-sm font-medium text-red-800">{error}</p>
+                </div>
+              </div>
+            )}
+              
+              {processing && (
+                <div className="rounded-2xl border border-blue-200/70 bg-white/70 p-4 shadow-sm backdrop-blur-sm">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-blue-900">Processando arquivo...</span>
+                    <span className="text-sm font-bold text-blue-600">{progress}%</span>
+                </div>
+                    <Progress
+                      value={progress}
+                      className="h-2 bg-blue-100/80"
+                      indicatorClassName="bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-500"
+                    />
+            </div>
+              </div>
+            )}
+            
+              <div className="flex flex-col items-center gap-4">
               <Button
                 onClick={handleUpload}
                 disabled={!file || processing}
-                className="w-full"
+                  className="group relative inline-flex h-12 w-full transform-gpu items-center justify-center rounded-full bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-500 px-8 text-base font-semibold text-white shadow-lg shadow-blue-500/40 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-blue-500/50 disabled:pointer-events-none disabled:opacity-60 sm:w-auto"
+              size="lg"
               >
-                {processing ? 
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 
-                  <Upload className="mr-2 h-4 w-4" />
-                }
+              {processing ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Processando...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-5 w-5" />
                 Importar Dados
+                </>
+              )}
               </Button>
-            </div>
           </div>
-        </CardContent>
-      </Card>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>Instruções para Importação</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-semibold mb-2">Formato do Arquivo</h3>
-              <p className="text-sm text-muted-foreground">
-                Os arquivos devem estar no formato Excel (.xlsx) ou CSV, com as colunas apropriadas.
-              </p>
+            </section>
             </div>
-            
-
-            {importType === 'pagamentos' && (
-              <div>
-                <h3 className="text-sm font-semibold mb-2">Campos Obrigatórios - Primeiro Pagamento (Icare)</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
-                  <div>• Proposta</div>
-                  <div>• Passo</div>
-                  <div>• Vencimento da Fatura</div>
-                  <div>• Status do Pacote</div>
-                </div>
-              </div>
-            )}
-            
-            {importType === 'metas' && (
-              <div>
-                <h3 className="text-sm font-semibold mb-2">Importação Comercial - 3 Planilhas</h3>
-                <p className="text-sm text-muted-foreground mb-3">
-                  O arquivo Excel deve conter <strong>exatamente 3 planilhas</strong> com os nomes:
-                </p>
-                
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-semibold mb-1">Planilha: "VENDAS PERMANENCIA" (Vendas Permanência)</h4>
-                    <p className="text-xs text-muted-foreground mb-2">Usar o mesmo formato da importação de vendas normais</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs">
-                      <div>• Número da proposta</div>
-                      <div>• ID/Código do vendedor</div>
-                      <div>• Nome completo do proprietário</div>
-                      <div>• Agrupamento do Produto</div>
-                      <div>• Produto principal</div>
-                      <div>• Valor</div>
-                      <div>• Status da Proposta</div>
-                      <div>• Data da Habilitação</div>
-                    </div>
-                    <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-xs">
-                      <p className="font-medium text-orange-800">⚡ Nova Parabólica (NP) - Inserção Simplificada:</p>
-                      <p className="text-orange-700">Para produtos com agrupamento "NP", apenas <strong>ID/Código do vendedor</strong> e <strong>Nome completo do proprietário</strong> são obrigatórios. Os demais campos serão preenchidos automaticamente.</p>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <h4 className="text-sm font-semibold mb-1">Planilha: "VENDAS META" (Vendas Atual)</h4>
-                    <p className="text-xs text-muted-foreground mb-2">Usar o mesmo formato da importação de vendas normais</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs">
-                      <div>• Número da proposta</div>
-                      <div>• ID/Código do vendedor</div>
-                      <div>• Agrupamento do Produto</div>
-                      <div>• Produto principal</div>
-                      <div>• Valor</div>
-                      <div>• Data da Habilitação</div>
-                    </div>
-                    <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-xs">
-                      <p className="font-medium text-orange-800">⚡ Nova Parabólica (NP) - Inserção Simplificada:</p>
-                      <p className="text-orange-700">Para produtos com agrupamento "NP", apenas <strong>ID/Código do vendedor</strong> é obrigatório. Os demais campos serão preenchidos automaticamente.</p>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <h4 className="text-sm font-semibold mb-1">Planilha: "METAS" (Metas Comerciais)</h4>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs">
-                      <div>• MÊS</div>
-                      <div>• ANO</div>
-                      <div>• PÓS-PAGO</div>
-                      <div>• FLEX/CONFORTO</div>
-                      <div>• NOVA PARABÓLICA</div>
-                      <div>• TOTAL</div>
-                      <div>• FIBRA</div>
-                      <div>• SEGUROS POS</div>
-                      <div>• SEGUROS FIBRA</div>
-                      <div>• SKY MAIS</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {importType === 'servicos-base' && (
-              <div>
-                <h3 className="text-sm font-semibold mb-2">Importação Operacional - 2 Planilhas</h3>
-                <p className="text-sm text-muted-foreground mb-3">
-                  O arquivo Excel deve conter <strong>2 planilhas</strong>:
-                </p>
-                
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-semibold mb-1">Primeira Planilha: Dados de Serviços (Operacional)</h4>
-                    <p className="text-xs text-muted-foreground mb-2">Nome sugerido: "SERVICOS" ou similar</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs">
-                      <div>• Código OS</div>
-                      <div>• ID Técnico</div>
-                      <div>• Técnico</div>
-                      <div>• SGL</div>
-                      <div>• Tipo de serviço</div>
-                      <div>• Sub-Tipo de serviço</div>
-                      <div>• Motivo</div>
-                      <div>• Código Cliente</div>
-                      <div>• Cliente</div>
-                      <div>• Status</div>
-                      <div>• Criação</div>
-                      <div>• Finalização</div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <h4 className="text-sm font-semibold mb-1">Segunda Planilha: "BASE" (Dados Base)</h4>
-                    <p className="text-xs text-muted-foreground mb-2">Nome obrigatório: "BASE"</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs">
-                      <div>• MÊS</div>
-                      <div>• BASE TV</div>
-                      <div>• BASE FIBRA</div>
-                      <div>• ALIANCA</div>
-                    </div>
-                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
-                      <p className="font-medium text-blue-800">Exemplo de dados BASE:</p>
-                      <p>MÊS: Janeiro, Fevereiro, Março...</p>
-                      <p>BASE TV: 1500, 1520, 1480...</p>
-                      <p>BASE FIBRA: 2300, 2350, 2400...</p>
-                      <p>ALIANCA: 800, 820, 850...</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -9003,142 +9950,138 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     <>
       {/* Filtros de Mês e Ano de Permanência */}
       <div className="mb-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Filtros de Permanência</CardTitle>
-            <CardDescription>
+        <Card className="shadow-lg border-2">
+          <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50 border-b-2 pb-4">
+            <CardTitle className="text-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 rounded-lg">
+                  <Filter className="h-5 w-5 text-emerald-600" />
+                </div>
+                <span className="text-gray-800 font-semibold">Filtros de Permanência</span>
+              </div>
+            </CardTitle>
+            <CardDescription className="text-sm mt-2 text-gray-600">
               Filtre por período de permanência (vendas + 4 meses)
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-4 items-end">
-              <div>
-                <Label htmlFor="filtro-mes-permanencia" className="text-xs">Mês de Permanência</Label>
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="filtro-mes-permanencia" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                    <CalendarIcon className="h-4 w-4 text-emerald-600" />
+                    Mês de Permanência
+                  </Label>
                 <MultiSelect 
                   options={mesOptions} 
                   selected={filtroMesPermanencia}
                   onChange={(values) => setFiltroMesPermanencia(values)}
                   placeholder="Selecione meses"
-                  className="w-full text-xs min-w-[200px]"
+                    className="w-full text-sm min-w-[200px]"
                 />
               </div>
               
-              <div>
-                <Label htmlFor="filtro-ano-permanencia" className="text-xs">Ano de Permanência</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="filtro-ano-permanencia" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                    <CalendarIcon className="h-4 w-4 text-emerald-600" />
+                    Ano de Permanência
+                  </Label>
                 <MultiSelect 
                   options={anoOptions} 
                   selected={filtroAnoPermanencia}
                   onChange={(values) => setFiltroAnoPermanencia(values)}
                   placeholder="Selecione anos"
-                  className="w-full text-xs min-w-[150px]"
+                    className="w-full text-sm min-w-[150px]"
                 />
               </div>
 
-              <div>
+                <div className="flex items-end">
                 <Button
                   variant="outline"
-                  size="sm"
+                    size="lg"
                   onClick={() => {
                     setFiltroMesPermanencia([]);
                     setFiltroAnoPermanencia([]);
                   }}
                   disabled={filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0}
-                  className="h-10 px-3"
+                    className="w-full h-11 border-2 hover:bg-gray-50 font-semibold"
                 >
-                  <X className="h-4 w-4 mr-1" />
+                    <RefreshCcw className="h-4 w-4 mr-2" />
                   Limpar Filtros
                 </Button>
               </div>
             </div>
             
+              {/* Badges de seleção ativa */}
+              {(filtroMesPermanencia.length > 0 || filtroAnoPermanencia.length > 0) && (
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-200">
+                  {filtroMesPermanencia.map((mes) => (
+                    <Badge key={mes} variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 px-3 py-1.5 text-sm font-semibold">
+                      <CalendarIcon className="h-3 w-3 mr-1.5" />
+                      Mês: {mes}
+                    </Badge>
+                  ))}
+                  {filtroAnoPermanencia.map((ano) => (
+                    <Badge key={ano} variant="outline" className="bg-teal-50 text-teal-700 border-teal-300 px-3 py-1.5 text-sm font-semibold">
+                      <CalendarIcon className="h-3 w-3 mr-1.5" />
+                      Ano: {ano}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              
+              {/* Informações sobre a lógica */}
             {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) && (
-              <div className="mt-3 p-2 bg-blue-50 rounded-md">
-                <p className="text-xs text-blue-700">
+                <div className="mt-4 p-4 bg-blue-50 border-l-4 border-blue-400 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm text-blue-900 font-semibold mb-1">Como funciona?</p>
+                      <p className="text-xs text-blue-800 leading-relaxed">
                   <strong>Lógica dos filtros:</strong> Vendas de <em>Fevereiro</em> refletem permanência em <em>Junho</em> (data de habilitação + 4 meses)
                   <br />
                   <strong>Múltiplas seleções:</strong> Você pode selecionar vários meses e anos para comparar diferentes períodos
                 </p>
+                    </div>
+                  </div>
               </div>
             )}
+            </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Verificar se AMBOS os filtros de permanência estão selecionados */}
       {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          {/* Primeira card com métrica geral */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle>Permanência de Clientes</CardTitle>
-              <CardDescription>
-                Visão geral da permanência de clientes ativos
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">{permanenciaMetricsFiltradas.percentual_adimplentes.toFixed(1)}%</div>
-                  <div className="text-xs text-muted-foreground mt-1">Adimplentes</div>
-                  <div className="text-sm font-medium mt-1">{permanenciaMetricsFiltradas.adimplentes}</div>
-              </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-amber-600">{permanenciaMetricsFiltradas.percentual_inadimplentes.toFixed(1)}%</div>
-                  <div className="text-xs text-muted-foreground mt-1">Inadimplentes</div>
-                  <div className="text-sm font-medium mt-1">{permanenciaMetricsFiltradas.inadimplentes}</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">{permanenciaMetricsFiltradas.percentual_cancelados.toFixed(1)}%</div>
-                  <div className="text-xs text-muted-foreground mt-1">Cancelados</div>
-                  <div className="text-sm font-medium mt-1">{permanenciaMetricsFiltradas.cancelados}</div>
-                </div>
-              </div>
-              
-              <div className="mt-4">
-                <Progress value={permanenciaMetricsFiltradas.percentual_adimplentes} className="h-2 mb-1" />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Total de Clientes: {permanenciaMetricsFiltradas.total_clientes}</span>
-                  <span>Ativos: {permanenciaMetricsFiltradas.adimplentes + permanenciaMetricsFiltradas.inadimplentes}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
+        <div className="mb-6">
+          {/* Grid com Permanência POS e Vendas por Cidade lado a lado */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Quadro de Permanência POS */}
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle>
-                <div className="flex items-center">
-                  <MapPin className="mr-2 h-5 w-5" />
-                  Permanência POS
+            <Card className="shadow-lg border-2">
+              <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b-2 pb-4">
+                <CardTitle className="text-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-100 rounded-lg">
+                      <MapPin className="h-5 w-5 text-green-600" />
+                    </div>
+                    <span className="text-gray-800 font-semibold">Permanência POS</span>
                 </div>
               </CardTitle>
-              <CardDescription>
+                <CardDescription className="text-sm mt-2 text-gray-600">
                 Informações de permanência para serviços POS
               </CardDescription>
             </CardHeader>
-            <CardContent>
+              <CardContent className="pt-6">
               <PermanenciaPorTipoServico sigla="POS" datasHabilitacaoFiltradas={filtroDataHabilitacao} vendasFiltradas={vendasFiltradas} />
             </CardContent>
           </Card>
           
-          {/* Quadro de Permanência Fibra */}
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle>
-                <div className="flex items-center">
-                  <MapPin className="mr-2 h-5 w-5" />
-                  Permanência Fibra
+            {/* Quadro de Vendas por Cidade */}
+            <VendasInstaladasPorCidade 
+              vendasFiltradas={propostasFiltradas} 
+              titulo="Vendas Instaladas por Cidade - Mês da Permanência" 
+            />
                 </div>
-              </CardTitle>
-              <CardDescription>
-                Informações de permanência para serviços FIBRA
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <PermanenciaPorTipoServico sigla="BL-DGO" datasHabilitacaoFiltradas={filtroDataHabilitacao} vendasFiltradas={vendasFiltradas} />
-            </CardContent>
-          </Card>
         </div>
       ) : (
         <div className="mb-6">
@@ -9158,22 +10101,19 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
         </div>
       )}
       
-      {/* Quadro de Vendas por Cidade - só exibir se ambos os filtros estiverem aplicados */}
-      {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) && (
-        <div className="mb-6">
-          <VendasInstaladasPorCidade 
-            vendasFiltradas={propostasFiltradas} 
-            titulo="Vendas Instaladas por Cidade - Mês da Permanência" 
-          />
-        </div>
-      )}
-      
       {/* Tabela de detalhamento - só exibir se ambos os filtros estiverem aplicados */}
       {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Detalhamento de Propostas</CardTitle>
-            <CardDescription>
+        <Card className="shadow-lg border-2">
+          <CardHeader className="bg-gradient-to-r from-purple-50 to-indigo-50 border-b-2 pb-4">
+            <CardTitle className="text-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <List className="h-5 w-5 text-purple-600" />
+                </div>
+                <span className="text-gray-800 font-semibold">Detalhamento de Propostas</span>
+              </div>
+            </CardTitle>
+            <CardDescription className="text-sm mt-2 text-gray-600">
               Lista de propostas com detalhes de permanência e status de pagamento
             </CardDescription>
           </CardHeader>
@@ -9423,63 +10363,70 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
           </div>
           
           {/* Contador de registros */}
-          <div className="flex justify-between items-center mb-4">
-            <div className="text-sm font-medium">
-              Total de registros: <span className="font-bold">{propostasFiltradas.length}</span>
-            </div>
+          <div className="flex justify-between items-center mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300 font-semibold px-3 py-1">
+                Total de registros: <span className="font-bold text-base ml-1">{propostasFiltradas.length}</span>
+              </Badge>
             {(filtroSigla.length > 0 || (filtroVendedor && filtroVendedor !== '_all') || 
               filtroPasso.length > 0 || filtroStatus.length > 0 || 
               filtroDataHabilitacao.length > 0 || filtroDiasCorridos.length > 0 ||
               filtroCidade.length > 0 || filtroBairro.length > 0) && (
-              <div className="text-xs text-muted-foreground">
-                * Filtros aplicados
-            </div>
+                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-xs">
+                  Filtros ativos
+                </Badge>
           )}
+            </div>
           </div>
           
           {/* Legenda dos status */}
-          <div className="flex flex-wrap gap-3 mb-4 p-2 bg-muted/20 rounded-md">
-            <div className="text-sm font-medium mr-2">Status de Pagamento:</div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 rounded-full bg-green-600 mr-1"></div>
-              <span className="text-xs">N - Normal (Cliente Ativo)</span>
+          <div className="mb-4 p-4 bg-gradient-to-r from-gray-50 to-slate-50 rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="h-4 w-4 text-gray-600" />
+              <span className="text-sm font-semibold text-gray-700">Legenda de Status de Pagamento</span>
             </div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 rounded-full bg-amber-500 mr-1"></div>
-              <span className="text-xs">S - Suspenso (Inadimplente)</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="flex items-center gap-2 p-2 bg-green-50 rounded-md border border-green-200">
+                <div className="w-4 h-4 rounded-full bg-green-600 flex-shrink-0"></div>
+                <span className="text-xs font-medium text-green-700">N - Normal (Cliente Ativo)</span>
             </div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 rounded-full bg-red-600 mr-1"></div>
-              <span className="text-xs">C - Cancelado</span>
+              <div className="flex items-center gap-2 p-2 bg-amber-50 rounded-md border border-amber-200">
+                <div className="w-4 h-4 rounded-full bg-amber-500 flex-shrink-0"></div>
+                <span className="text-xs font-medium text-amber-700">S - Suspenso (Inadimplente)</span>
             </div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 rounded-full bg-pink-500 mr-1"></div>
-              <span className="text-xs">NC - Não Cobrança (Cliente FIBRA com informação no sirius mas sem cobrança no arquivo Primeiro Pagamento)</span>
+              <div className="flex items-center gap-2 p-2 bg-red-50 rounded-md border border-red-200">
+                <div className="w-4 h-4 rounded-full bg-red-600 flex-shrink-0"></div>
+                <span className="text-xs font-medium text-red-700">C - Cancelado</span>
+              </div>
+              <div className="flex items-center gap-2 p-2 bg-pink-50 rounded-md border border-pink-200">
+                <div className="w-4 h-4 rounded-full bg-pink-500 flex-shrink-0"></div>
+                <span className="text-xs font-medium text-pink-700">NC - Não Cobrança</span>
+              </div>
             </div>
           </div>
           
           {/* Tabela de propostas */}
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
             <Table className="text-xs">
               <TableHeader>
-                <TableRow>
-                  <TableHead className="text-xs p-2 font-medium">Proposta</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">CPF</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Nome Fantasia</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Telefone</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Cidade</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Bairro</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Sigla</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Produto</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Vendedor</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Data Habilitação</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Dias Corridos</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Data Limite</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Status</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Passo</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Vencimento da Fatura</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Data da Importação</TableHead>
-                  <TableHead className="text-xs p-2 font-medium">Ação</TableHead>
+                <TableRow className="bg-gray-100 hover:bg-gray-100">
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Proposta</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">CPF</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Nome Fantasia</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Telefone</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Cidade</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Bairro</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Sigla</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Produto</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Vendedor</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Data Habilitação</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Dias Corridos</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Data Limite</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Status</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Passo</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Vencimento da Fatura</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Data da Importação</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Ação</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -9507,63 +10454,78 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                       }
                     }
                     
+                    const globalIndex = (paginaAtual - 1) * itensPorPagina + index;
                     return (
                       <TableRow 
                         key={index}
-                        className={
+                        className={`transition-colors ${
                           tipoOportunidade === 'ouro' 
-                            ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-l-4 border-yellow-400 hover:from-yellow-100 hover:to-yellow-150' 
+                            ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-l-4 border-yellow-400 hover:from-yellow-100 hover:to-yellow-200' 
                             : tipoOportunidade === 'bronze'
-                            ? 'bg-gradient-to-r from-orange-50 to-orange-100 border-l-4 border-orange-400 hover:from-orange-100 hover:to-orange-150'
-                            : 'hover:bg-gray-50'
-                        }
+                            ? 'bg-gradient-to-r from-orange-50 to-orange-100 border-l-4 border-orange-400 hover:from-orange-100 hover:to-orange-200'
+                            : globalIndex % 2 === 0 
+                            ? 'bg-white hover:bg-gray-50' 
+                            : 'bg-gray-50/50 hover:bg-gray-100'
+                        }`}
                       >
-                        <TableCell className="text-xs p-2 font-medium">{proposta.numero_proposta}</TableCell>
-                        <TableCell className="text-xs p-2">{proposta.cpf || "-"}</TableCell>
-                        <TableCell className="text-xs p-2">{proposta.nome_fantasia || "-"}</TableCell>
-                        <TableCell className="text-xs p-2">{proposta.telefone_celular || "-"}</TableCell>
-                        <TableCell className="text-xs p-2">{proposta.cidade || "-"}</TableCell>
-                        <TableCell className="text-xs p-2">{proposta.bairro || "-"}</TableCell>
-                        <TableCell className="text-xs p-2">{sigla}</TableCell>
-                        <TableCell className="text-xs p-2">{proposta.produto_principal}</TableCell>
-                        <TableCell className="text-xs p-2">{proposta.nome_proprietario}</TableCell>
-                        <TableCell className="text-xs p-2">
+                        <TableCell className="text-xs p-3 font-semibold text-gray-900">{proposta.numero_proposta}</TableCell>
+                        <TableCell className="text-xs p-3 font-mono text-gray-700">{proposta.cpf || "-"}</TableCell>
+                        <TableCell className="text-xs p-3 text-gray-700">{proposta.nome_fantasia || "-"}</TableCell>
+                        <TableCell className="text-xs p-3 font-mono text-gray-700">{proposta.telefone_celular || "-"}</TableCell>
+                        <TableCell className="text-xs p-3 text-gray-700">{proposta.cidade || "-"}</TableCell>
+                        <TableCell className="text-xs p-3 text-gray-700">{proposta.bairro || "-"}</TableCell>
+                        <TableCell className="text-xs p-3">
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 font-semibold px-2 py-0.5">
+                            {sigla}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs p-3 text-gray-700">{proposta.produto_principal}</TableCell>
+                        <TableCell className="text-xs p-3 text-gray-700">{proposta.nome_proprietario}</TableCell>
+                        <TableCell className="text-xs p-3 text-gray-600">
                           {proposta.data_habilitacao ? formatarDataParaExibicao(proposta.data_habilitacao) : '-'}
                         </TableCell>
-                        <TableCell className="text-xs p-2">
-                          {proposta.data_habilitacao ? diasCorridos : '-'}
+                        <TableCell className="text-xs p-3">
+                          {proposta.data_habilitacao ? (
+                            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300 font-semibold px-2 py-0.5">
+                              {diasCorridos}
+                            </Badge>
+                          ) : '-'}
                         </TableCell>
-                        <TableCell className="text-xs p-2">
+                        <TableCell className="text-xs p-3 text-gray-600">
                           {proposta.data_habilitacao ? renderDataLimite(proposta.data_habilitacao) : '-'}
                         </TableCell>
-                        <TableCell className="text-xs p-2">
+                        <TableCell className="text-xs p-3">
                           {pagamento ? (
                             <Badge 
                               variant={getStatusBadgeVariant(
                                 pagamento.status_pacote, 
                                 pagamento.vencimento_fatura
                               )}
-                              className={
-                                pagamento.status_pacote === 'C' ? 'bg-red-600 hover:bg-red-700' : 
+                              className={`font-semibold px-2 py-1 ${
+                                pagamento.status_pacote === 'C' ? 'bg-red-600 hover:bg-red-700 text-white border-red-600' : 
                                 pagamento.status_pacote === 'S' ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500' : 
-                                pagamento.status_pacote === 'N' ? 'bg-green-600 hover:bg-green-700' : 
-                                pagamento.status_pacote === 'NC' ? 'bg-pink-500 hover:bg-pink-600' : ''
-                              }
+                                pagamento.status_pacote === 'N' ? 'bg-green-600 hover:bg-green-700 text-white border-green-600' : 
+                                pagamento.status_pacote === 'NC' ? 'bg-pink-500 hover:bg-pink-600 text-white border-pink-500' : ''
+                              }`}
                             >
                               {pagamento.status_pacote}
                             </Badge>
                           ) : '-'}
                         </TableCell>
-                        <TableCell className="text-xs p-2">
-                          {pagamento ? (pagamento.passo === '0' ? '0' : pagamento.passo || '0') : '-'}
+                        <TableCell className="text-xs p-3">
+                          {pagamento ? (
+                            <Badge variant="outline" className="bg-gray-100 text-gray-700 border-gray-300 font-semibold px-2 py-0.5">
+                              {pagamento.passo === '0' ? '0' : pagamento.passo || '0'}
+                            </Badge>
+                          ) : '-'}
                         </TableCell>
-                        <TableCell className="text-xs p-2">
+                        <TableCell className="text-xs p-3 text-gray-600">
                           {pagamento && pagamento.vencimento_fatura ? formatarDataParaExibicao(pagamento.vencimento_fatura) : '-'}
                         </TableCell>
-                        <TableCell className="text-xs p-2">
+                        <TableCell className="text-xs p-3 text-gray-600">
                           {pagamento && pagamento.data_importacao ? formatarDataParaExibicao(pagamento.data_importacao) : '-'}
                         </TableCell>
-                        <TableCell className="text-xs p-2">
+                        <TableCell className="text-xs p-3">
                           <div className="flex items-center gap-1">
                             {/* Botão WhatsApp */}
                             {proposta.telefone_celular ? (
@@ -9655,8 +10617,16 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={16} className="text-center py-4 text-muted-foreground">
-                      Nenhuma proposta encontrada com os filtros aplicados.
+                    <TableCell colSpan={17} className="text-center py-12">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                          <Search className="h-8 w-8 text-gray-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-gray-700 mb-1">Nenhuma proposta encontrada</p>
+                          <p className="text-xs text-gray-500">Tente ajustar os filtros para encontrar resultados</p>
+                        </div>
+                      </div>
                     </TableCell>
                   </TableRow>
                 )}
@@ -9736,16 +10706,24 @@ function VendedorTabContent() {
 
   return (
     <Tabs value={activeVendedorTab} onValueChange={setActiveVendedorTab} className="space-y-4">
-      <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger value="permanencia" className="flex items-center">
-          <AlertTriangle className="mr-2 h-4 w-4" />
-          Permanência
+      <div className="bg-gradient-to-r from-slate-50 via-blue-50 to-indigo-50 rounded-lg p-1.5 shadow-sm border border-slate-200">
+        <TabsList className="grid w-full grid-cols-2 bg-transparent gap-1.5 h-auto p-0">
+          <TabsTrigger 
+            value="permanencia" 
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-md text-sm font-semibold transition-all duration-200 data-[state=active]:bg-white data-[state=active]:text-orange-700 data-[state=active]:shadow-md data-[state=active]:shadow-orange-100 data-[state=inactive]:text-slate-600 data-[state=inactive]:hover:text-slate-800 data-[state=inactive]:hover:bg-white/50"
+          >
+            <AlertTriangle className="h-5 w-5" />
+            <span>Permanência</span>
         </TabsTrigger>
-        <TabsTrigger value="desempenho" className="flex items-center">
-          <Target className="mr-2 h-4 w-4" />
-          Desempenho
+          <TabsTrigger 
+            value="desempenho" 
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-md text-sm font-semibold transition-all duration-200 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-md data-[state=active]:shadow-blue-100 data-[state=inactive]:text-slate-600 data-[state=inactive]:hover:text-slate-800 data-[state=inactive]:hover:bg-white/50"
+          >
+            <Target className="h-5 w-5" />
+            <span>Desempenho</span>
         </TabsTrigger>
       </TabsList>
+      </div>
 
       {/* Subguia Permanência */}
       <TabsContent value="permanencia" className="space-y-4">
@@ -10060,61 +11038,103 @@ function VendedorPermanenciaContent() {
     <>
       {/* Filtros de Mês e Ano de Permanência */}
       <div className="mb-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Filtros de Permanência</CardTitle>
-            <CardDescription>
+        <Card className="shadow-lg border-2">
+          <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50 border-b-2 pb-4">
+            <CardTitle className="text-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 rounded-lg">
+                  <Filter className="h-5 w-5 text-emerald-600" />
+                </div>
+                <span className="text-gray-800 font-semibold">Filtros de Permanência</span>
+              </div>
+            </CardTitle>
+            <CardDescription className="text-sm mt-2 text-gray-600">
               Filtre por período de permanência (vendas + 4 meses)
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-4 items-end">
-              <div>
-                <Label htmlFor="filtro-mes-permanencia-vendedor" className="text-xs">Mês de Permanência</Label>
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="filtro-mes-permanencia-vendedor" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                    <CalendarIcon className="h-4 w-4 text-emerald-600" />
+                    Mês de Permanência
+                  </Label>
                 <MultiSelect 
                   options={mesOptions} 
                   selected={filtroMesPermanencia}
                   onChange={(values) => setFiltroMesPermanencia(values)}
                   placeholder="Selecione meses"
-                  className="w-full text-xs min-w-[200px]"
+                    className="w-full text-sm min-w-[200px]"
                 />
               </div>
               
-              <div>
-                <Label htmlFor="filtro-ano-permanencia-vendedor" className="text-xs">Ano de Permanência</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="filtro-ano-permanencia-vendedor" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                    <CalendarIcon className="h-4 w-4 text-emerald-600" />
+                    Ano de Permanência
+                  </Label>
                 <MultiSelect 
                   options={anoOptions} 
                   selected={filtroAnoPermanencia}
                   onChange={(values) => setFiltroAnoPermanencia(values)}
                   placeholder="Selecione anos"
-                  className="w-full text-xs min-w-[150px]"
+                    className="w-full text-sm min-w-[150px]"
                 />
               </div>
 
+                <div className="flex items-end">
               <Button
                 variant="outline"
-                size="sm" 
+                    size="lg"
                 onClick={() => {
                   setFiltroMesPermanencia([]);
                   setFiltroAnoPermanencia([]);
                 }}
                 disabled={filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0}
-                className="h-10"
+                    className="w-full h-11 border-2 hover:bg-gray-50 font-semibold"
               >
-                <X className="h-4 w-4 mr-1" />
+                    <RefreshCcw className="h-4 w-4 mr-2" />
                 Limpar Filtros
               </Button>
+                </div>
             </div>
 
+              {/* Badges de seleção ativa */}
+              {(filtroMesPermanencia.length > 0 || filtroAnoPermanencia.length > 0) && (
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-200">
+                  {filtroMesPermanencia.map((mes) => (
+                    <Badge key={mes} variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 px-3 py-1.5 text-sm font-semibold">
+                      <CalendarIcon className="h-3 w-3 mr-1.5" />
+                      Mês: {mes}
+                    </Badge>
+                  ))}
+                  {filtroAnoPermanencia.map((ano) => (
+                    <Badge key={ano} variant="outline" className="bg-teal-50 text-teal-700 border-teal-300 px-3 py-1.5 text-sm font-semibold">
+                      <CalendarIcon className="h-3 w-3 mr-1.5" />
+                      Ano: {ano}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {/* Informações sobre a lógica */}
             {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) && (
-              <div className="mt-3 p-2 bg-blue-50 rounded-md">
-                <p className="text-xs text-blue-700">
+                <div className="mt-4 p-4 bg-blue-50 border-l-4 border-blue-400 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm text-blue-900 font-semibold mb-1">Como funciona?</p>
+                      <p className="text-xs text-blue-800 leading-relaxed">
                   <strong>Lógica dos filtros:</strong> Vendas de <em>Fevereiro</em> refletem permanência em <em>Junho</em> (data de habilitação + 4 meses)
                   <br />
                   <strong>Múltiplas seleções:</strong> Você pode selecionar vários meses e anos para comparar diferentes períodos
                 </p>
+                    </div>
+                  </div>
               </div>
             )}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -10122,75 +11142,101 @@ function VendedorPermanenciaContent() {
       {/* Verificar se AMBOS os filtros de permanência estão selecionados */}
       {(filtroMesPermanencia.length > 0 && filtroAnoPermanencia.length > 0) ? (
         <>
-          {/* Container para os cartões lado a lado */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
-            {/* Cartão para POS */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">
-                  Permanencia Individual - POS {calcularMesesReferencia()}
+          {/* Card Permanência Individual - POS e Evolução da Permanência - Layout Lado a Lado */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* Card Permanência Individual - POS Modernizado */}
+            <Card className="shadow-lg border-2 border-emerald-100 bg-gradient-to-br from-white via-emerald-50/30 to-teal-50/30">
+              <CardHeader className="pb-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-t-lg">
+                <CardTitle className="flex items-center text-base">
+                  <Users className="mr-2 h-5 w-5" />
+                  Permanência Individual - POS {calcularMesesReferencia()}
                 </CardTitle>
-                <CardDescription className="text-xs">
+                <CardDescription className="text-emerald-100 text-xs">
                   Análise de status de clientes por vendedor para serviços POS
                 </CardDescription>
               </CardHeader>
-              <CardContent className="p-3">
+              <CardContent className="p-4">
+                {/* Resumo de Permanência Geral */}
                   {totaisPorSigla.POS.total > 0 && (
-                  <div className="mb-4 p-3 bg-slate-50 rounded-lg border-l-4 border-slate-300">
+                  <div className="mb-4 p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border-2 border-emerald-200 shadow-sm">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-slate-700">Permanência Geral:</span>
-                        <div className="flex items-center space-x-2">
-                          <span className={`text-2xl font-bold ${getPercentualColor(totaisPorSigla.POS.percentual_adimplencia)}`}>
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-emerald-100 rounded-lg">
+                          <TrendingUp className="h-5 w-5 text-emerald-600" />
+                        </div>
+                        <span className="text-sm font-semibold text-gray-800">Permanência Geral:</span>
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <span className={`text-3xl font-bold ${getPercentualColor(totaisPorSigla.POS.percentual_adimplencia)}`}>
                             {totaisPorSigla.POS.percentual_adimplencia.toFixed(2)}%
                           </span>
-                          <span className="text-sm text-slate-500 font-medium">
-                            ({totaisPorSigla.POS.adimplentes}/{totaisPorSigla.POS.total})
+                        <span className="text-base text-gray-600 font-semibold bg-white px-3 py-1 rounded-md border border-gray-200">
+                          {totaisPorSigla.POS.adimplentes} / {totaisPorSigla.POS.total}
                           </span>
                         </div>
                       </div>
                     </div>
                   )}
+                
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-gray-50">
-                        <TableHead className="font-semibold text-xs py-2 px-2">ID Vendedor</TableHead>
-                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Total</TableHead>
-                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Adimplentes</TableHead>
-                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Inadimplentes</TableHead>
-                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Cancelados</TableHead>
-                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">% Adimplência</TableHead>
+                      <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
+                        <TableHead className="font-bold text-sm text-gray-900 sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50 border-r-2 border-gray-300 min-w-[200px]">
+                          Vendedor
+                        </TableHead>
+                        <TableHead className="font-bold text-sm text-gray-900 text-center">Total</TableHead>
+                        <TableHead className="font-bold text-sm text-green-700 text-center bg-green-50/30">Adimplentes</TableHead>
+                        <TableHead className="font-bold text-sm text-amber-700 text-center bg-amber-50/30">Inadimplentes</TableHead>
+                        <TableHead className="font-bold text-sm text-red-700 text-center bg-red-50/30">Cancelados</TableHead>
+                        <TableHead className="font-bold text-sm text-gray-900 text-center min-w-[120px]">% Adimplência</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {vendedoresPorSigla.length > 0 ? (
                         vendedoresPorSigla.map((vendedor, index) => (
-                          <TableRow key={`pos-${index}`} className="hover:bg-gray-50">
-                            <TableCell className="font-medium text-xs py-1 px-2 min-w-[160px]">
+                          <TableRow 
+                            key={`pos-${index}`} 
+                            className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}
+                          >
+                            <TableCell className={`font-semibold text-sm py-2 sticky left-0 z-10 border-r-2 border-gray-200 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
                               <div className="whitespace-nowrap">
-                                {vendedor.id_vendedor} - {vendedor.nome_vendedor}
+                                {vendedor.id_vendedor}
+                                {vendedor.nome_vendedor !== vendedor.id_vendedor && (
+                                  <span className="text-gray-600 ml-2 font-normal">
+                                    - {vendedor.nome_vendedor}
+                                  </span>
+                                )}
                               </div>
                             </TableCell>
-                            <TableCell className="text-center font-medium text-xs py-1 px-1">
+                            <TableCell className="text-center font-medium text-sm py-2">
                               {vendedor.siglas.POS.total}
                             </TableCell>
-                            <TableCell className="text-center text-green-600 font-medium text-xs py-1 px-1">
+                            <TableCell className="text-center text-green-600 font-semibold text-sm py-2 bg-green-50/20">
                               {vendedor.siglas.POS.adimplentes}
                             </TableCell>
-                            <TableCell className="text-center text-amber-600 font-medium text-xs py-1 px-1">
+                            <TableCell className="text-center text-amber-600 font-semibold text-sm py-2 bg-amber-50/20">
                               {vendedor.siglas.POS.inadimplentes}
                             </TableCell>
-                            <TableCell className="text-center text-red-600 font-medium text-xs py-1 px-1">
+                            <TableCell className="text-center text-red-600 font-semibold text-sm py-2 bg-red-50/20">
                               {vendedor.siglas.POS.cancelados}
                             </TableCell>
-                            <TableCell className={`text-center font-bold text-xs py-1 px-1 ${getPercentualColor(vendedor.siglas.POS.percentual_adimplencia)}`}>
+                            <TableCell className="text-center py-2">
+                              <span className={`inline-block px-3 py-1 rounded-md border text-sm font-bold ${
+                                vendedor.siglas.POS.percentual_adimplencia <= 45.00 
+                                  ? "bg-red-100 text-red-800 border-red-300" 
+                                  : vendedor.siglas.POS.percentual_adimplencia < 50.00 
+                                  ? "bg-amber-100 text-amber-800 border-amber-300" 
+                                  : "bg-green-100 text-green-800 border-green-300"
+                              }`}>
                               {vendedor.siglas.POS.percentual_adimplencia.toFixed(2)}%
+                              </span>
                             </TableCell>
                           </TableRow>
                         ))
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-4 text-muted-foreground text-xs">
+                          <TableCell colSpan={6} className="text-center py-6 text-muted-foreground text-sm">
                             Nenhum dado de vendedor disponível para POS
                           </TableCell>
                         </TableRow>
@@ -10198,24 +11244,32 @@ function VendedorPermanenciaContent() {
                       
                       {/* Linha de total para POS */}
                       {vendedoresPorSigla.length > 0 && totaisPorSigla.POS.total > 0 && (
-                        <TableRow className="bg-slate-100 border-t-2 border-slate-300 font-bold">
-                          <TableCell className="font-bold text-xs py-2 px-2">
+                        <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-t-2 border-gray-300 font-bold">
+                          <TableCell className={`font-bold text-sm py-3 sticky left-0 z-10 border-r-2 border-gray-300 bg-gradient-to-r from-gray-100 to-gray-50`}>
                             TOTAL GERAL
                           </TableCell>
-                          <TableCell className="text-center font-bold text-xs py-2 px-1">
+                          <TableCell className="text-center font-bold text-base py-3">
                             {totaisPorSigla.POS.total}
                           </TableCell>
-                          <TableCell className="text-center text-green-600 font-bold text-xs py-2 px-1">
+                          <TableCell className="text-center text-green-600 font-bold text-base py-3 bg-green-50/20">
                             {totaisPorSigla.POS.adimplentes}
                           </TableCell>
-                          <TableCell className="text-center text-amber-600 font-bold text-xs py-2 px-1">
+                          <TableCell className="text-center text-amber-600 font-bold text-base py-3 bg-amber-50/20">
                             {totaisPorSigla.POS.inadimplentes}
                           </TableCell>
-                          <TableCell className="text-center text-red-600 font-bold text-xs py-2 px-1">
+                          <TableCell className="text-center text-red-600 font-bold text-base py-3 bg-red-50/20">
                             {totaisPorSigla.POS.cancelados}
                           </TableCell>
-                          <TableCell className={`text-center font-bold text-xs py-2 px-1 ${getPercentualColor(totaisPorSigla.POS.percentual_adimplencia)}`}>
+                          <TableCell className="text-center py-3">
+                            <span className={`inline-block px-3 py-1.5 rounded-md border text-base font-bold ${
+                              totaisPorSigla.POS.percentual_adimplencia <= 45.00 
+                                ? "bg-red-100 text-red-800 border-red-300" 
+                                : totaisPorSigla.POS.percentual_adimplencia < 50.00 
+                                ? "bg-amber-100 text-amber-800 border-amber-300" 
+                                : "bg-green-100 text-green-800 border-green-300"
+                            }`}>
                             {totaisPorSigla.POS.percentual_adimplencia.toFixed(2)}%
+                          </span>
                           </TableCell>
                         </TableRow>
                       )}
@@ -10225,126 +11279,20 @@ function VendedorPermanenciaContent() {
               </CardContent>
             </Card>
 
-            {/* Cartão para BL-DGO */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">
-                  Permanencia Individual - FIBRA {calcularMesesReferencia()}
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Análise de status de clientes por vendedor para serviços FIBRA
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-3">
-                  {totaisPorSigla["BL-DGO"].total > 0 && (
-                  <div className="mb-4 p-3 bg-slate-50 rounded-lg border-l-4 border-slate-300">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-slate-700">Permanência Geral:</span>
-                        <div className="flex items-center space-x-2">
-                          <span className={`text-2xl font-bold ${getPercentualColor(totaisPorSigla["BL-DGO"].percentual_adimplencia)}`}>
-                            {totaisPorSigla["BL-DGO"].percentual_adimplencia.toFixed(2)}%
-                          </span>
-                          <span className="text-sm text-slate-500 font-medium">
-                            ({totaisPorSigla["BL-DGO"].adimplentes}/{totaisPorSigla["BL-DGO"].total})
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-gray-50">
-                        <TableHead className="font-semibold text-xs py-2 px-2">ID Vendedor</TableHead>
-                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Total</TableHead>
-                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Adimplentes</TableHead>
-                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Inadimplentes</TableHead>
-                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">Cancelados</TableHead>
-                        <TableHead className="font-semibold text-xs py-2 px-1 text-center">% Adimplência</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {vendedoresPorSigla.length > 0 ? (
-                        vendedoresPorSigla.map((vendedor, index) => (
-                          <TableRow key={`bldgo-${index}`} className="hover:bg-gray-50">
-                            <TableCell className="font-medium text-xs py-1 px-2 min-w-[160px]">
-                              <div className="whitespace-nowrap">
-                                {vendedor.id_vendedor} - {vendedor.nome_vendedor}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center font-medium text-xs py-1 px-1">
-                              {vendedor.siglas["BL-DGO"].total}
-                            </TableCell>
-                            <TableCell className="text-center text-green-600 font-medium text-xs py-1 px-1">
-                              {vendedor.siglas["BL-DGO"].adimplentes}
-                            </TableCell>
-                            <TableCell className="text-center text-amber-600 font-medium text-xs py-1 px-1">
-                              {vendedor.siglas["BL-DGO"].inadimplentes}
-                            </TableCell>
-                            <TableCell className="text-center text-red-600 font-medium text-xs py-1 px-1">
-                              {vendedor.siglas["BL-DGO"].cancelados}
-                            </TableCell>
-                            <TableCell className={`text-center font-bold text-xs py-1 px-1 ${getPercentualColor(vendedor.siglas["BL-DGO"].percentual_adimplencia)}`}>
-                              {vendedor.siglas["BL-DGO"].percentual_adimplencia.toFixed(2)}%
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={6} className="text-center py-4 text-muted-foreground text-xs">
-                            Nenhum dado de vendedor disponível para FIBRA
-                          </TableCell>
-                        </TableRow>
-                      )}
-                      
-                      {/* Linha de total para FIBRA */}
-                      {vendedoresPorSigla.length > 0 && totaisPorSigla["BL-DGO"].total > 0 && (
-                        <TableRow className="bg-slate-100 border-t-2 border-slate-300 font-bold">
-                          <TableCell className="font-bold text-xs py-2 px-2">
-                            TOTAL GERAL
-                          </TableCell>
-                          <TableCell className="text-center font-bold text-xs py-2 px-1">
-                            {totaisPorSigla["BL-DGO"].total}
-                          </TableCell>
-                          <TableCell className="text-center text-green-600 font-bold text-xs py-2 px-1">
-                            {totaisPorSigla["BL-DGO"].adimplentes}
-                          </TableCell>
-                          <TableCell className="text-center text-amber-600 font-bold text-xs py-2 px-1">
-                            {totaisPorSigla["BL-DGO"].inadimplentes}
-                          </TableCell>
-                          <TableCell className="text-center text-red-600 font-bold text-xs py-2 px-1">
-                            {totaisPorSigla["BL-DGO"].cancelados}
-                          </TableCell>
-                          <TableCell className={`text-center font-bold text-xs py-2 px-1 ${getPercentualColor(totaisPorSigla["BL-DGO"].percentual_adimplencia)}`}>
-                            {totaisPorSigla["BL-DGO"].percentual_adimplencia.toFixed(2)}%
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Gráficos de Permanência - Layout Lado a Lado (1:1) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Gráfico de Evolução da Permanência */}
-          <PermanenciaTrendChart
+            {/* Tabela de Evolução da Permanência */}
+            <PermanenciaTrendTable
             filtroMesPermanencia={filtroMesPermanencia}
             filtroAnoPermanencia={filtroAnoPermanencia}
             vendasFiltradas={vendasFiltradas}
-              chartHeight={400}
-              containerMaxWidth="none"
             />
+          </div>
 
-            {/* Gráfico de Evolução da Permanência por Vendedor */}
-            <VendedorPermanenciaTrendChart
+          {/* Tabela de Evolução da Permanência por Vendedor */}
+          <div className="mb-6">
+            <VendedorPermanenciaTrendTable
               filtroMesPermanencia={filtroMesPermanencia}
               filtroAnoPermanencia={filtroAnoPermanencia}
               vendasFiltradas={vendasFiltradas}
-              chartHeight={400}
-              containerMaxWidth="none"
           />
           </div>
       
@@ -10857,54 +11805,100 @@ function VendedorDesempenhoContent() {
 
   return (
     <>
-      {/* Filtros de Mês e Ano de Habilitação */}
+      {/* Filtros de Mês e Ano de Habilitação - Modernizado */}
       <div className="mb-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Filtros de Habilitação</CardTitle>
-            <CardDescription>
+        <Card className="shadow-lg border-2">
+          <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b-2 pb-4">
+            <CardTitle className="text-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Filter className="h-5 w-5 text-blue-600" />
+                </div>
+                <span className="text-gray-800 font-semibold">Filtros de Habilitação</span>
+              </div>
+            </CardTitle>
+            <CardDescription className="text-sm mt-2 text-gray-600">
               Filtre por período de habilitação das vendas
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-4 items-end">
-              <div>
-                <Label htmlFor="filtro-mes-habilitacao" className="text-xs">Mês de Habilitação</Label>
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="filtro-mes-habilitacao" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                    <CalendarIcon className="h-4 w-4 text-blue-600" />
+                    Mês de Habilitação
+                  </Label>
                 <MultiSelect 
                   options={mesOptions} 
                   selected={filtroMesHabilitacao}
                   onChange={(values) => setFiltroMesHabilitacao(values)}
                   placeholder="Selecione meses"
-                  className="w-full text-xs min-w-[200px]"
+                    className="w-full text-sm min-w-[200px]"
                 />
               </div>
               
-              <div>
-                <Label htmlFor="filtro-ano-habilitacao" className="text-xs">Ano de Habilitação</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="filtro-ano-habilitacao" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                    <CalendarIcon className="h-4 w-4 text-blue-600" />
+                    Ano de Habilitação
+                  </Label>
                 <MultiSelect 
                   options={anoOptions} 
                   selected={filtroAnoHabilitacao}
                   onChange={(values) => setFiltroAnoHabilitacao(values)}
                   placeholder="Selecione anos"
-                  className="w-full text-xs min-w-[150px]"
+                    className="w-full text-sm min-w-[150px]"
                 />
               </div>
 
-              <div>
+                <div className="flex items-end">
                 <Button
                   variant="outline"
-                  size="sm"
+                    size="lg"
                   onClick={() => {
                     setFiltroMesHabilitacao([]);
                     setFiltroAnoHabilitacao([]);
                   }}
                   disabled={filtroMesHabilitacao.length === 0 && filtroAnoHabilitacao.length === 0}
-                  className="h-10 px-3"
+                    className="w-full h-11 border-2 hover:bg-gray-50 font-semibold"
                 >
-                  <X className="h-4 w-4 mr-1" />
+                    <RefreshCcw className="h-4 w-4 mr-2" />
                   Limpar Filtros
                 </Button>
               </div>
+              </div>
+
+              {/* Badges de seleção ativa */}
+              {(filtroMesHabilitacao.length > 0 || filtroAnoHabilitacao.length > 0) && (
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-200">
+                  {filtroMesHabilitacao.map((mes) => (
+                    <Badge key={mes} variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 px-3 py-1.5 text-sm font-semibold">
+                      <CalendarIcon className="h-3 w-3 mr-1.5" />
+                      Mês: {mes}
+                    </Badge>
+                  ))}
+                  {filtroAnoHabilitacao.map((ano) => (
+                    <Badge key={ano} variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-300 px-3 py-1.5 text-sm font-semibold">
+                      <CalendarIcon className="h-3 w-3 mr-1.5" />
+                      Ano: {ano}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {/* Informações sobre a lógica */}
+              {(filtroMesHabilitacao.length > 0 && filtroAnoHabilitacao.length > 0) && (
+                <div className="mt-4 p-4 bg-blue-50 border-l-4 border-blue-400 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-gray-700">
+                      <p className="font-semibold mb-1">Período Selecionado:</p>
+                      <p className="text-xs">{calcularMesesReferencia()}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -10913,26 +11907,26 @@ function VendedorDesempenhoContent() {
       {/* Mostrar quadros apenas quando filtros estiverem selecionados */}
       {(filtroMesHabilitacao.length > 0 && filtroAnoHabilitacao.length > 0) ? (
         <div className="space-y-6">
-          {/* Layout reorganizado: Quadros em colunas com gráficos abaixo */}
+          {/* Quadros de Ticket Médio e Quantidade de Vendas por Vendedor */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Coluna 1: Ticket Médio + Evolução por Período */}
+          {/* Coluna 1: Ticket Médio por Vendedor */}
           <div className="space-y-6">
           {/* Quadro Ticket Médio por Vendedor */}
           <ProtectedCard 
             title="Ticket Médio por Vendedor" 
             storageKey="vendedor_ticket_medio"
           >
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <DollarSign className="h-4 w-4 text-green-600" />
+            <Card className="shadow-lg border-2 border-emerald-100 bg-gradient-to-br from-white via-emerald-50/30 to-green-50/30">
+              <CardHeader className="pb-3 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-t-lg">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <DollarSign className="h-5 w-5" />
                   Ticket Médio por Vendedor {calcularMesesReferencia() && `(${calcularMesesReferencia()})`}
                 </CardTitle>
-                <CardDescription className="text-xs">
+                <CardDescription className="text-emerald-100 text-xs">
                   Valores combinados (permanência + meta atual)
                 </CardDescription>
               </CardHeader>
-              <CardContent className="p-3">
+              <CardContent className="p-4">
               {vendas.length === 0 && vendasMeta.length === 0 ? (
                 <div className="text-center py-6 text-muted-foreground text-sm">
                   Importe dados de vendas para visualizar.
@@ -10941,131 +11935,117 @@ function VendedorDesempenhoContent() {
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-gray-50">
-                      <TableHead className="font-semibold text-xs py-2 px-2">VENDEDOR</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">Total</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">POS</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">PRE</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">NP</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">FIBRA</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">SKY+</TableHead>
+                    <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
+                      <TableHead className="font-bold text-xs py-2 px-3 sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50 border-r-2 border-gray-300 min-w-[160px]">VENDEDOR</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right">Total</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-green-700 bg-green-50/30">POS</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-blue-700 bg-blue-50/30">PRE</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-purple-700 bg-purple-50/30">NP</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-indigo-700 bg-indigo-50/30">SKY+</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {calcularTicketMedioVendedor.map((vendedor) => (
-                      <TableRow key={vendedor.id_vendedor} className="hover:bg-gray-50">
-                        <TableCell className="font-medium text-xs py-1 px-2 min-w-[160px]">
+                    {calcularTicketMedioVendedor.map((vendedor, index) => (
+                      <TableRow 
+                        key={vendedor.id_vendedor} 
+                        className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
+                      >
+                        <TableCell className="font-semibold text-xs py-2 px-3 sticky left-0 z-10 bg-inherit border-r-2 border-gray-200 min-w-[160px]">
                           <div className="whitespace-nowrap">
                             {vendedor.id_vendedor}
                             {vendedor.nome_vendedor !== vendedor.id_vendedor && (
-                              <span className="text-gray-500 ml-1">
+                              <span className="text-gray-600 ml-1 font-normal">
                                 - {vendedor.nome_vendedor}
                               </span>
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-semibold text-xs py-1 px-1">
+                        <TableCell className="text-right font-bold text-xs py-2 px-2">
                           {vendedor.valores.total.toLocaleString('pt-BR', {
                             style: 'currency',
                             currency: 'BRL',
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
                           })}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1">
+                        <TableCell className="text-right text-xs py-2 px-2 text-green-700 font-medium">
                           {vendedor.valores.POS > 0 ? vendedor.valores.POS.toLocaleString('pt-BR', {
                             style: 'currency',
                             currency: 'BRL',
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0
-                          }) : 'R$ 0'}
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          }) : 'R$ 0,00'}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1">
+                        <TableCell className="text-right text-xs py-2 px-2 text-blue-700 font-medium">
                           {vendedor.valores.PRE > 0 ? vendedor.valores.PRE.toLocaleString('pt-BR', {
                             style: 'currency',
                             currency: 'BRL',
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0
-                          }) : 'R$ 0'}
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          }) : 'R$ 0,00'}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1">
+                        <TableCell className="text-right text-xs py-2 px-2 text-purple-700 font-medium">
                           {vendedor.valores.NP > 0 ? vendedor.valores.NP.toLocaleString('pt-BR', {
                             style: 'currency',
                             currency: 'BRL',
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0
-                          }) : 'R$ 0'}
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          }) : 'R$ 0,00'}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1">
-                          {vendedor.valores.FIBRA > 0 ? vendedor.valores.FIBRA.toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0
-                          }) : 'R$ 0'}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1">
+                        <TableCell className="text-right text-xs py-2 px-2 text-indigo-700 font-medium">
                           {vendedor.valores['SKY+'] > 0 ? vendedor.valores['SKY+'].toLocaleString('pt-BR', {
                             style: 'currency',
                             currency: 'BRL',
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0
-                          }) : 'R$ 0'}
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          }) : 'R$ 0,00'}
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                   <TableFooter>
-                    <TableRow className="bg-purple-50 border-t-2 border-purple-200">
-                      <TableCell className="font-bold text-purple-800 text-xs py-1 px-2">
+                    <TableRow className="bg-gradient-to-r from-emerald-100 to-green-100 border-t-2 border-emerald-300 font-bold">
+                      <TableCell className="font-bold text-emerald-900 text-xs py-2 px-3 sticky left-0 z-10 bg-gradient-to-r from-emerald-100 to-green-100 border-r-2 border-emerald-300">
                         TOTAL GERAL
                       </TableCell>
-                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                      <TableCell className="text-right font-bold text-emerald-900 text-sm py-2 px-2">
                         {totaisGerais.total.toLocaleString('pt-BR', {
                           style: 'currency',
                           currency: 'BRL',
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
                         })}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                      <TableCell className="text-right font-bold text-green-800 text-sm py-2 px-2 bg-green-50/50">
                         {totaisGerais.POS.toLocaleString('pt-BR', {
                           style: 'currency',
                           currency: 'BRL',
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
                         })}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                      <TableCell className="text-right font-bold text-blue-800 text-sm py-2 px-2 bg-blue-50/50">
                         {totaisGerais.PRE.toLocaleString('pt-BR', {
                           style: 'currency',
                           currency: 'BRL',
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
                         })}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                      <TableCell className="text-right font-bold text-purple-800 text-sm py-2 px-2 bg-purple-50/50">
                         {totaisGerais.NP.toLocaleString('pt-BR', {
                           style: 'currency',
                           currency: 'BRL',
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
                         })}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
-                        {totaisGerais.FIBRA.toLocaleString('pt-BR', {
-                          style: 'currency',
-                          currency: 'BRL',
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0
-                        })}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-purple-800 text-xs py-1 px-1">
+                      <TableCell className="text-right font-bold text-indigo-800 text-sm py-2 px-2 bg-indigo-50/50">
                         {totaisGerais['SKY+'].toLocaleString('pt-BR', {
                           style: 'currency',
                           currency: 'BRL',
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
                         })}
                       </TableCell>
                     </TableRow>
@@ -11076,52 +12056,20 @@ function VendedorDesempenhoContent() {
           </CardContent>
         </Card>
           </ProtectedCard>
-
-          {/* Gráfico Evolução do Desempenho por Período */}
-          <ProtectedCard 
-            title="Ticket Médio no Período" 
-            storageKey="vendedor_ticket_medio_periodo"
-          >
-            <DesempenhoTrendChart
-              filtroMesHabilitacao={filtroMesHabilitacao}
-              filtroAnoHabilitacao={filtroAnoHabilitacao}
-              vendasFiltradas={vendasFiltradas}
-              vendasMetaFiltradas={vendasMetaFiltradas}
-              chartHeight={400}
-              containerMaxWidth="none"
-            />
-          </ProtectedCard>
-
-          {/* Gráfico Evolução do Desempenho por Período por Vendedor */}
-          <ProtectedCard 
-            title="Ticket Médio no Período por Vendedor" 
-            storageKey="vendedor_ticket_medio_periodo_vendedor"
-          >
-            <VendedorDesempenhoPerPeriodoTrendChart
-              filtroMesHabilitacao={filtroMesHabilitacao}
-              filtroAnoHabilitacao={filtroAnoHabilitacao}
-              vendasFiltradas={vendasFiltradas}
-              vendasMetaFiltradas={vendasMetaFiltradas}
-              chartHeight={400}
-              containerMaxWidth="none"
-            />
-          </ProtectedCard>
         </div>
 
-        {/* Coluna 2: Quantidade de Vendas + Evolução por Categoria */}
-        <div className="space-y-6">
         {/* Quadro Quantidade de Vendas por Vendedor */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <BarChart2 className="h-4 w-4 text-blue-600" />
+        <Card className="shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
+          <CardHeader className="pb-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart2 className="h-5 w-5" />
               Quantidade de Vendas por Vendedor {calcularMesesReferencia() && `(${calcularMesesReferencia()})`}
             </CardTitle>
-            <CardDescription className="text-xs">
+            <CardDescription className="text-blue-100 text-xs">
               Quantidades combinadas (permanência + meta atual)
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-3">
+          <CardContent className="p-4">
             {vendas.length === 0 && vendasMeta.length === 0 ? (
               <div className="text-center py-6 text-muted-foreground text-sm">
                 Importe dados de vendas para visualizar.
@@ -11130,110 +12078,99 @@ function VendedorDesempenhoContent() {
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-gray-50">
-                      <TableHead className="font-semibold text-xs py-2 px-2">VENDEDOR</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">Total</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">POS</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">PRE</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">NP</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">FIBRA</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right">SKY+</TableHead>
+                    <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
+                      <TableHead className="font-bold text-xs py-2 px-3 sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50 border-r-2 border-gray-300 min-w-[160px]">VENDEDOR</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right">Total</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-green-700 bg-green-50/30">POS</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-blue-700 bg-blue-50/30">PRE</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-purple-700 bg-purple-50/30">NP</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-indigo-700 bg-indigo-50/30">SKY+</TableHead>
                       {/* DIVISÓRIA - PRODUTOS DIFERENCIAIS */}
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right bg-orange-100 border-l-2 border-orange-300">Cartão</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right bg-orange-100">Digital</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right bg-orange-100">S/Cobr</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right bg-orange-100">Seg.POS</TableHead>
-                      <TableHead className="font-semibold text-xs py-2 px-1 text-right bg-orange-100">Seg.FIB</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-orange-100 border-l-2 border-orange-300 text-orange-800">Cartão</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-orange-100 text-orange-800">Digital</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-orange-100 text-orange-800">S/Cobr</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-orange-100 text-orange-800">Seg.POS</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {calcularQuantidadeVendasVendedor.map((vendedor) => (
-                      <TableRow key={`qtd-${vendedor.id_vendedor}`} className="hover:bg-gray-50">
-                        <TableCell className="font-medium text-xs py-1 px-2 min-w-[160px]">
+                    {calcularQuantidadeVendasVendedor.map((vendedor, index) => (
+                      <TableRow 
+                        key={`qtd-${vendedor.id_vendedor}`} 
+                        className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
+                      >
+                        <TableCell className="font-semibold text-xs py-2 px-3 sticky left-0 z-10 bg-inherit border-r-2 border-gray-200 min-w-[160px]">
                           <div className="whitespace-nowrap">
                             {vendedor.id_vendedor}
                             {vendedor.nome_vendedor !== vendedor.id_vendedor && (
-                              <span className="text-gray-500 ml-1">
+                              <span className="text-gray-600 ml-1 font-normal">
                                 - {vendedor.nome_vendedor}
                               </span>
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-semibold text-xs py-1 px-1">
+                        <TableCell className="text-right font-bold text-xs py-2 px-2">
                           {vendedor.quantidades.total}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1">
+                        <TableCell className="text-right text-xs py-2 px-2 text-green-700 font-medium">
                           {vendedor.quantidades.POS || 0}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1">
+                        <TableCell className="text-right text-xs py-2 px-2 text-blue-700 font-medium">
                           {vendedor.quantidades.PRE || 0}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1">
+                        <TableCell className="text-right text-xs py-2 px-2 text-purple-700 font-medium">
                           {vendedor.quantidades.NP || 0}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1">
-                          {vendedor.quantidades.FIBRA || 0}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1">
+                        <TableCell className="text-right text-xs py-2 px-2 text-indigo-700 font-medium">
                           {vendedor.quantidades['SKY+'] || 0}
                         </TableCell>
                         {/* PRODUTOS DIFERENCIAIS */}
-                        <TableCell className="text-right text-xs py-1 px-1 bg-orange-50 border-l-2 border-orange-300">
+                        <TableCell className="text-right text-xs py-2 px-2 bg-orange-50/50 border-l-2 border-orange-300 text-orange-700 font-medium">
                           {vendedor.quantidades.CARTAO_CREDITO || 0}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1 bg-orange-50">
+                        <TableCell className="text-right text-xs py-2 px-2 bg-orange-50/50 text-orange-700 font-medium">
                           {vendedor.quantidades.DIGITAL_PEC_PIX || 0}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1 bg-orange-50">
+                        <TableCell className="text-right text-xs py-2 px-2 bg-orange-50/50 text-orange-700 font-medium">
                           {vendedor.quantidades.S_COBRANCA || 0}
                         </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1 bg-orange-50">
+                        <TableCell className="text-right text-xs py-2 px-2 bg-orange-50/50 text-orange-700 font-medium">
                           {vendedor.quantidades.SEGURO_POS || 0}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-1 px-1 bg-orange-50">
-                          {vendedor.quantidades.SEGURO_FIBRA || 0}
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                   <TableFooter>
-                    <TableRow className="bg-blue-50 border-t-2 border-blue-200">
-                      <TableCell className="font-bold text-blue-800 text-xs py-1 px-2">
+                    <TableRow className="bg-gradient-to-r from-blue-100 to-indigo-100 border-t-2 border-blue-300 font-bold">
+                      <TableCell className="font-bold text-blue-900 text-xs py-2 px-3 sticky left-0 z-10 bg-gradient-to-r from-blue-100 to-indigo-100 border-r-2 border-blue-300">
                         TOTAL GERAL
                       </TableCell>
-                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                      <TableCell className="text-right font-bold text-blue-900 text-sm py-2 px-2">
                         {totaisGeraisQuantidade.total}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                      <TableCell className="text-right font-bold text-green-800 text-sm py-2 px-2 bg-green-50/50">
                         {totaisGeraisQuantidade.POS}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                      <TableCell className="text-right font-bold text-blue-800 text-sm py-2 px-2 bg-blue-50/50">
                         {totaisGeraisQuantidade.PRE}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                      <TableCell className="text-right font-bold text-purple-800 text-sm py-2 px-2 bg-purple-50/50">
                         {totaisGeraisQuantidade.NP}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
-                        {totaisGeraisQuantidade.FIBRA}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-blue-800 text-xs py-1 px-1">
+                      <TableCell className="text-right font-bold text-indigo-800 text-sm py-2 px-2 bg-indigo-50/50">
                         {totaisGeraisQuantidade['SKY+']}
                       </TableCell>
                       {/* TOTAIS PRODUTOS DIFERENCIAIS */}
-                      <TableCell className="text-right font-bold text-orange-700 text-xs py-1 px-1 bg-orange-100 border-l-2 border-orange-300">
+                      <TableCell className="text-right font-bold text-orange-800 text-sm py-2 px-2 bg-orange-100 border-l-2 border-orange-300">
                         {totaisGeraisQuantidade.CARTAO_CREDITO}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-orange-700 text-xs py-1 px-1 bg-orange-100">
+                      <TableCell className="text-right font-bold text-orange-800 text-sm py-2 px-2 bg-orange-100">
                         {totaisGeraisQuantidade.DIGITAL_PEC_PIX}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-orange-700 text-xs py-1 px-1 bg-orange-100">
+                      <TableCell className="text-right font-bold text-orange-800 text-sm py-2 px-2 bg-orange-100">
                         {totaisGeraisQuantidade.S_COBRANCA}
                       </TableCell>
-                      <TableCell className="text-right font-bold text-orange-700 text-xs py-1 px-1 bg-orange-100">
+                      <TableCell className="text-right font-bold text-orange-800 text-sm py-2 px-2 bg-orange-100">
                         {totaisGeraisQuantidade.SEGURO_POS}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-orange-700 text-xs py-1 px-1 bg-orange-100">
-                        {totaisGeraisQuantidade.SEGURO_FIBRA}
                       </TableCell>
                     </TableRow>
                   </TableFooter>
@@ -11242,27 +12179,30 @@ function VendedorDesempenhoContent() {
             )}
           </CardContent>
         </Card>
+        </div>
 
-          {/* Gráfico Evolução do Desempenho por Categoria */}
-          <VendedorDesempenhoTrendChart
+          {/* Tabelas de Evolução - Ocupam toda a largura */}
+          <div className="w-full space-y-6">
+            {/* Tabela Ticket Médio no Período */}
+            <ProtectedCard 
+              title="Ticket Médio no Período" 
+              storageKey="vendedor_ticket_medio_periodo"
+            >
+              <TicketMedioTrendTable
           filtroMesHabilitacao={filtroMesHabilitacao}
           filtroAnoHabilitacao={filtroAnoHabilitacao}
           vendasFiltradas={vendasFiltradas}
           vendasMetaFiltradas={vendasMetaFiltradas}
-            chartHeight={400}
-            containerMaxWidth="none"
           />
+            </ProtectedCard>
 
-          {/* Gráfico Evolução do Desempenho por Categoria por Vendedor */}
-          <VendedorDesempenhoCategoriaTrendChart
+            {/* Tabela Evolução do Desempenho por Categoria */}
+            <DesempenhoCategoriaTrendTable
             filtroMesHabilitacao={filtroMesHabilitacao}
             filtroAnoHabilitacao={filtroAnoHabilitacao}
             vendasFiltradas={vendasFiltradas}
             vendasMetaFiltradas={vendasMetaFiltradas}
-            chartHeight={400}
-            containerMaxWidth="none"
           />
-        </div>
       </div>
       </div>
       ) : (
