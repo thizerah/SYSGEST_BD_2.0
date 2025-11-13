@@ -1,9 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import useData from "@/context/useData";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { 
   Check, 
   X, 
@@ -11,7 +12,8 @@ import {
   Calendar,
   Filter,
   ChevronDown,
-  MessageCircle
+  MessageCircle,
+  Eye
 } from "lucide-react";
 import {
   Select,
@@ -33,13 +35,28 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Label } from "@/components/ui/label";
 import { ServiceOrder } from "@/types";
 import { normalizeCityName, normalizeNeighborhoodName } from '@/context/DataUtils';
+import { MaterialViewer } from "./MaterialViewer";
 
 interface ServiceOrderTableProps {
   filteredOrders?: ServiceOrder[];
+  onFiltersChange?: (filters: {
+    search: string;
+    technician: string;
+    status: string;
+    city: string;
+    neighborhood: string;
+    serviceTypes: string[];
+    motivos: string[];
+    dates: string[];
+    meta: string;
+  }) => void;
 }
 
-export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
+export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOrderTableProps) {
   const { serviceOrders } = useData();
+  
+  const [selectedOrder, setSelectedOrder] = useState<ServiceOrder | null>(null);
+  const [isMaterialViewerOpen, setIsMaterialViewerOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<{
@@ -265,6 +282,23 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     });
   }, [baseOrders, filter.technician, selectedServiceTypes, filter.status, filter.city, filter.neighborhood, selectedMotivos, filter.meta]);
   
+  // Notificar mudanças nos filtros
+  useEffect(() => {
+    if (onFiltersChange) {
+      onFiltersChange({
+        search,
+        technician: filter.technician,
+        status: filter.status,
+        city: filter.city,
+        neighborhood: filter.neighborhood,
+        serviceTypes: selectedServiceTypes,
+        motivos: selectedMotivos,
+        dates: selectedDates,
+        meta: filter.meta
+      });
+    }
+  }, [search, filter, selectedServiceTypes, selectedMotivos, selectedDates, onFiltersChange]);
+  
   // Apply search and filters
   const filteredTableOrders = useMemo(() => {
     // Usar useMemo para este filtro também
@@ -298,13 +332,16 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
   
   // Garantir que não existam ordens duplicadas
   const uniqueFilteredOrders = useMemo(() => {
-    // Usar um Map para garantir um único registro por código de OS
+    // Usar um Map para garantir um único registro por chave composta (codigo_os + codigo_item)
     const ordersMap = new Map();
     
     filteredTableOrders.forEach(order => {
-      // Se ainda não existe uma ordem com este código, adicionar ao Map
-      if (!ordersMap.has(order.codigo_os)) {
-        ordersMap.set(order.codigo_os, order);
+      // Criar chave composta usando codigo_os + codigo_item
+      const uniqueKey = `${order.codigo_os}-${order.codigo_item || 'default'}`;
+      
+      // Se ainda não existe uma ordem com esta chave, adicionar ao Map
+      if (!ordersMap.has(uniqueKey)) {
+        ordersMap.set(uniqueKey, order);
       }
     });
     
@@ -349,6 +386,32 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
       return "Erro no cálculo";
     }
   };
+
+  // Extrair número de horas para determinação de cor
+  const getHoursFromTime = (order: ServiceOrder): number => {
+    if (order.tempo_atendimento !== undefined && order.tempo_atendimento !== null) {
+      return order.tempo_atendimento;
+    }
+    if (!order.data_criacao || !order.data_finalizacao) return 0;
+    try {
+      const start = new Date(order.data_criacao);
+      const end = new Date(order.data_finalizacao);
+      return Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60) * 10) / 10;
+    } catch {
+      return 0;
+    }
+  };
+
+  // Determinar cor do badge de tempo baseado no campo atingiu_meta (usa a meta correta por tipo de serviço)
+  const getTimeBadgeColor = (order: ServiceOrder) => {
+    // Usar o campo atingiu_meta que já está calculado com a meta correta por tipo de serviço
+    // As metas variam: Ponto Principal (62.98h), Assistência Técnica (38.98h), Default (48h)
+    if (order.atingiu_meta === true) {
+      return "bg-green-100 text-green-700 border-green-300"; // Verde (atingiu meta)
+    }
+    // Se atingiu_meta for false ou undefined, mostrar vermelho (não atingiu ou não calculado)
+    return "bg-red-100 text-red-700 border-red-300"; // Vermelho (não atingiu meta)
+  };
   
   // Formatar a exibição da ação tomada
   const displayAcaoTomada = (order: ServiceOrder) => {
@@ -359,6 +422,35 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     
     // Caso contrário, exibir a ação tomada ou "N/A" se não existir
     return order.acao_tomada || "N/A";
+  };
+
+  // Determinar cor do badge de ação tomada
+  const getAcaoTomadaBadgeColor = (order: ServiceOrder) => {
+    const acaoTomada = displayAcaoTomada(order).toLowerCase();
+    const acaoTomadaOriginal = (order.acao_tomada || "").toLowerCase();
+    
+    // Verde para "Finalizada", "Concluída" ou quando status é "Finalizada"
+    if (
+      acaoTomada.includes("finalizada") || 
+      acaoTomada.includes("concluída") || 
+      acaoTomada.includes("concluida") ||
+      order.status === "Finalizada"
+    ) {
+      return "bg-green-100 text-green-700 border-green-300";
+    }
+    
+    // Amarelo para "Cancelada via CCS" ou "Cliente Cancelou via SAC"
+    if (
+      acaoTomadaOriginal.includes("cancelada via ccs") || 
+      acaoTomadaOriginal.includes("cliente cancelou via sac") ||
+      acaoTomada.includes("cancelada via ccs") ||
+      acaoTomada.includes("cliente cancelou via sac")
+    ) {
+      return "bg-yellow-100 text-yellow-700 border-yellow-300";
+    }
+    
+    // Padrão azul para outras ações
+    return "bg-blue-50 text-blue-700 border-blue-200";
   };
   
   // Reset all filters
@@ -487,6 +579,66 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
     
     // Montar o link com o código do país (55)
     return `https://api.whatsapp.com/send?phone=55${telefoneLimpo}&text=${mensagemCodificada}`;
+  };
+
+  const handleViewMaterials = (order: ServiceOrder) => {
+    setSelectedOrder(order);
+    setIsMaterialViewerOpen(true);
+  };
+
+  // Função para determinar a cor do ícone do olho baseada na otimização
+  const getEyeIconColor = (order: ServiceOrder) => {
+    const tipoServico = order.tipo_servico;
+    const motivo = order.motivo;
+    
+    // Verificar se é aplicável para otimização
+    const isPontoPrincipalIndividual = (tipoServico === "Ponto Principal" || tipoServico === "Instalação") && motivo === "Individual";
+    const isReinstalacaoNovoEndereco = motivo === "Reinstalacao Novo Endereco";
+    
+    if (!isPontoPrincipalIndividual && !isReinstalacaoNovoEndereco) {
+      return "text-gray-500"; // Não aplicável
+    }
+    
+    // Materiais para verificação de otimização
+    const materiaisOtimizacao = [
+      "ANTENA 150 CM C/ KIT FIXACAO",
+      "ANTENA 75 CM",
+      "ANTENA 90CM C/ KIT FIXACAO",
+      "ANTENA DE 60 CM C/ KIT FIXACAO",
+      "LNBF SIMPLES ANTENA 45/60/90 CM",
+      "LNBF DUPLO ANTENA 45/60/90 CM"
+    ];
+    
+    const materiaisComQuantidade = order.materiais || [];
+    
+    // Verificar todas as antenas (soma como LNB)
+    const antena150 = materiaisComQuantidade.find(m => m.nome === "ANTENA 150 CM C/ KIT FIXACAO");
+    const antena75 = materiaisComQuantidade.find(m => m.nome === "ANTENA 75 CM");
+    const antena90 = materiaisComQuantidade.find(m => m.nome === "ANTENA 90CM C/ KIT FIXACAO");
+    const antena60 = materiaisComQuantidade.find(m => m.nome === "ANTENA DE 60 CM C/ KIT FIXACAO");
+    const quantidadeAntena150 = antena150?.quantidade || 0;
+    const quantidadeAntena75 = antena75?.quantidade || 0;
+    const quantidadeAntena90 = antena90?.quantidade || 0;
+    const quantidadeAntena60 = antena60?.quantidade || 0;
+    const somaAntenas = quantidadeAntena150 + quantidadeAntena75 + quantidadeAntena90 + quantidadeAntena60;
+    const antenasOtimizadas = somaAntenas === 0;
+    
+    // Verificar LNBFs (tratados como 1 item só)
+    const lnbfSimplesEncontrado = materiaisComQuantidade.find(m => m.nome === "LNBF SIMPLES ANTENA 45/60/90 CM");
+    const lnbfDuploEncontrado = materiaisComQuantidade.find(m => m.nome === "LNBF DUPLO ANTENA 45/60/90 CM");
+    const quantidadeLnbfSimples = lnbfSimplesEncontrado?.quantidade || 0;
+    const quantidadeLnbfDuplo = lnbfDuploEncontrado?.quantidade || 0;
+    
+    // LNBFs são otimizados apenas se AMBOS estiverem com quantidade 0
+    const lnbfsOtimizados = quantidadeLnbfSimples === 0 && quantidadeLnbfDuplo === 0;
+    
+    // Status geral: otimizado se ANTENAS e LNBFs estiverem otimizados
+    const todosOtimizados = antenasOtimizadas && lnbfsOtimizados;
+    const nenhumOtimizado = !antenasOtimizadas && !lnbfsOtimizados;
+    
+    if (todosOtimizados) return "text-green-600"; // Verde: Otimização completa
+    if (nenhumOtimizado) return "text-red-600"; // Vermelho: Sem otimização
+    return "text-yellow-600"; // Amarelo: Otimização parcial
   };
   
   return (
@@ -890,86 +1042,118 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
 
         {serviceOrders.length > 0 ? (
           <>
-            <div className="border rounded-md">
+            <div className="border rounded-md overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs p-2">Código OS</TableHead>
-                    <TableHead className="text-xs p-2">Técnico</TableHead>
-                    <TableHead className="text-xs p-2">Tipo de Serviço</TableHead>
-                    <TableHead className="text-xs p-2">Motivo</TableHead>
-                    <TableHead className="text-xs p-2">Ação Tomada</TableHead>
-                    <TableHead className="text-xs p-2">Cliente</TableHead>
-                    <TableHead className="text-xs p-2">Telefone</TableHead>
-                    <TableHead className="text-xs p-2">Data de Criação</TableHead>
-                    <TableHead className="text-xs p-2">Data de Finalização</TableHead>
-                    <TableHead className="text-xs p-2">Tempo</TableHead>
-                    <TableHead className="text-xs p-2">Meta</TableHead>
-                    <TableHead className="text-xs p-2">Ações</TableHead>
+                  <TableRow className="bg-gray-100 hover:bg-gray-100">
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Código OS</TableHead>
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Técnico</TableHead>
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Tipo de Serviço</TableHead>
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Motivo</TableHead>
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Ação Tomada</TableHead>
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Cliente</TableHead>
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Telefone</TableHead>
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Data de Criação</TableHead>
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Data de Finalização</TableHead>
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Tempo</TableHead>
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {paginatedOrders.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center py-4">
-                        Nenhuma ordem de serviço encontrada
+                      <TableCell colSpan={11} className="text-center py-8">
+                        <div className="flex flex-col items-center justify-center">
+                          <Calendar className="h-8 w-8 text-muted-foreground mb-2" />
+                          <p className="text-sm font-medium">Nenhuma ordem de serviço encontrada</p>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    paginatedOrders.map(order => (
-                      <TableRow key={order.codigo_os}>
-                        <TableCell className="text-xs p-2 font-medium">{order.codigo_os}</TableCell>
-                        <TableCell className="text-xs p-2">{order.nome_tecnico || "N/A"}</TableCell>
-                        <TableCell className="text-xs p-2">{order.subtipo_servico || "N/A"}</TableCell>
-                        <TableCell className="text-xs p-2">{order.motivo || "N/A"}</TableCell>
-                        <TableCell className="text-xs p-2">{displayAcaoTomada(order)}</TableCell>
-                        <TableCell className="text-xs p-2">{order.nome_cliente || "N/A"}</TableCell>
-                        <TableCell className="text-xs p-2">{order.telefone_celular || "N/A"}</TableCell>
-                        <TableCell className="text-xs p-2">{formatDate(order.data_criacao)}</TableCell>
-                        <TableCell className="text-xs p-2">{formatDate(order.data_finalizacao)}</TableCell>
-                        <TableCell className="text-xs p-2">{displayServiceTime(order)}</TableCell>
-                        <TableCell className="text-xs p-2">
-                          {order.atingiu_meta ? (
-                            <Check className="h-4 w-4 text-green-600" />
+                    paginatedOrders.map((order, index) => {
+                      // Criar chave única usando codigo_os + codigo_item
+                      const uniqueKey = `${order.codigo_os}-${order.codigo_item || 'default'}`;
+                      const hours = getHoursFromTime(order);
+                      
+                      return (
+                      <TableRow 
+                        key={uniqueKey}
+                        className={`transition-colors ${
+                          index % 2 === 0 
+                            ? "bg-white hover:bg-gray-50" 
+                            : "bg-gray-50/50 hover:bg-gray-100"
+                        }`}
+                      >
+                        <TableCell className="text-xs p-3 font-semibold text-gray-900">{order.codigo_os}</TableCell>
+                        <TableCell className="text-xs p-3">{order.nome_tecnico || <span className="text-muted-foreground">N/A</span>}</TableCell>
+                        <TableCell className="text-xs p-3">{order.subtipo_servico || <span className="text-muted-foreground">N/A</span>}</TableCell>
+                        <TableCell className="text-xs p-3">{order.motivo || <span className="text-muted-foreground">N/A</span>}</TableCell>
+                        <TableCell className="text-xs p-3">
+                          <Badge variant="outline" className={`text-[10px] px-2 py-0.5 font-semibold whitespace-nowrap ${getAcaoTomadaBadgeColor(order)}`}>
+                            {displayAcaoTomada(order)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs p-3">{order.nome_cliente || <span className="text-muted-foreground">N/A</span>}</TableCell>
+                        <TableCell className="text-xs p-3 font-mono">{order.telefone_celular || <span className="text-muted-foreground">N/A</span>}</TableCell>
+                        <TableCell className="text-xs p-3 text-gray-600">{formatDate(order.data_criacao)}</TableCell>
+                        <TableCell className="text-xs p-3 text-gray-600">{formatDate(order.data_finalizacao)}</TableCell>
+                        <TableCell className="text-xs p-3">
+                          {hours > 0 ? (
+                            <Badge variant="outline" className={`text-[10px] px-2 py-0.5 font-semibold whitespace-nowrap ${getTimeBadgeColor(order)}`}>
+                              {displayServiceTime(order)}
+                            </Badge>
                           ) : (
-                            <X className="h-4 w-4 text-red-600" />
+                            <span className="text-muted-foreground text-xs">N/A</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-xs p-2">
-                          {order.telefone_celular ? (
-                            <a
-                              href={gerarLinkWhatsApp(
-                                order.telefone_celular, 
-                                order.nome_cliente || "Cliente", 
-                                order.subtipo_servico || "Serviço", 
-                                order.codigo_os
-                              )}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
+                        <TableCell className="text-xs p-3">
+                          <div className="flex items-center gap-1.5">
+                            {order.telefone_celular ? (
+                              <a
+                                href={gerarLinkWhatsApp(
+                                  order.telefone_celular, 
+                                  order.nome_cliente || "Cliente", 
+                                  order.subtipo_servico || "Serviço", 
+                                  order.codigo_os
+                                )}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-7 w-7 bg-green-500 hover:bg-green-600 border-green-500 hover:border-green-600 transition-colors"
+                                  title="Enviar mensagem WhatsApp"
+                                >
+                                  <MessageCircle className="h-3.5 w-3.5 text-white" />
+                                </Button>
+                              </a>
+                            ) : (
                               <Button
                                 variant="outline"
                                 size="icon"
-                                className="h-6 w-6 bg-green-500 hover:bg-green-600 border-green-500 hover:border-green-600"
-                                title="Enviar mensagem WhatsApp"
+                                className="h-7 w-7 opacity-50 cursor-not-allowed"
+                                disabled
+                                title="Telefone não disponível"
                               >
-                                <MessageCircle className="h-3 w-3 text-white" />
+                                <MessageCircle className="h-3.5 w-3.5" />
                               </Button>
-                            </a>
-                          ) : (
+                            )}
+                            
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-6 w-6 opacity-50 cursor-not-allowed"
-                              disabled
-                              title="Telefone não disponível"
+                              className="h-7 w-7 hover:bg-blue-50 transition-colors"
+                              onClick={() => handleViewMaterials(order)}
+                              title="Ver materiais utilizados"
                             >
-                              <MessageCircle className="h-3 w-3" />
+                              <Eye className={`h-3.5 w-3.5 ${getEyeIconColor(order)}`} />
                             </Button>
-                          )}
+                          </div>
                         </TableCell>
                       </TableRow>
-                    ))
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -1039,6 +1223,18 @@ export function ServiceOrderTable({ filteredOrders }: ServiceOrderTableProps) {
           </div>
         )}
       </CardContent>
+      
+      {/* Dialog de materiais */}
+      {selectedOrder && (
+        <MaterialViewer
+          order={selectedOrder}
+          isOpen={isMaterialViewerOpen}
+          onClose={() => {
+            setIsMaterialViewerOpen(false);
+            setSelectedOrder(null);
+          }}
+        />
+      )}
     </Card>
   );
 }

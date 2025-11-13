@@ -71,6 +71,52 @@ export function useSupabaseData() {
           console.log(`[SANITIZAÇÃO] OS ${sanitized.codigo_os} (cancelada ${sanitized.subtipo_servico}): Replicando data de criação para finalização`);
           sanitized.data_finalizacao = sanitized.data_criacao;
         }
+
+        // CONVERTER ARRAY materiais PARA COLUNAS INDIVIDUAIS
+        // Mapeamento: nome do material (Excel) → nome da coluna (Supabase)
+        const materialMapping: Record<string, string> = {
+          "ANTENA 150 CM C/ KIT FIXACAO": "antena_150_cm_kit_fixacao",
+          "ANTENA 75 CM": "antena_75_cm",
+          "ANTENA 90CM C/ KIT FIXACAO": "antena_90cm_kit_fixacao",
+          "ANTENA DE 60 CM C/ KIT FIXACAO": "antena_60_cm_kit_fixacao",
+          "CABO COAXIAL RGC06 BOBINA 100METROS": "cabo_coaxial_rgc06_bobina_100metros",
+          "CONECTOR F série-59 COMPRESSÃO": "conector_f_serie_59_compressao",
+          "LNB DUPLO ANTENA 150CM": "lnb_duplo_antena_150cm",
+          "LNB SIMPLES ANTENA 150CM": "lnb_simples_antena_150cm",
+          "LNBF DUPLO ANTENA 45/60/90 CM": "lnbf_duplo_antena_45_60_90_cm",
+          "LNBF SIMPLES ANTENA 45/60/90 CM": "lnbf_simples_antena_45_60_90_cm"
+        };
+
+        // Inicializar todas as colunas de materiais com 0
+        Object.values(materialMapping).forEach(columnName => {
+          sanitized[columnName] = 0;
+        });
+
+        // Converter array materiais para colunas individuais
+        if (sanitized.materiais && Array.isArray(sanitized.materiais)) {
+          const materiaisArray = sanitized.materiais as Array<{ nome: string; quantidade: number }>;
+          
+          materiaisArray.forEach(material => {
+            const columnName = materialMapping[material.nome];
+            if (columnName) {
+              // Converter quantidade para INTEGER
+              const quantidade = typeof material.quantidade === 'number' 
+                ? Math.max(0, Math.floor(material.quantidade)) 
+                : (parseInt(String(material.quantidade)) || 0);
+              sanitized[columnName] = quantidade;
+              console.log(`[SANITIZAÇÃO] ${tableName}[${index}]: Material "${material.nome}" → ${columnName} = ${quantidade}`);
+            } else {
+              // Material não mapeado (não é um dos 10 materiais principais)
+              console.warn(`[SANITIZAÇÃO] ${tableName}[${index}]: Material "${material.nome}" não mapeado para coluna (será ignorado)`);
+            }
+          });
+        }
+
+        // Remover campo materiais (array) do objeto antes de enviar ao Supabase
+        if (sanitized.materiais) {
+          console.log(`[SANITIZAÇÃO] ${tableName}[${index}]: Campo 'materiais' (array) removido após conversão para colunas`);
+        }
+        delete sanitized.materiais;
       }
       
       // REMOVER CAMPOS AUTO-INCREMENTO DO SUPABASE (CORREÇÃO PARA ERRO DE MIGRAÇÃO)

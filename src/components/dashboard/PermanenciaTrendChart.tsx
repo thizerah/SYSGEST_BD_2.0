@@ -22,18 +22,12 @@ export function PermanenciaTrendChart({
 }: PermanenciaTrendChartProps) {
   const { primeirosPagamentos } = useData();
 
-  // Configurações iniciais dos indicadores
+  // Configurações iniciais dos indicadores - Simplificado (apenas POS, sem FIBRA)
   const [chartConfigs, setChartConfigs] = useState<TrendChartConfig[]>([
     {
       key: 'pos_adimplencia',
       label: 'POS Adimplência (%)',
       color: '#16a34a', // green-600 - VERDE
-      visible: true
-    },
-    {
-      key: 'fibra_adimplencia',
-      label: 'FIBRA Adimplência (%)',
-      color: '#22c55e', // green-500 - VERDE
       visible: true
     },
     {
@@ -43,46 +37,21 @@ export function PermanenciaTrendChart({
       visible: true
     },
     {
-      key: 'fibra_total',
-      label: 'FIBRA Total Clientes',
-      color: '#7c3aed', // violet-600 - ROXO
-      visible: true
-    },
-    {
       key: 'pos_inadimplentes',
       label: 'POS Inadimplentes',
       color: '#eab308', // yellow-500 - AMARELO
-      visible: true
-    },
-    {
-      key: 'fibra_inadimplentes',
-      label: 'FIBRA Inadimplentes',
-      color: '#f59e0b', // amber-500 - AMARELO
-      visible: true
-    },
-    {
-      key: 'pos_cancelados',
-      label: 'POS Cancelados',
-      color: '#8b5cf6', // violet-500 - ROXO
-      visible: true
-    },
-    {
-      key: 'fibra_cancelados',
-      label: 'FIBRA Cancelados',
-      color: '#a855f7', // purple-500 - ROXO
-      visible: true
+      visible: false // Opcional, começa oculto para simplificar
     }
   ]);
 
-  // Função para identificar a sigla de um produto
+  // Função para identificar a sigla de um produto (apenas POS)
   const getSigla = (venda: Venda): string => {
     const agrupamento = venda.agrupamento_produto || '';
     const produto = venda.produto_principal || '';
     
     if (agrupamento.includes('POS') || produto.includes('POS')) return 'POS';
-    if (agrupamento.includes('BL-DGO') || produto.includes('BL-DGO')) return 'BL-DGO';
     
-    return '';
+    return ''; // Removido BL-DGO (FIBRA)
   };
 
   // Função para calcular o mês de permanência (data de habilitação + 4 meses)
@@ -150,10 +119,9 @@ export function PermanenciaTrendChart({
         return mesPermanencia === periodo.mes.substring(0, 3) && anoPermanencia === periodo.ano;
       });
 
-      // Calcular métricas por sigla
+      // Calcular métricas por sigla (apenas POS)
       const metricasPorSigla = {
-        POS: { adimplentes: 0, inadimplentes: 0, cancelados: 0, total: 0 },
-        'BL-DGO': { adimplentes: 0, inadimplentes: 0, cancelados: 0, total: 0 }
+        POS: { adimplentes: 0, inadimplentes: 0, cancelados: 0, total: 0 }
       };
 
       vendasDoPeriodo.forEach(venda => {
@@ -183,31 +151,19 @@ export function PermanenciaTrendChart({
             // Inadimplente (outros casos)
             metricasPorSigla[sigla as keyof typeof metricasPorSigla].inadimplentes++;
           }
-        } else if (sigla === 'BL-DGO') {
-          // BL-DGO sem pagamento é considerado adimplente
-          metricasPorSigla[sigla as keyof typeof metricasPorSigla].adimplentes++;
         }
       });
 
       const posAdimplencia = metricasPorSigla.POS.total > 0 
         ? (metricasPorSigla.POS.adimplentes / metricasPorSigla.POS.total) * 100 
         : 0;
-      
-      const fibraAdimplencia = metricasPorSigla['BL-DGO'].total > 0 
-        ? (metricasPorSigla['BL-DGO'].adimplentes / metricasPorSigla['BL-DGO'].total) * 100 
-        : 0;
 
       return {
         periodo: `${periodo.mes.substring(0, 3)}/${periodo.ano}`,
         mesAno: `${periodo.ano}-${String(periodo.mesIndex + 1).padStart(2, '0')}`,
         pos_adimplencia: Number(posAdimplencia.toFixed(2)),
-        fibra_adimplencia: Number(fibraAdimplencia.toFixed(2)),
         pos_total: metricasPorSigla.POS.total,
-        fibra_total: metricasPorSigla['BL-DGO'].total,
-        pos_inadimplentes: metricasPorSigla.POS.inadimplentes,
-        fibra_inadimplentes: metricasPorSigla['BL-DGO'].inadimplentes,
-        pos_cancelados: metricasPorSigla.POS.cancelados,
-        fibra_cancelados: metricasPorSigla['BL-DGO'].cancelados
+        pos_inadimplentes: metricasPorSigla.POS.inadimplentes
       };
     });
   }, [filtroMesPermanencia, filtroAnoPermanencia, vendasFiltradas, primeirosPagamentos]);
@@ -215,7 +171,7 @@ export function PermanenciaTrendChart({
   return (
     <TrendChartsContainer
       title="Evolução da Permanência por Período"
-      description="Acompanhe a evolução dos percentuais de adimplência e totais de clientes ao longo do tempo"
+      description="Acompanhe a evolução dos percentuais de adimplência e totais de clientes POS ao longo do tempo"
       data={chartData}
       chartConfigs={chartConfigs}
       onConfigChange={setChartConfigs}
@@ -226,7 +182,7 @@ export function PermanenciaTrendChart({
         if (name.toLowerCase().includes('adimplência') || name.toLowerCase().includes('adimplencia')) {
           return `${Number(value).toFixed(2)}%`;
         }
-        // Caso contrário, manter o valor original (para totais, inadimplentes, cancelados)
+        // Caso contrário, manter o valor original (para totais, inadimplentes)
         return String(value);
       }}
       formatYAxisLabel={(value) => {

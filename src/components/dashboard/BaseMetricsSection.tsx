@@ -84,46 +84,46 @@ export function BaseMetricsSection({ type, metrics, title }: BaseMetricsSectionP
   };
 
   return (
-    <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-      <div className="flex items-center justify-between mb-3">
+    <div className="p-2 bg-blue-50 rounded-lg border border-blue-200">
+      <div className="flex items-center justify-between mb-1.5">
         <div className="flex flex-col">
-          <h4 className="font-medium text-sm text-blue-900">{title}</h4>
+          <h4 className="font-medium text-[10px] text-blue-900">{title}</h4>
           {metrics.usandoMesAnterior && (
-            <p className="text-xs text-amber-600 mt-1">
+            <p className="text-[9px] text-amber-600 mt-0.5">
               📅 Dados de {obterNomeMes(metrics.mesUtilizado)} (mês anterior)
             </p>
           )}
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1">
           <Badge 
             variant="outline" 
-            className={`${getBadgeVariant(data.tendencia)} text-xs`}
+            className={`${getBadgeVariant(data.tendencia)} text-[9px] px-1 py-0`}
           >
             {getBadgeText(data.tendencia)}
           </Badge>
         </div>
       </div>
       
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-2">
         {/* Atual */}
         <div className="text-center">
-          <p className="text-xs text-gray-600 mb-1">Base Atual</p>
-          <p className="text-lg font-bold text-gray-900">
+          <p className="text-[9px] text-gray-600 mb-0.5">Base Atual</p>
+          <p className="text-sm font-bold text-gray-900">
             {data.atual.toLocaleString('pt-BR')}
           </p>
         </div>
         
         {/* Tendência */}
         <div className="text-center">
-          <p className="text-xs text-gray-600 mb-1">vs Mês Anterior</p>
-          <div className="flex flex-col items-center space-y-1">
-            <div className="flex items-center space-x-1">
+          <p className="text-[9px] text-gray-600 mb-0.5">vs Mês Anterior</p>
+          <div className="flex flex-col items-center space-y-0.5">
+            <div className="flex items-center space-x-0.5">
               {getTrendIcon(data.tendencia)}
-              <span className={`text-sm font-medium ${getTrendColor(data.tendencia)}`}>
+              <span className={`text-[10px] font-medium ${getTrendColor(data.tendencia)}`}>
                 {formatPercentual(data.percentualTendencia)}
               </span>
             </div>
-            <span className={`text-xs font-medium ${getTrendColor(data.tendencia)}`}>
+            <span className={`text-[9px] font-medium ${getTrendColor(data.tendencia)}`}>
               {formatQuantidade(data.diferencaQuantidade)}
             </span>
           </div>

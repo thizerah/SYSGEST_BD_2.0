@@ -183,6 +183,87 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return [];
   };
 
+  // Função para reconstruir array materiais a partir das colunas do Supabase
+  const reconstructMaterialsFromColumns = useCallback((order: ServiceOrder): ServiceOrder => {
+    // Se já tem materiais (dados do localStorage), não precisa reconstruir
+    if (order.materiais && Array.isArray(order.materiais) && order.materiais.length > 0) {
+      return order;
+    }
+
+    // Mapeamento reverso: coluna do Supabase → nome do material (Excel)
+    const columnToMaterialMapping: Record<string, string> = {
+      "antena_150_cm_kit_fixacao": "ANTENA 150 CM C/ KIT FIXACAO",
+      "antena_75_cm": "ANTENA 75 CM",
+      "antena_90cm_kit_fixacao": "ANTENA 90CM C/ KIT FIXACAO",
+      "antena_60_cm_kit_fixacao": "ANTENA DE 60 CM C/ KIT FIXACAO",
+      "cabo_coaxial_rgc06_bobina_100metros": "CABO COAXIAL RGC06 BOBINA 100METROS",
+      "conector_f_serie_59_compressao": "CONECTOR F série-59 COMPRESSÃO",
+      "lnb_duplo_antena_150cm": "LNB DUPLO ANTENA 150CM",
+      "lnb_simples_antena_150cm": "LNB SIMPLES ANTENA 150CM",
+      "lnbf_duplo_antena_45_60_90_cm": "LNBF DUPLO ANTENA 45/60/90 CM",
+      "lnbf_simples_antena_45_60_90_cm": "LNBF SIMPLES ANTENA 45/60/90 CM"
+    };
+
+    // Lista de materiais de otimização (sempre devem aparecer, mesmo com quantidade 0)
+    // Esses materiais são necessários para o cálculo de economia no hook useOptimizationCounts
+    const optimizationMaterials = [
+      "ANTENA 150 CM C/ KIT FIXACAO",
+      "ANTENA 75 CM",
+      "ANTENA 90CM C/ KIT FIXACAO",
+      "ANTENA DE 60 CM C/ KIT FIXACAO",
+      "LNBF SIMPLES ANTENA 45/60/90 CM",
+      "LNBF DUPLO ANTENA 45/60/90 CM"
+    ];
+
+    const materiais: Array<{ nome: string; quantidade: number }> = [];
+
+    // Converter cada coluna de material para o array
+    // IMPORTANTE: Para materiais de otimização, sempre adicionar ao array (mesmo com quantidade 0)
+    // Isso garante que o hook useOptimizationCounts possa calcular corretamente a "economia"
+    Object.entries(columnToMaterialMapping).forEach(([columnName, materialName]) => {
+      const quantidade = (order as Record<string, unknown>)[columnName];
+      const isOptimizationMaterial = optimizationMaterials.includes(materialName);
+      
+      // Para materiais de otimização: SEMPRE adicionar, mesmo se quantidade for 0 ou null
+      // Para outros materiais: adicionar apenas se quantidade > 0 e não for null/undefined
+      if (isOptimizationMaterial) {
+        // Material de otimização: sempre incluir
+        const qtd = quantidade !== undefined && quantidade !== null
+          ? (typeof quantidade === 'number' 
+              ? Math.max(0, Math.floor(quantidade)) 
+              : (parseInt(String(quantidade)) || 0))
+          : 0;
+        
+        materiais.push({
+          nome: materialName,
+          quantidade: qtd
+        });
+      } else {
+        // Outros materiais: apenas se quantidade > 0
+        if (quantidade !== undefined && quantidade !== null) {
+          const qtd = typeof quantidade === 'number' 
+            ? Math.max(0, Math.floor(quantidade)) 
+            : (parseInt(String(quantidade)) || 0);
+          
+          if (qtd > 0) {
+            materiais.push({
+              nome: materialName,
+              quantidade: qtd
+            });
+          }
+        }
+      }
+    });
+
+    // Retornar ordem com array materiais reconstruído
+    // IMPORTANTE: Sempre retornar um array (mesmo que vazio), nunca undefined
+    // Isso garante que o hook useOptimizationCounts possa iterar sobre o array sem problemas
+    return {
+      ...order,
+      materiais: materiais.length > 0 ? materiais : []
+    };
+  }, []);
+
   // Função auxiliar para paginação automática
   const loadAllDataWithPagination = useCallback(async <T,>(
     tableName: string, 
@@ -259,10 +340,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ]);
 
       if (loadedServiceOrders.length > 0) {
-        setServiceOrders(loadedServiceOrders);
+        // Reconstruir array materiais a partir das colunas do Supabase
+        const serviceOrdersWithMaterials = loadedServiceOrders.map(order => 
+          reconstructMaterialsFromColumns(order as ServiceOrder)
+        );
+        
+        setServiceOrders(serviceOrdersWithMaterials);
         // Salvar no localStorage apenas se não estiver no modo Supabase-only
         if (!isSupabaseOnlyMode()) {
-          saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, loadedServiceOrders);
+          saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, serviceOrdersWithMaterials);
         }
       }
       
@@ -565,9 +651,26 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let duplicatesIgnored = 0;
     
     if (append) {
-            // Se append for true, verificar duplicidades antes de adicionar
-      const existingOrderIds = new Set(serviceOrders.map(order => order.codigo_os));
-      const newOrdersFiltered = processedOrders.filter(order => !existingOrderIds.has(order.codigo_os));
+      // Se append for true, verificar duplicidades antes de adicionar
+      // Usar chave composta: codigo_os + codigo_item para identificar unicamente cada item
+      console.log(`[DataContext] Verificando duplicatas. Total atual: ${serviceOrders.length}, Novos: ${processedOrders.length}`);
+      
+      const existingOrderKeys = new Set(serviceOrders.map(order => 
+        `${order.codigo_os}-${order.codigo_item || 'default'}`
+      ));
+      
+      console.log("Chaves existentes:", Array.from(existingOrderKeys).slice(0, 5));
+      
+      const newOrdersFiltered = processedOrders.filter(order => {
+        const key = `${order.codigo_os}-${order.codigo_item || 'default'}`;
+        const isNew = !existingOrderKeys.has(key);
+        if (!isNew) {
+          console.log(`[DataContext] Duplicata ignorada: ${key}`);
+        }
+        return isNew;
+      });
+      
+      console.log(`[DataContext] Após filtro: ${newOrdersFiltered.length} novos registros`);
       duplicatesIgnored = processedOrders.length - newOrdersFiltered.length;
       
       if (newOrdersFiltered.length > 0) {

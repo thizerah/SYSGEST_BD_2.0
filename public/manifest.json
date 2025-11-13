@@ -1,6 +1,6 @@
 {
-  "name": "SysGest Insight",
-  "short_name": "SysGest",
+  "name": "InsightPro",
+  "short_name": "InsightPro",
   "description": "Sistema de Gestão de Ordens de Serviço",
   "start_url": "/",
   "display": "standalone",

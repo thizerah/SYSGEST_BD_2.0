@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useSupabaseData } from '@/hooks/useSupabaseData';
 import useData from '@/context/useData';
@@ -15,16 +16,15 @@ import {
   Info,
   Loader2,
   Trash2,
-  Cloud,
-  HardDrive,
-  RotateCcw
+  ArrowRight,
+  Shield
 } from 'lucide-react';
 
 export function DataMigrationPanel() {
   console.log('=== PAINEL DE MIGRAÇÃO RENDERIZADO ===');
   
   const { migrateFromLocalStorage, syncing, pagamentos: supabasePagamentos } = useSupabaseData();
-  const { clearLocalStorageAfterMigration, isSupabaseOnlyMode, disableSupabaseOnlyMode } = useData();
+  const { clearLocalStorageAfterMigration } = useData();
   const { toast } = useToast();
   const [migrationResult, setMigrationResult] = useState<{
     success: boolean;
@@ -37,7 +37,6 @@ export function DataMigrationPanel() {
   console.log('Pagamentos localStorage:', pagamentosLocal ? 'TEM DADOS' : 'VAZIO');
   console.log('📄 Conteúdo localStorage:', pagamentosLocal);
   console.log('Pagamentos Supabase:', supabasePagamentos?.length || 0);
-  console.log('🔧 Modo Supabase-only:', isSupabaseOnlyMode());
   console.log('hasPotentialUpdates:', hasPotentialUpdates);
 
   // Verificar se existem dados no localStorage
@@ -199,188 +198,160 @@ export function DataMigrationPanel() {
     });
   };
 
-  const handleEnableLocalStorage = () => {
-    disableSupabaseOnlyMode();
-    toast({
-      title: "🔄 Modo LocalStorage Ativado",
-      description: "Sistema voltará a usar localStorage para novos dados importados.",
-      variant: "default"
-    });
-  };
-
   return (
-    <Card className="w-full max-w-2xl mx-auto">
-      <CardContent className="space-y-6 pt-6">
-        {/* Status do modo de operação */}
-        <div>
-          <h3 className="text-sm font-medium mb-3 flex items-center space-x-2">
-            {isSupabaseOnlyMode() ? (
-              <>
-                <Cloud className="h-4 w-4 text-blue-600" />
-                <span>Modo: Apenas Supabase (Nuvem)</span>
-              </>
-            ) : (
-              <>
-                <HardDrive className="h-4 w-4 text-gray-600" />
-                <span>Modo: LocalStorage + Supabase</span>
-              </>
-            )}
-          </h3>
-          
-          <Alert className={isSupabaseOnlyMode() ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50'}>
-            {isSupabaseOnlyMode() ? (
-              <>
-                <Cloud className="h-4 w-4 text-blue-600" />
-                <AlertDescription className="text-blue-800">
-                  <strong>Sistema em modo nuvem:</strong> Dados são carregados diretamente do Supabase. 
-                  Importações são salvas temporariamente no localStorage para revisão antes da migração.
-                </AlertDescription>
-              </>
-            ) : (
-              <>
-                <HardDrive className="h-4 w-4 text-gray-600" />
-                <AlertDescription className="text-gray-800">
-                  <strong>Sistema em modo híbrido:</strong> Dados podem ser importados para localStorage 
-                  e depois migrados para Supabase.
-                </AlertDescription>
-              </>
-            )}
-          </Alert>
-
-          {/* Botão para alternar modo */}
-          {isSupabaseOnlyMode() && (
-            <Button 
-              onClick={handleEnableLocalStorage}
-              variant="outline"
-              size="sm"
-              className="mt-3"
-            >
-              <RotateCcw className="h-4 w-4 mr-2" />
-              Voltar ao Modo LocalStorage
-            </Button>
-          )}
+    <div className="space-y-6">
+      {/* Status dos dados no localStorage */}
+      <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-5 border-2 border-purple-200 shadow-lg">
+        <div className="flex items-center space-x-3 mb-4">
+          <div className="p-2 bg-purple-500 rounded-lg">
+            <Database className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-gray-800">Dados Encontrados no LocalStorage</h3>
+            <p className="text-xs text-gray-600 mt-0.5">Dados locais prontos para migração</p>
+          </div>
         </div>
-
-        {/* Status dos dados no localStorage */}
-        <div>
-          <h3 className="text-sm font-medium mb-3 flex items-center space-x-2">
-            <Database className="h-4 w-4" />
-            <span>Dados Encontrados no LocalStorage</span>
-          </h3>
-          
-          {hasLocalData ? (
-            <div className="space-y-2">
-              {localStorageData.map((data, index) => (
-                <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                  <span className="text-sm font-medium">{data.name}</span>
-                  <span className="text-sm text-gray-600">{data.count.toLocaleString()} registros</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <Alert>
-              <Info className="h-4 w-4" />
-              <AlertDescription>
-                Nenhum dado encontrado no localStorage para migrar.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Status especial para atualizações de pagamentos */}
-          {hasPotentialUpdates && !hasLocalData && (
-            <Alert className="mt-3 border-amber-200 bg-amber-50">
-              <AlertTriangle className="h-4 w-4 text-amber-600" />
-              <AlertDescription className="text-amber-800">
-                <strong>Atualizações disponíveis:</strong> Há registros de pagamentos no localStorage 
-                que podem atualizar dados existentes no Supabase (baseado na data de importação).
-              </AlertDescription>
-            </Alert>
-          )}
-        </div>
-
-        {/* Informações sobre a migração */}
-        <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Importante:</strong> A migração irá transferir todos os seus dados do navegador 
-            para o Supabase{hasPotentialUpdates && !hasLocalData ? ' e atualizar registros existentes com dados mais recentes' : ''}. 
-            Após a migração, seus dados ficarão seguros na nuvem e sincronizados entre dispositivos.
-          </AlertDescription>
-        </Alert>
-
-        {/* Botão de migração */}
-        <div className="space-y-4">
-          {syncing && (
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">Migrando dados para o Supabase...</span>
-              </div>
-              <Progress value={50} className="h-2" />
-            </div>
-          )}
-
-          <Button 
-            onClick={handleMigration}
-            disabled={!canMigrate || syncing}
-            className="w-full"
-            size="lg"
-          >
-            {syncing ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Migrando...
-              </>
-            ) : (
-              <>
-                <CloudDownload className="h-4 w-4 mr-2" />
-                {canMigrate ? 
-                  (hasLocalData ? 'Migrar Dados para Supabase' : 'Atualizar Dados no Supabase') : 
-                  'Nenhum Dado para Migrar'
-                }
-              </>
-            )}
-          </Button>
-        </div>
-
-        {/* Resultado da migração */}
-        {migrationResult && (
-          <div className="space-y-3">
-            <Alert className={migrationResult.success ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
-              {migrationResult.success ? (
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertTriangle className="h-4 w-4 text-red-600" />
-              )}
-              <AlertDescription className={migrationResult.success ? 'text-green-800' : 'text-red-800'}>
-                {migrationResult.message}
-              </AlertDescription>
-            </Alert>
-
-            {/* Botão para limpar localStorage após migração bem-sucedida */}
-            {migrationResult.success && hasLocalData && (
-              <Button 
-                onClick={handleClearLocalStorage}
-                variant="outline"
-                className="w-full"
-                size="sm"
+        
+        {hasLocalData ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {localStorageData.map((data, index) => (
+              <div 
+                key={index} 
+                className="bg-white rounded-lg p-4 border-2 border-purple-200 shadow-sm hover:shadow-md transition-all flex items-center justify-between group"
               >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Limpar Dados Locais e Carregar do Supabase
-              </Button>
-            )}
+                <div className="flex items-center space-x-3">
+                  <div className="p-1.5 bg-purple-100 rounded group-hover:bg-purple-200 transition-colors">
+                    <Database className="h-4 w-4 text-purple-600" />
+                  </div>
+                  <span className="text-sm font-semibold text-gray-800">{data.name}</span>
+                </div>
+                <Badge className="bg-purple-600 text-white font-bold px-3 py-1 text-xs shadow-sm">
+                  {data.count.toLocaleString('pt-BR')} registros
+                </Badge>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-white rounded-lg p-4 border-2 border-gray-200">
+            <div className="flex items-center space-x-3">
+              <Info className="h-5 w-5 text-gray-400" />
+              <p className="text-sm text-gray-600 font-medium">
+                Nenhum dado encontrado no localStorage para migrar.
+              </p>
+            </div>
           </div>
         )}
 
-        {/* Instruções */}
-        <div className="text-xs text-gray-500 space-y-1">
-          <p>• <strong>Fluxo de importação:</strong> Importe → Revise → Migre → Sistema limpa automaticamente</p>
-          <p>• <strong>Importação:</strong> Dados novos são salvos temporariamente no localStorage para revisão</p>
-          <p>• <strong>Migração:</strong> Envia apenas registros novos para o Supabase (ignora duplicatas)</p>
-          <p>• <strong>Limpeza automática:</strong> Após migração, localStorage é limpo automaticamente</p>
-          <p>• <strong>Performance:</strong> Sistema carrega dados sempre do Supabase para melhor performance</p>
+        {/* Status especial para atualizações de pagamentos */}
+        {hasPotentialUpdates && !hasLocalData && (
+          <div className="mt-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg p-4 border-2 border-amber-300 shadow-sm">
+            <div className="flex items-start space-x-3">
+              <div className="p-1.5 bg-amber-500 rounded-lg">
+                <AlertTriangle className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-amber-900 mb-1">Atualizações disponíveis</p>
+                <p className="text-xs text-amber-800">
+                  Há registros de pagamentos no localStorage que podem atualizar dados existentes no Supabase 
+                  (baseado na data de importação).
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Informações importantes sobre a migração */}
+      <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl p-5 border-2 border-yellow-300 shadow-lg">
+        <div className="flex items-start space-x-3">
+          <div className="p-2 bg-yellow-500 rounded-lg">
+            <Shield className="h-5 w-5 text-white" />
+          </div>
+          <div className="flex-1">
+            <h4 className="text-sm font-bold text-yellow-900 mb-2">Importante</h4>
+            <p className="text-sm text-yellow-800 leading-relaxed">
+              A migração irá transferir todos os seus dados do navegador para o Supabase
+              {hasPotentialUpdates && !hasLocalData ? ' e atualizar registros existentes com dados mais recentes' : ''}. 
+              Após a migração, seus dados ficarão seguros na nuvem e sincronizados entre dispositivos.
+            </p>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+
+      {/* Botão de migração */}
+      <div className="space-y-4">
+        {syncing && (
+          <div className="bg-blue-50 rounded-lg p-4 border-2 border-blue-200 shadow-sm">
+            <div className="space-y-3">
+              <div className="flex items-center space-x-3">
+                <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                <span className="text-sm font-semibold text-blue-900">Migrando dados para o Supabase...</span>
+              </div>
+              <Progress value={50} className="h-2.5 bg-blue-100" />
+            </div>
+          </div>
+        )}
+
+        <Button 
+          onClick={handleMigration}
+          disabled={!canMigrate || syncing}
+          className="w-full h-14 text-base font-bold shadow-lg hover:shadow-xl transition-all bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+          size="lg"
+        >
+          {syncing ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin mr-3" />
+              Migrando...
+            </>
+          ) : (
+            <>
+              <CloudDownload className="h-5 w-5 mr-3" />
+              {canMigrate ? 
+                (hasLocalData ? 'Migrar Dados para Supabase' : 'Atualizar Dados no Supabase') : 
+                'Nenhum Dado para Migrar'
+              }
+              <ArrowRight className="h-5 w-5 ml-3" />
+            </>
+          )}
+        </Button>
+      </div>
+
+      {/* Resultado da migração */}
+      {migrationResult && (
+        <div className="space-y-4">
+          <div className={`rounded-xl p-5 border-2 shadow-lg ${
+            migrationResult.success 
+              ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-300' 
+              : 'bg-gradient-to-r from-red-50 to-rose-50 border-red-300'
+          }`}>
+            <div className="flex items-start space-x-3">
+              <div className={`p-2 rounded-lg ${migrationResult.success ? 'bg-green-500' : 'bg-red-500'}`}>
+                {migrationResult.success ? (
+                  <CheckCircle2 className="h-5 w-5 text-white" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5 text-white" />
+                )}
+              </div>
+              <p className={`text-sm font-semibold flex-1 ${migrationResult.success ? 'text-green-900' : 'text-red-900'}`}>
+                {migrationResult.message}
+              </p>
+            </div>
+          </div>
+
+          {/* Botão para limpar localStorage após migração bem-sucedida */}
+          {migrationResult.success && hasLocalData && (
+            <Button 
+              onClick={handleClearLocalStorage}
+              variant="outline"
+              className="w-full h-12 border-2 border-gray-300 hover:bg-gray-50 font-semibold shadow-sm"
+              size="lg"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Limpar Dados Locais e Carregar do Supabase
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
   );
 } 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { 
   Dialog, 
   DialogContent, 
@@ -9,7 +10,7 @@ import {
   DialogTrigger 
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Calendar, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
+import { Calendar, AlertTriangle, CheckCircle2, Loader2, Info, Trash2, Shield, ArrowRight, CheckCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/useAuth';
 import { toast } from '@/hooks/use-toast';
@@ -143,71 +144,138 @@ export function VendasMetaCleaner() {
           </span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-orange-500" />
-            Finalizar Período - {preview ? preview.mes_nome : 'Mês Anterior'}
-          </DialogTitle>
-          <DialogDescription>
-            Finalizar o período atual e preparar sistema para o próximo mês
-          </DialogDescription>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="pb-4 border-b-2 border-gray-200">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-gradient-to-br from-orange-500 to-amber-600 rounded-lg shadow-md">
+              <Calendar className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <DialogTitle className="text-2xl font-bold text-gray-800">
+                Finalizar Período - {preview ? preview.mes_nome : 'Mês Anterior'}
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-600 mt-1">
+                Finalizar o período atual e preparar sistema para o próximo mês
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-5 pt-4">
           {loading && (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
-              <span className="ml-2 text-sm">Carregando informações...</span>
+            <div className="flex items-center justify-center py-12 bg-blue-50 rounded-xl border-2 border-blue-200">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-3" />
+              <span className="text-base font-semibold text-blue-900">Carregando informações...</span>
             </div>
           )}
 
           {!loading && preview && !result && (
             <>
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  <div className="space-y-2">
-                    <p className="font-medium">
-                      📅 Dados de <span className="text-red-600">{preview.mes_nome}/{preview.ano_anterior}</span>
-                    </p>
-                    <p>
-                      🗑️ <strong>{preview.total_registros}</strong> registros serão removidos da tabela vendas_meta
-                    </p>
-                    {preview.total_registros === 0 && (
-                                          <p className="text-green-600 text-sm">
-                      ✅ Período já finalizado - nada para processar
-                    </p>
-                    )}
+              {/* Card de Aviso */}
+              <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-xl p-5 border-2 border-red-300 shadow-lg">
+                <div className="flex items-start space-x-3 mb-4">
+                  <div className="p-2 bg-red-500 rounded-lg">
+                    <AlertTriangle className="h-5 w-5 text-white" />
                   </div>
-                </AlertDescription>
-              </Alert>
-
-              <div className="bg-blue-50 p-3 rounded-lg text-sm">
-                <h4 className="font-medium text-blue-800 mb-2">ℹ️ Como funciona:</h4>
-                <ul className="space-y-1 text-blue-700">
-                  <li>• Remove vendas antigas da tabela vendas_meta</li>
-                  <li>• Prepara o sistema para importação do Excel</li>
-                  <li>• Evita duplicação nas métricas de metas</li>
-                  <li>• <strong>Só afeta seus dados</strong> (outras empresas intocadas)</li>
-                </ul>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-bold text-red-900 mb-2">Atenção - Ação Irreversível</h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center space-x-2 bg-white rounded-lg p-3 border-2 border-red-200">
+                        <Calendar className="h-4 w-4 text-red-600" />
+                        <span className="text-sm font-medium text-gray-700">Dados de</span>
+                        <Badge className="bg-red-600 text-white font-bold px-3 py-1">
+                          {preview.mes_nome}/{preview.ano_anterior}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center space-x-2 bg-white rounded-lg p-3 border-2 border-red-200">
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                        <span className="text-sm font-medium text-gray-700">Serão removidos</span>
+                        <Badge className="bg-red-600 text-white font-bold px-3 py-1 text-base">
+                          {preview.total_registros.toLocaleString('pt-BR')} registros
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-red-800 font-medium">
+                        da tabela <strong>vendas_meta</strong>
+                      </p>
+                      {preview.total_registros === 0 && (
+                        <div className="bg-green-100 rounded-lg p-3 border-2 border-green-300 mt-3">
+                          <div className="flex items-center space-x-2">
+                            <CheckCircle className="h-5 w-5 text-green-600" />
+                            <p className="text-sm font-bold text-green-900">
+                              Período já finalizado - nada para processar
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div className="flex gap-2 pt-2">
+              {/* Card de Informações */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-5 border-2 border-blue-300 shadow-lg">
+                <div className="flex items-center space-x-3 mb-4">
+                  <div className="p-2 bg-blue-500 rounded-lg">
+                    <Info className="h-5 w-5 text-white" />
+                  </div>
+                  <h4 className="text-base font-bold text-gray-800">Como funciona</h4>
+                </div>
+                <div className="space-y-2.5">
+                  <div className="flex items-start space-x-3 bg-white rounded-lg p-3 border border-blue-200">
+                    <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-gray-700">
+                      <strong className="text-gray-900">Remove vendas antigas</strong> da tabela vendas_meta
+                    </p>
+                  </div>
+                  <div className="flex items-start space-x-3 bg-white rounded-lg p-3 border border-blue-200">
+                    <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-gray-700">
+                      <strong className="text-gray-900">Prepara o sistema</strong> para importação do Excel
+                    </p>
+                  </div>
+                  <div className="flex items-start space-x-3 bg-white rounded-lg p-3 border border-blue-200">
+                    <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-gray-700">
+                      <strong className="text-gray-900">Evita duplicação</strong> nas métricas de metas
+                    </p>
+                  </div>
+                  <div className="flex items-start space-x-3 bg-white rounded-lg p-3 border border-blue-200">
+                    <Shield className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-gray-700">
+                      <strong className="text-gray-900">Só afeta seus dados</strong> (outras empresas intocadas)
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botões de ação */}
+              <div className="flex gap-3 pt-2">
                 <Button 
                   variant="outline" 
                   onClick={resetDialog}
-                  className="flex-1"
+                  className="flex-1 h-12 border-2 border-gray-300 hover:bg-gray-50 font-semibold shadow-sm"
+                  size="lg"
                 >
                   Cancelar
                 </Button>
                 <Button 
                   onClick={handleLimpeza}
                   disabled={cleaning || preview.total_registros === 0}
-                  className="flex-1 bg-orange-600 hover:bg-orange-700"
+                  className="flex-1 h-12 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-bold shadow-lg hover:shadow-xl transition-all"
+                  size="lg"
                 >
-                  {cleaning && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  {preview.total_registros === 0 ? 'Já Finalizado' : 'Finalizar Período'}
+                  {cleaning ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                      Finalizando...
+                    </>
+                  ) : (
+                    <>
+                      <Calendar className="h-5 w-5 mr-2" />
+                      {preview.total_registros === 0 ? 'Já Finalizado' : 'Finalizar Período'}
+                      <ArrowRight className="h-5 w-5 ml-2" />
+                    </>
+                  )}
                 </Button>
               </div>
             </>
@@ -215,46 +283,93 @@ export function VendasMetaCleaner() {
 
           {result && (
             <>
-              <Alert className={result.sucesso ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
-                {result.sucesso ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <AlertTriangle className="h-4 w-4 text-red-600" />}
-                <AlertDescription>
-                  <div className="space-y-1">
-                    <p className={`font-medium ${result.sucesso ? 'text-green-800' : 'text-red-800'}`}>
-                      {result.sucesso ? '✅ Período Finalizado!' : '❌ Erro na Finalização'}
-                    </p>
-                    {result.sucesso && (
-                      <p className="text-green-700">
-                        🗑️ {result.registros_removidos} registros removidos
-                      </p>
+              {/* Resultado da finalização */}
+              <div className={`rounded-xl p-5 border-2 shadow-lg ${
+                result.sucesso 
+                  ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-300' 
+                  : 'bg-gradient-to-r from-red-50 to-rose-50 border-red-300'
+              }`}>
+                <div className="flex items-start space-x-3 mb-4">
+                  <div className={`p-2 rounded-lg ${result.sucesso ? 'bg-green-500' : 'bg-red-500'}`}>
+                    {result.sucesso ? (
+                      <CheckCircle2 className="h-5 w-5 text-white" />
+                    ) : (
+                      <AlertTriangle className="h-5 w-5 text-white" />
                     )}
-                    <p className={result.sucesso ? 'text-green-700' : 'text-red-700'}>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className={`text-base font-bold mb-2 ${result.sucesso ? 'text-green-900' : 'text-red-900'}`}>
+                      {result.sucesso ? 'Período Finalizado!' : 'Erro na Finalização'}
+                    </h4>
+                    {result.sucesso && (
+                      <div className="bg-white rounded-lg p-3 border-2 border-green-200 mb-3">
+                        <div className="flex items-center space-x-2">
+                          <Trash2 className="h-4 w-4 text-green-600" />
+                          <span className="text-sm font-medium text-gray-700">Registros removidos:</span>
+                          <Badge className="bg-green-600 text-white font-bold px-3 py-1">
+                            {result.registros_removidos.toLocaleString('pt-BR')}
+                          </Badge>
+                        </div>
+                      </div>
+                    )}
+                    <p className={`text-sm ${result.sucesso ? 'text-green-800' : 'text-red-800'}`}>
                       {result.mensagem}
                     </p>
                     {result.erro && (
-                      <p className="text-red-600 text-sm mt-1">
-                        Erro: {result.erro}
-                      </p>
+                      <div className="mt-3 bg-red-100 rounded-lg p-3 border border-red-300">
+                        <p className="text-red-800 text-sm font-semibold">
+                          Erro: {result.erro}
+                        </p>
+                      </div>
                     )}
                   </div>
-                </AlertDescription>
-              </Alert>
+                </div>
+              </div>
 
+              {/* Próximos passos */}
               {result.sucesso && (
-                <div className="bg-green-50 p-3 rounded-lg text-sm">
-                  <h4 className="font-medium text-green-800 mb-2">🎯 Próximos Passos:</h4>
-                  <ol className="space-y-1 text-green-700 list-decimal list-inside">
-                    <li>Faça a cópia manual no Excel (vendas atual → permanência)</li>
-                    <li>Delete dados antigos da aba vendas atual no Excel</li>
-                    <li>Faça a importação das 3 abas para o Supabase normalmente</li>
-                    <li>Sistema estará livre de duplicações! 🎉</li>
-                  </ol>
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-5 border-2 border-green-300 shadow-lg">
+                  <div className="flex items-center space-x-3 mb-4">
+                    <div className="p-2 bg-green-500 rounded-lg">
+                      <CheckCircle className="h-5 w-5 text-white" />
+                    </div>
+                    <h4 className="text-base font-bold text-gray-800">Próximos Passos</h4>
+                  </div>
+                  <div className="space-y-2.5">
+                    <div className="flex items-start space-x-3 bg-white rounded-lg p-3 border border-green-200">
+                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center">1</span>
+                      <p className="text-sm text-gray-700">
+                        Faça a cópia manual no Excel (vendas atual → permanência)
+                      </p>
+                    </div>
+                    <div className="flex items-start space-x-3 bg-white rounded-lg p-3 border border-green-200">
+                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center">2</span>
+                      <p className="text-sm text-gray-700">
+                        Delete dados antigos da aba vendas atual no Excel
+                      </p>
+                    </div>
+                    <div className="flex items-start space-x-3 bg-white rounded-lg p-3 border border-green-200">
+                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center">3</span>
+                      <p className="text-sm text-gray-700">
+                        Faça a importação das 3 abas para o Supabase normalmente
+                      </p>
+                    </div>
+                    <div className="flex items-start space-x-3 bg-white rounded-lg p-3 border border-green-200">
+                      <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-sm font-bold text-green-900">
+                        Sistema estará livre de duplicações!
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
               <Button 
                 onClick={resetDialog}
-                className="w-full"
+                className="w-full h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold shadow-lg hover:shadow-xl transition-all"
+                size="lg"
               >
+                <CheckCircle2 className="h-5 w-5 mr-2" />
                 Fechar
               </Button>
             </>

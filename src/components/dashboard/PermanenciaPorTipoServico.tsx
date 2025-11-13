@@ -215,113 +215,134 @@ export function PermanenciaPorTipoServico({ sigla, datasHabilitacaoFiltradas, ve
   }, [sigla, vendasOriginais, vendasFiltradas, todosPagamentos]);
 
   return (
-    <div className="p-2">
-      <h3 className="font-semibold text-lg mb-3">{sigla === "BL-DGO" ? "Fibra" : "POS"}</h3>
-      
-      <div className="space-y-4">
-        <div>
-          <Progress value={dados.percentual_adimplentes} className="h-3 bg-green-100" />
-          <div className="flex justify-between text-sm mt-2">
-            <span>Adimplentes: {dados.adimplentes}</span>
-            <span className="font-bold text-green-600 text-base">{dados.percentual_adimplentes.toFixed(2)}%</span>
+    <div className="space-y-5">
+      {/* Resumo Principal */}
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200 shadow-sm flex flex-col items-center justify-center">
+          <div className="text-xs font-medium text-green-700 mb-3 uppercase tracking-wide">Adimplentes</div>
+          <div className="mb-3">
+            <Badge className="bg-green-600 text-white text-3xl font-bold px-4 py-2 h-auto border-0 shadow-md">
+              {dados.percentual_adimplentes.toFixed(2)}%
+            </Badge>
           </div>
+          <div className="text-lg font-bold text-green-700">{dados.adimplentes}</div>
         </div>
-        
-        <div>
-          <Progress value={dados.percentual_inadimplentes} className="h-3 mt-2 bg-amber-100" />
-          <div className="flex justify-between text-sm mt-2">
-            <span>Inadimplentes: {dados.inadimplentes}</span>
-            <span className="font-bold text-amber-600 text-base">{dados.percentual_inadimplentes.toFixed(2)}%</span>
+        <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-4 border border-amber-200 shadow-sm flex flex-col items-center justify-center">
+          <div className="text-xs font-medium text-amber-700 mb-3 uppercase tracking-wide">Inadimplentes</div>
+          <div className="mb-3">
+            <Badge className="bg-amber-600 text-white text-3xl font-bold px-4 py-2 h-auto border-0 shadow-md">
+              {dados.percentual_inadimplentes.toFixed(2)}%
+            </Badge>
           </div>
+          <div className="text-lg font-bold text-amber-700">{dados.inadimplentes}</div>
         </div>
-        
-        <div>
-          <Progress value={dados.percentual_cancelados} className="h-3 mt-2 bg-red-100" />
-          <div className="flex justify-between text-sm mt-2">
-            <span>Cancelados: {dados.cancelados}</span>
-            <span className="font-bold text-red-600 text-base">{dados.percentual_cancelados.toFixed(2)}%</span>
+        <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-4 border border-red-200 shadow-sm flex flex-col items-center justify-center">
+          <div className="text-xs font-medium text-red-700 mb-3 uppercase tracking-wide">Cancelados</div>
+          <div className="mb-3">
+            <Badge className="bg-red-600 text-white text-3xl font-bold px-4 py-2 h-auto border-0 shadow-md">
+              {dados.percentual_cancelados.toFixed(2)}%
+            </Badge>
           </div>
+          <div className="text-lg font-bold text-red-700">{dados.cancelados}</div>
         </div>
       </div>
-      
-      <div className="text-sm text-muted-foreground mt-4 font-medium">
-        Total de clientes: {dados.total}
+
+      {/* Total de Clientes */}
+      <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-blue-900">Total de Clientes</span>
+          <span className="text-xl font-bold text-blue-700">{dados.total}</span>
+        </div>
       </div>
 
       {/* Seção de Metas e Oportunidades - apenas para POS */}
       {sigla === "POS" && (
-        <div className="mt-4 space-y-3">
+        <div className="mt-5 space-y-4 pt-4 border-t border-gray-200">
           {/* Metas de Adimplência */}
-          <div className="border-t pt-3">
-            <div className="flex items-center mb-2">
-              <Target className="mr-1 h-4 w-4 text-blue-600" />
-              <span className="text-sm font-medium">Metas de Adimplência</span>
+          <div>
+            <div className="flex items-center mb-3">
+              <div className="p-1.5 bg-blue-100 rounded-lg mr-2">
+                <Target className="h-4 w-4 text-blue-600" />
+              </div>
+              <span className="text-sm font-semibold text-gray-800">Metas de Adimplência</span>
             </div>
             
-            <div className="grid grid-cols-2 gap-2">
-              <div className={`p-2 rounded text-xs border-l-4 ${
-                dados.metaAtingida55 ? 'bg-green-50 border-green-400' : 'bg-amber-50 border-amber-400'
+            <div className="grid grid-cols-2 gap-3">
+              <div className={`p-3 rounded-lg border-2 shadow-sm ${
+                dados.metaAtingida55 ? 'bg-green-50 border-green-300' : 'bg-amber-50 border-amber-300'
               }`}>
-                <div className="font-medium">Meta 55%</div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-gray-700">Meta 55%</span>
+                  {dados.metaAtingida55 && (
+                    <Badge variant="secondary" className="bg-green-200 text-green-800 text-xs px-2 py-0">
+                      ✓ Atingida
+                    </Badge>
+                  )}
+                </div>
                 {dados.metaAtingida55 ? (
-                  <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs mt-1">
-                    Atingida ✓
-                  </Badge>
+                  <div className="text-xs text-green-700 font-medium">Meta alcançada!</div>
                 ) : (
-                  <div className="text-amber-700 mt-1">Faltam {dados.clientesParaMeta55} clientes</div>
+                  <div className="text-sm font-bold text-amber-700">{dados.clientesParaMeta55} clientes</div>
                 )}
               </div>
               
-              <div className={`p-2 rounded text-xs border-l-4 ${
-                dados.metaAtingida70 ? 'bg-green-50 border-green-400' : 'bg-red-50 border-red-400'
+              <div className={`p-3 rounded-lg border-2 shadow-sm ${
+                dados.metaAtingida70 ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'
               }`}>
-                <div className="font-medium">Meta 70%</div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-gray-700">Meta 70%</span>
+                  {dados.metaAtingida70 && (
+                    <Badge variant="secondary" className="bg-green-200 text-green-800 text-xs px-2 py-0">
+                      ✓ Atingida
+                    </Badge>
+                  )}
+                </div>
                 {dados.metaAtingida70 ? (
-                  <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs mt-1">
-                    Atingida ✓
-                  </Badge>
+                  <div className="text-xs text-green-700 font-medium">Meta alcançada!</div>
                 ) : (
-                  <div className="text-red-700 mt-1">Faltam {dados.clientesParaMeta70} clientes</div>
+                  <div className="text-sm font-bold text-red-700">{dados.clientesParaMeta70} clientes</div>
                 )}
               </div>
             </div>
           </div>
 
           {/* Oportunidades FIXAS */}
-          <div className="border-t pt-3">
-            <div className="flex items-center mb-2">
-              <TrendingUp className="mr-1 h-4 w-4 text-orange-600" />
-              <span className="text-sm font-medium">Oportunidades Globais</span>
+          <div>
+            <div className="flex items-center mb-3">
+              <div className="p-1.5 bg-orange-100 rounded-lg mr-2">
+                <TrendingUp className="h-4 w-4 text-orange-600" />
+              </div>
+              <span className="text-sm font-semibold text-gray-800">Oportunidades Globais</span>
             </div>
             
-            <div className="grid grid-cols-3 gap-1">
-              <div className="p-2 bg-yellow-50 rounded border-l-4 border-yellow-400">
-                <div className="text-xs text-yellow-700 font-medium">OURO</div>
-                <div className="text-sm font-bold text-yellow-800">{oportunidades.ouro}</div>
-                <div className="text-xs text-yellow-600">Passos 2-3</div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="p-3 bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-lg border-2 border-yellow-300 shadow-sm">
+                <div className="text-xs font-semibold text-yellow-700 mb-1">OURO</div>
+                <div className="text-xl font-bold text-yellow-800">{oportunidades.ouro}</div>
+                <div className="text-[10px] text-yellow-600 mt-1">Passos 2-3</div>
               </div>
               
-              <div className="p-2 bg-orange-50 rounded border-l-4 border-orange-400">
-                <div className="text-xs text-orange-700 font-medium">BRONZE</div>
-                <div className="text-sm font-bold text-orange-800">{oportunidades.bronze}</div>
-                <div className="text-xs text-orange-600">Passo 4</div>
+              <div className="p-3 bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg border-2 border-orange-300 shadow-sm">
+                <div className="text-xs font-semibold text-orange-700 mb-1">BRONZE</div>
+                <div className="text-xl font-bold text-orange-800">{oportunidades.bronze}</div>
+                <div className="text-[10px] text-orange-600 mt-1">Passo 4</div>
               </div>
               
-              <div className="p-2 bg-blue-50 rounded border-l-4 border-blue-400">
-                <div className="text-xs text-blue-700 font-medium">TOTAL</div>
-                <div className="text-sm font-bold text-blue-800">{oportunidades.total}</div>
-                <div className="text-xs text-blue-600">91-120 dias</div>
+              <div className="p-3 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border-2 border-blue-300 shadow-sm">
+                <div className="text-xs font-semibold text-blue-700 mb-1">TOTAL</div>
+                <div className="text-xl font-bold text-blue-800">{oportunidades.total}</div>
+                <div className="text-[10px] text-blue-600 mt-1">91-120 dias</div>
               </div>
             </div>
             
-            <div className="text-xs text-muted-foreground mt-2">
+            <div className="text-[10px] text-gray-500 mt-2 italic">
               * Oportunidades: POS + Status "S" + 91-120 dias corridos
             </div>
           </div>
         </div>
       )}
       
-      {(datasHabilitacaoFiltradas && datasHabilitacaoFiltradas.length > 0) || vendasFiltradas && (
+      {((datasHabilitacaoFiltradas && datasHabilitacaoFiltradas.length > 0) || vendasFiltradas) && (
         <div className="text-xs text-blue-600 mt-2">
           * Dados de permanência filtrados pelos critérios selecionados
         </div>

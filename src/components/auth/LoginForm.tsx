@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PhoneCall, ShieldAlert, AlertCircle, Mail, Lock, LogIn } from "lucide-react";
+import { PhoneCall, ShieldAlert, AlertCircle, Mail, Lock, LogIn, Shield } from "lucide-react";
 import { useAuth } from "@/context/useAuth";
 import { useToast } from "@/components/ui/use-toast";
 import { type AuthErrorType } from "@/utils/AuthService";
@@ -72,7 +72,7 @@ export function LoginForm() {
     } else {
       toast({
         title: "Login realizado com sucesso",
-        description: "Bem-vindo ao SysGest Insight Metrics"
+        description: "Bem-vindo ao InsightPro"
       });
       navigate("/dashboard");
     }
@@ -116,14 +116,16 @@ export function LoginForm() {
   };
 
   return (
-    <CardContent className="space-y-6">
-      <form onSubmit={handleSubmit} className="space-y-5">
+    <CardContent className="space-y-6 px-8 pb-8">
+      <form onSubmit={handleSubmit} className="space-y-6">
         {renderErrorAlert()}
         
-        <div className="space-y-2">
-          <Label htmlFor="email" className="text-sysgest-blue font-medium">Email</Label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+        <div className="space-y-3">
+          <Label htmlFor="email" className="text-gray-700 font-semibold text-sm">Email</Label>
+          <div className="relative group">
+            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+              <Mail className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+            </div>
             <Input
               id="email"
               type="email"
@@ -131,15 +133,17 @@ export function LoginForm() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
-              className="pl-10 h-12 border-gray-200 focus:border-sysgest-blue focus:ring-sysgest-blue"
+              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
             />
           </div>
         </div>
         
-        <div className="space-y-2">
-          <Label htmlFor="password" className="text-sysgest-blue font-medium">Senha</Label>
-          <div className="relative">
-            <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+        <div className="space-y-3">
+          <Label htmlFor="password" className="text-gray-700 font-semibold text-sm">Senha</Label>
+          <div className="relative group">
+            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+              <Lock className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+            </div>
             <Input
               id="password"
               type="password"
@@ -147,33 +151,35 @@ export function LoginForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
-              className="pl-10 h-12 border-gray-200 focus:border-sysgest-blue focus:ring-sysgest-blue"
+              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
             />
           </div>
         </div>
         
         <Button 
           type="submit" 
-          className="w-full h-12 bg-gradient-to-r from-sysgest-blue to-sysgest-teal hover:from-sysgest-teal hover:to-sysgest-blue text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center space-x-2"
+          className="w-full h-14 bg-gradient-to-r from-blue-600 via-indigo-600 to-teal-500 hover:from-teal-500 hover:via-indigo-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 flex items-center justify-center space-x-3 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={loading}
         >
           {loading ? (
             <>
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
               <span>Autenticando...</span>
             </>
           ) : (
             <>
-              <LogIn size={18} />
+              <LogIn size={20} className="mr-1" />
               <span>Entrar no Sistema</span>
+              <span className="text-xl">→</span>
             </>
           )}
         </Button>
       </form>
       
-      <div className="text-center pt-4 border-t border-gray-100">
-        <p className="text-xs text-gray-500">
-          Acesso seguro e protegido por criptografia
+      <div className="text-center pt-4 border-t-2 border-gray-100">
+        <p className="text-xs text-gray-500 flex items-center justify-center space-x-2">
+          <Shield className="text-gray-400" size={14} />
+          <span>Acesso seguro e protegido por criptografia</span>
         </p>
       </div>
     </CardContent>

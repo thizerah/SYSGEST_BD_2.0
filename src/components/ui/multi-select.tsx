@@ -62,12 +62,12 @@ export function MultiSelect({
   return (
     <div 
       ref={containerRef}
-      className={cn("relative", className)}
+      className={cn("relative w-full", className)}
     >
       {/* Botão de seleção */}
       <div
         onClick={() => setIsOpen(!isOpen)}
-        className="flex min-h-10 w-full flex-wrap items-center rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background cursor-pointer"
+        className="flex min-h-10 w-full flex-wrap items-center rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background cursor-pointer hover:bg-accent/50 transition-colors"
       >
         {safeSelected.length > 0 ? (
           <div className="flex flex-wrap gap-1 mr-1">
@@ -94,7 +94,7 @@ export function MultiSelect({
 
       {/* Dropdown de opções */}
       {isOpen && (
-        <div className="absolute z-10 w-full mt-1 bg-popover border rounded-md shadow-md max-h-60 overflow-auto">
+        <div className="absolute z-[100] w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-auto">
           {safeOptions.length === 0 ? (
             <div className="px-2 py-2 text-sm text-center text-muted-foreground">
               Nenhuma opção disponível

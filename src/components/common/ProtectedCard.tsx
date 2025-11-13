@@ -86,23 +86,23 @@ export function ProtectedCard({ children, title, storageKey, className = "" }: P
       {/* Overlay de proteção */}
       {!isUnlocked && (
         <div className="absolute inset-0 bg-gray-50/95 backdrop-blur-sm flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 z-10">
-          <div className="text-center space-y-4 p-6">
+          <div className="text-center space-y-3 p-4 pb-6">
             <div className="flex justify-center">
-              <Lock className="h-12 w-12 text-gray-400" />
+              <Lock className="h-6 w-6 text-gray-400" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">
+              <h3 className="text-base font-semibold text-gray-700 mb-1">
                 Conteúdo Protegido
               </h3>
-              <p className="text-sm text-gray-500 mb-4">
+              <p className="text-xs text-gray-500 mb-3">
                 Este conteúdo contém informações sensíveis e requer autorização para visualização.
               </p>
             </div>
             <Button 
               onClick={() => setShowPasswordModal(true)}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-blue-600 hover:bg-blue-700 text-sm py-2 px-4"
             >
-              <Eye className="h-4 w-4 mr-2" />
+              <Eye className="h-3 w-3 mr-2" />
               Revelar {title}
             </Button>
           </div>

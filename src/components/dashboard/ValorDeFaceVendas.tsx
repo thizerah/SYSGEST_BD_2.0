@@ -558,3 +558,5 @@ export function ValorDeFaceVendas({ vendasFiltradas }: ValorDeFaceVendasProps) {
     </Card>
   );
 } 
+
+

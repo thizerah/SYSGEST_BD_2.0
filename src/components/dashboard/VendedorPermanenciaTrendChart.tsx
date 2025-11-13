@@ -25,15 +25,14 @@ export function VendedorPermanenciaTrendChart({
   // Configurações iniciais dos indicadores por vendedor
   const [chartConfigs, setChartConfigs] = useState<TrendChartConfig[]>([]);
 
-  // Função para identificar a sigla de um produto
+  // Função para identificar a sigla de um produto (apenas POS)
   const getSigla = (venda: Venda): string => {
     const agrupamento = venda.agrupamento_produto || '';
     const produto = venda.produto_principal || '';
     
     if (agrupamento.includes('POS') || produto.includes('POS')) return 'POS';
-    if (agrupamento.includes('BL-DGO') || produto.includes('BL-DGO')) return 'BL-DGO';
     
-    return '';
+    return ''; // Removido BL-DGO (FIBRA)
   };
 
   // Função para calcular o mês de permanência (data de habilitação + 4 meses)
@@ -65,91 +64,128 @@ export function VendedorPermanenciaTrendChart({
     return Array.from(vendedores).sort();
   }, [vendasFiltradas]);
 
-  // Atualizar configurações quando vendedores mudarem
+  // Processar dados para calcular top 5 vendedores
+  const dadosParaTopVendedores = useMemo(() => {
+    if (filtroMesPermanencia.length < 2 || filtroAnoPermanencia.length === 0) {
+      return [];
+    }
+
+    // Criar mapa de pagamentos por proposta
+    const pagamentosMap = new Map<string, PrimeiroPagamento>();
+    primeirosPagamentos.forEach(pagamento => {
+      pagamentosMap.set(pagamento.proposta, pagamento);
+    });
+
+    // Calcular métricas por vendedor (apenas POS)
+    const metricasPorVendedor = new Map<string, {
+      adimplentes: number;
+      total: number;
+      mediaAdimplencia: number;
+    }>();
+
+    vendasFiltradas.forEach(venda => {
+      const vendedor = venda.nome_proprietario;
+      if (!vendedor || vendedor.trim() === '') return;
+
+      const sigla = getSigla(venda);
+      if (sigla !== 'POS') return; // Apenas POS
+
+      if (!metricasPorVendedor.has(vendedor)) {
+        metricasPorVendedor.set(vendedor, {
+          adimplentes: 0,
+          total: 0,
+          mediaAdimplencia: 0
+        });
+      }
+
+      const vendedorMetrics = metricasPorVendedor.get(vendedor)!;
+      const pagamento = pagamentosMap.get(venda.numero_proposta);
+
+      vendedorMetrics.total++;
+
+      if (pagamento) {
+        if (pagamento.status_pacote === 'C') {
+          // Cancelado - não conta como adimplente
+        } else if (pagamento.status_pacote === 'S') {
+          // Inadimplente
+        } else if (pagamento.status_pacote === 'N' && (!pagamento.data_passo_cobranca || pagamento.data_passo_cobranca === '')) {
+          // Adimplente
+          vendedorMetrics.adimplentes++;
+        } else if (pagamento.passo === '0' || pagamento.passo === '1') {
+          // Adimplente
+          vendedorMetrics.adimplentes++;
+        } else if (pagamento.status_pacote === 'I') {
+          // Adimplente (inclusão)
+          vendedorMetrics.adimplentes++;
+        }
+      }
+    });
+
+    // Calcular média de adimplência por vendedor
+    metricasPorVendedor.forEach((metrics, vendedor) => {
+      metrics.mediaAdimplencia = metrics.total > 0 
+        ? (metrics.adimplentes / metrics.total) * 100 
+        : 0;
+    });
+
+    // Ordenar vendedores por volume total (total de vendas) ou por adimplência
+    // Priorizando volume para identificar top performers
+    return Array.from(metricasPorVendedor.entries())
+      .sort((a, b) => {
+        // Primeiro por volume total (decrescente)
+        if (b[1].total !== a[1].total) {
+          return b[1].total - a[1].total;
+        }
+        // Se empate, por adimplência (decrescente)
+        return b[1].mediaAdimplencia - a[1].mediaAdimplencia;
+      });
+  }, [filtroMesPermanencia, filtroAnoPermanencia, vendasFiltradas, primeirosPagamentos]);
+
+  // Atualizar configurações quando vendedores mudarem - Apenas % Adimplência POS
   React.useEffect(() => {
-    // Cores semânticas puras por tipo de métrica
-    const coresPorTipo = {
-      adimplencia: '#16a34a', // Verde para adimplência
-      inadimplencia: '#eab308', // Amarelo para inadimplência  
-      cancelados: '#dc2626'     // Vermelho para cancelados
-    };
+    // Gerar cores distintas para cada vendedor
+    const gerarCorParaVendedor = (index: number, total: number): string => {
+      // Paleta de cores harmoniosas
+      const cores = [
+        '#16a34a', // green-600
+        '#2563eb', // blue-600
+        '#7c3aed', // violet-600
+        '#dc2626', // red-600
+        '#ea580c', // orange-600
+        '#0891b2', // cyan-600
+        '#059669', // emerald-600
+        '#9333ea', // purple-600
+        '#be185d', // pink-700
+        '#ca8a04', // yellow-600
+      ];
 
-    // Função para gerar variação de cor por tipo de serviço (POS/FIBRA)
-    const gerarCorPorTipo = (corBase: string, tipoServico: 'POS' | 'FIBRA') => {
-      // Converter cor hex para RGB
-      const hexToRgb = (hex: string) => {
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? {
-          r: parseInt(result[1], 16),
-          g: parseInt(result[2], 16),
-          b: parseInt(result[3], 16)
-        } : null;
-      };
+      // Usar cores da paleta primeiro
+      if (index < cores.length) {
+        return cores[index];
+      }
 
-      const rgb = hexToRgb(corBase);
-      if (!rgb) return corBase;
-
-      // Ajustar intensidade por tipo de serviço
-      const intensidade = tipoServico === 'POS' ? 1.0 : 0.8; // POS cor pura, FIBRA mais clara
-      
-      return `rgb(${Math.round(rgb.r * intensidade)}, ${Math.round(rgb.g * intensidade)}, ${Math.round(rgb.b * intensidade)})`;
+      // Para mais vendedores, gerar cores gradativamente
+      const hue = (index * 137.508) % 360; // Golden angle para distribuição uniforme
+      return `hsl(${hue}, 70%, 50%)`;
     };
 
     const novasConfigs: TrendChartConfig[] = [];
+    const top5Vendedores = dadosParaTopVendedores.slice(0, 5).map(([vendedor]) => vendedor);
 
-    // Criar configurações para POS e FIBRA de cada vendedor
-    vendedoresUnicos.forEach((vendedor) => {
-      // POS - Adimplência (verde)
+    // Criar configurações apenas para % Adimplência POS de cada vendedor
+    vendedoresUnicos.forEach((vendedor, index) => {
+      const isTop5 = top5Vendedores.includes(vendedor);
+      
       novasConfigs.push({
         key: `vendedor_${vendedor.replace(/\s+/g, '_')}_POS_adimplencia`,
-        label: `${vendedor} - POS Adimplência`,
-        color: gerarCorPorTipo(coresPorTipo.adimplencia, 'POS'),
-        visible: false
-      });
-
-      // POS - Inadimplência (amarelo)
-      novasConfigs.push({
-        key: `vendedor_${vendedor.replace(/\s+/g, '_')}_POS_inadimplencia`,
-        label: `${vendedor} - POS Inadimplência`,
-        color: gerarCorPorTipo(coresPorTipo.inadimplencia, 'POS'),
-        visible: false
-      });
-
-      // POS - Cancelados (vermelho)
-      novasConfigs.push({
-        key: `vendedor_${vendedor.replace(/\s+/g, '_')}_POS_cancelados`,
-        label: `${vendedor} - POS Cancelados`,
-        color: gerarCorPorTipo(coresPorTipo.cancelados, 'POS'),
-        visible: false
-      });
-
-      // FIBRA - Adimplência (verde)
-      novasConfigs.push({
-        key: `vendedor_${vendedor.replace(/\s+/g, '_')}_FIBRA_adimplencia`,
-        label: `${vendedor} - FIBRA Adimplência`,
-        color: gerarCorPorTipo(coresPorTipo.adimplencia, 'FIBRA'),
-        visible: false
-      });
-
-      // FIBRA - Inadimplência (amarelo)
-      novasConfigs.push({
-        key: `vendedor_${vendedor.replace(/\s+/g, '_')}_FIBRA_inadimplencia`,
-        label: `${vendedor} - FIBRA Inadimplência`,
-        color: gerarCorPorTipo(coresPorTipo.inadimplencia, 'FIBRA'),
-        visible: false
-      });
-
-      // FIBRA - Cancelados (vermelho)
-      novasConfigs.push({
-        key: `vendedor_${vendedor.replace(/\s+/g, '_')}_FIBRA_cancelados`,
-        label: `${vendedor} - FIBRA Cancelados`,
-        color: gerarCorPorTipo(coresPorTipo.cancelados, 'FIBRA'),
-        visible: false
+        label: `${vendedor} - Adimplência POS (%)`,
+        color: gerarCorParaVendedor(index, vendedoresUnicos.length),
+        visible: isTop5 // Top 5 pré-selecionados
       });
     });
 
     setChartConfigs(novasConfigs);
-  }, [vendedoresUnicos]);
+  }, [vendedoresUnicos, dadosParaTopVendedores]);
 
   // Processar dados para o gráfico
   const chartData: TrendDataPoint[] = useMemo(() => {
@@ -198,10 +234,12 @@ export function VendedorPermanenciaTrendChart({
         return mesPermanencia === periodo.mes.substring(0, 3) && anoPermanencia === periodo.ano;
       });
 
-      // Calcular métricas por vendedor e sigla
-      const metricasPorVendedorSigla = new Map<string, {
-        POS: { adimplentes: number; inadimplentes: number; cancelados: number; total: number };
-        FIBRA: { adimplentes: number; inadimplentes: number; cancelados: number; total: number };
+      // Calcular métricas por vendedor (apenas POS)
+      const metricasPorVendedor = new Map<string, {
+        adimplentes: number;
+        inadimplentes: number;
+        cancelados: number;
+        total: number;
       }>();
 
       vendasDoPeriodo.forEach(venda => {
@@ -209,44 +247,42 @@ export function VendedorPermanenciaTrendChart({
         if (!vendedor || vendedor.trim() === '') return;
 
         const sigla = getSigla(venda);
-        if (sigla !== 'POS' && sigla !== 'BL-DGO') return; // Apenas POS e FIBRA (BL-DGO)
+        if (sigla !== 'POS') return; // Apenas POS
 
-        if (!metricasPorVendedorSigla.has(vendedor)) {
-          metricasPorVendedorSigla.set(vendedor, {
-            POS: { adimplentes: 0, inadimplentes: 0, cancelados: 0, total: 0 },
-            FIBRA: { adimplentes: 0, inadimplentes: 0, cancelados: 0, total: 0 }
+        if (!metricasPorVendedor.has(vendedor)) {
+          metricasPorVendedor.set(vendedor, {
+            adimplentes: 0,
+            inadimplentes: 0,
+            cancelados: 0,
+            total: 0
           });
         }
 
-        const vendedorMetrics = metricasPorVendedorSigla.get(vendedor)!;
-        const tipoMetric = sigla === 'POS' ? vendedorMetrics.POS : vendedorMetrics.FIBRA;
+        const vendedorMetrics = metricasPorVendedor.get(vendedor)!;
         const pagamento = pagamentosMap.get(venda.numero_proposta);
 
-        tipoMetric.total++;
+        vendedorMetrics.total++;
 
         if (pagamento) {
           if (pagamento.status_pacote === 'C') {
             // Cancelado
-            tipoMetric.cancelados++;
+            vendedorMetrics.cancelados++;
           } else if (pagamento.status_pacote === 'S') {
             // Inadimplente (suspenso)
-            tipoMetric.inadimplentes++;
+            vendedorMetrics.inadimplentes++;
           } else if (pagamento.status_pacote === 'N' && (!pagamento.data_passo_cobranca || pagamento.data_passo_cobranca === '')) {
             // Adimplente
-            tipoMetric.adimplentes++;
+            vendedorMetrics.adimplentes++;
           } else if (pagamento.passo === '0' || pagamento.passo === '1') {
             // Adimplente
-            tipoMetric.adimplentes++;
+            vendedorMetrics.adimplentes++;
           } else if (pagamento.status_pacote === 'I') {
             // Adimplente (inclusão)
-            tipoMetric.adimplentes++;
+            vendedorMetrics.adimplentes++;
           } else {
             // Inadimplente (outros casos)
-            tipoMetric.inadimplentes++;
+            vendedorMetrics.inadimplentes++;
           }
-        } else if (sigla === 'BL-DGO') {
-          // BL-DGO sem pagamento é considerado adimplente
-          tipoMetric.adimplentes++;
         }
       });
 
@@ -256,37 +292,19 @@ export function VendedorPermanenciaTrendChart({
         mesAno: `${periodo.ano}-${String(periodo.mesIndex + 1).padStart(2, '0')}`
       };
 
-      // Adicionar percentuais apenas para vendedores que têm dados neste período
+      // Adicionar percentuais apenas para vendedores que têm dados neste período (apenas % Adimplência POS)
       vendedoresUnicos.forEach(vendedor => {
-        const vendedorMetrics = metricasPorVendedorSigla.get(vendedor);
+        const vendedorMetrics = metricasPorVendedor.get(vendedor);
         
-        // Verificar se o vendedor tem dados (POS ou FIBRA) neste período
-        const temDadosPOS = vendedorMetrics && vendedorMetrics.POS.total > 0;
-        const temDadosFIBRA = vendedorMetrics && vendedorMetrics.FIBRA.total > 0;
+        // Verificar se o vendedor tem dados POS neste período
+        const temDadosPOS = vendedorMetrics && vendedorMetrics.total > 0;
         
         // Só adicionar dados se o vendedor tiver vendas no período
-        if (temDadosPOS || temDadosFIBRA) {
-          // POS - Calcular percentuais (só se tiver dados)
-          if (temDadosPOS) {
-            const percentualAdimplenciaPOS = (vendedorMetrics!.POS.adimplentes / vendedorMetrics!.POS.total) * 100;
-            const percentualInadimplenciaPOS = (vendedorMetrics!.POS.inadimplentes / vendedorMetrics!.POS.total) * 100;
-            const percentualCanceladosPOS = (vendedorMetrics!.POS.cancelados / vendedorMetrics!.POS.total) * 100;
-            
-            dadosPeriodo[`vendedor_${vendedor.replace(/\s+/g, '_')}_POS_adimplencia`] = Number(percentualAdimplenciaPOS.toFixed(2));
-            dadosPeriodo[`vendedor_${vendedor.replace(/\s+/g, '_')}_POS_inadimplencia`] = Number(percentualInadimplenciaPOS.toFixed(2));
-            dadosPeriodo[`vendedor_${vendedor.replace(/\s+/g, '_')}_POS_cancelados`] = Number(percentualCanceladosPOS.toFixed(2));
-          }
+        if (temDadosPOS) {
+          // Calcular apenas % Adimplência POS
+          const percentualAdimplenciaPOS = (vendedorMetrics!.adimplentes / vendedorMetrics!.total) * 100;
           
-          // FIBRA - Calcular percentuais (só se tiver dados)
-          if (temDadosFIBRA) {
-            const percentualAdimplenciaFIBRA = (vendedorMetrics!.FIBRA.adimplentes / vendedorMetrics!.FIBRA.total) * 100;
-            const percentualInadimplenciaFIBRA = (vendedorMetrics!.FIBRA.inadimplentes / vendedorMetrics!.FIBRA.total) * 100;
-            const percentualCanceladosFIBRA = (vendedorMetrics!.FIBRA.cancelados / vendedorMetrics!.FIBRA.total) * 100;
-            
-            dadosPeriodo[`vendedor_${vendedor.replace(/\s+/g, '_')}_FIBRA_adimplencia`] = Number(percentualAdimplenciaFIBRA.toFixed(2));
-            dadosPeriodo[`vendedor_${vendedor.replace(/\s+/g, '_')}_FIBRA_inadimplencia`] = Number(percentualInadimplenciaFIBRA.toFixed(2));
-            dadosPeriodo[`vendedor_${vendedor.replace(/\s+/g, '_')}_FIBRA_cancelados`] = Number(percentualCanceladosFIBRA.toFixed(2));
-          }
+          dadosPeriodo[`vendedor_${vendedor.replace(/\s+/g, '_')}_POS_adimplencia`] = Number(percentualAdimplenciaPOS.toFixed(2));
         }
       });
 
@@ -297,7 +315,7 @@ export function VendedorPermanenciaTrendChart({
   return (
     <TrendChartsContainer
       title="Evolução da Permanência por Vendedor (%)"
-      description="Percentual de adimplência, inadimplência e cancelados por vendedor ao longo do tempo (valores entre 0% e 100%)"
+      description="Percentual de adimplência POS por vendedor ao longo do tempo. Top 5 vendedores são pré-selecionados automaticamente."
       data={chartData}
       chartConfigs={chartConfigs}
       onConfigChange={setChartConfigs}

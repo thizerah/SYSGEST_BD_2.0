@@ -20,7 +20,7 @@ const NotFound = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-center space-x-2 mb-6">
             <Shield className="text-sysgest-blue" size={40} />
-            <span className="text-3xl font-bold text-sysgest-blue">SysGest</span>
+            <span className="text-3xl font-bold text-sysgest-blue">InsightPro</span>
           </div>
           
           <div className="flex items-center justify-center mb-4">

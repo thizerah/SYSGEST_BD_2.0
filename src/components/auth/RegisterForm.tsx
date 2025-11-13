@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, User, Mail, Building2, Lock, Key, UserCog, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/useAuth";
 import { useToast } from "@/components/ui/use-toast";
 import { type AuthErrorType } from "@/utils/AuthService";
@@ -136,108 +136,162 @@ export function RegisterForm({ onRegisterSuccess }: RegisterFormProps) {
   };
 
   return (
-    <CardContent>
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <div>
+      <form onSubmit={handleSubmit} className="space-y-5">
         {renderErrorAlert()}
         {renderSuccessAlert()}
         
-        <div className="space-y-2">
-          <Label htmlFor="name">Nome Completo</Label>
-          <Input
-            id="name"
-            type="text"
-            placeholder="Digite seu nome completo"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={loading || success}
-          />
+        <div className="space-y-3">
+          <Label htmlFor="name" className="text-gray-700 font-semibold text-sm">Nome Completo</Label>
+          <div className="relative group">
+            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+              <User className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+            </div>
+            <Input
+              id="name"
+              type="text"
+              placeholder="Digite seu nome completo"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={loading || success}
+              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+            />
+          </div>
         </div>
         
-        <div className="space-y-2">
-          <Label htmlFor="username">Nome de Usuário</Label>
-          <Input
-            id="username"
-            type="text"
-            placeholder="Escolha um nome de usuário"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            disabled={loading || success}
-          />
+        <div className="space-y-3">
+          <Label htmlFor="username" className="text-gray-700 font-semibold text-sm">Nome de Usuário</Label>
+          <div className="relative group">
+            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+              <UserCog className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+            </div>
+            <Input
+              id="username"
+              type="text"
+              placeholder="Escolha um nome de usuário"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={loading || success}
+              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+            />
+          </div>
         </div>
         
-        <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            placeholder="Digite seu email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={loading || success}
-          />
+        <div className="space-y-3">
+          <Label htmlFor="email" className="text-gray-700 font-semibold text-sm">Email</Label>
+          <div className="relative group">
+            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+              <Mail className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+            </div>
+            <Input
+              id="email"
+              type="email"
+              placeholder="Digite seu email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading || success}
+              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+            />
+          </div>
         </div>
         
-        <div className="space-y-2">
-          <Label htmlFor="empresa">Empresa</Label>
-          <Input
-            id="empresa"
-            type="text"
-            placeholder="Digite o nome da sua empresa"
-            value={empresa}
-            onChange={(e) => setEmpresa(e.target.value)}
-            disabled={loading || success}
-          />
+        <div className="space-y-3">
+          <Label htmlFor="empresa" className="text-gray-700 font-semibold text-sm">Empresa</Label>
+          <div className="relative group">
+            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+              <Building2 className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+            </div>
+            <Input
+              id="empresa"
+              type="text"
+              placeholder="Digite o nome da sua empresa"
+              value={empresa}
+              onChange={(e) => setEmpresa(e.target.value)}
+              disabled={loading || success}
+              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+            />
+          </div>
         </div>
         
-        <div className="space-y-2">
-          <Label htmlFor="role">Tipo de Usuário</Label>
-          <Select
-            value={role}
-            onValueChange={(value) => setRole(value as "admin" | "user")}
-            disabled={loading || success}
-          >
-            <SelectTrigger id="role">
-              <SelectValue placeholder="Selecione o tipo de usuário" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="user">Usuário</SelectItem>
-              <SelectItem value="admin">Administrador</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="space-y-3">
+          <Label htmlFor="role" className="text-gray-700 font-semibold text-sm">Tipo de Usuário</Label>
+          <div className="relative group">
+            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+              <UserCog className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+            </div>
+            <Select
+              value={role}
+              onValueChange={(value) => setRole(value as "admin" | "user")}
+              disabled={loading || success}
+            >
+              <SelectTrigger 
+                id="role"
+                className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+              >
+                <SelectValue placeholder="Selecione o tipo de usuário" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="user">👤 Usuário</SelectItem>
+                <SelectItem value="admin">👑 Administrador</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         
-        <div className="space-y-2">
-          <Label htmlFor="password">Senha</Label>
-          <Input
-            id="password"
-            type="password"
-            placeholder="Crie uma senha"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={loading || success}
-          />
+        <div className="space-y-3">
+          <Label htmlFor="password" className="text-gray-700 font-semibold text-sm">Senha</Label>
+          <div className="relative group">
+            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+              <Lock className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+            </div>
+            <Input
+              id="password"
+              type="password"
+              placeholder="Crie uma senha (mínimo 6 caracteres)"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading || success}
+              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+            />
+          </div>
         </div>
         
-        <div className="space-y-2">
-          <Label htmlFor="confirm-password">Confirmar Senha</Label>
-          <Input
-            id="confirm-password"
-            type="password"
-            placeholder="Confirme sua senha"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            disabled={loading || success}
-          />
+        <div className="space-y-3">
+          <Label htmlFor="confirm-password" className="text-gray-700 font-semibold text-sm">Confirmar Senha</Label>
+          <div className="relative group">
+            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+              <Key className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+            </div>
+            <Input
+              id="confirm-password"
+              type="password"
+              placeholder="Confirme sua senha"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={loading || success}
+              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+            />
+          </div>
         </div>
         
         <Button 
           type="submit" 
-          className="w-full bg-sysgest-blue hover:bg-sysgest-teal"
+          className="w-full h-14 text-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-teal-500 hover:from-blue-700 hover:via-indigo-700 hover:to-teal-600 text-white shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-[1.02] rounded-xl font-semibold"
           disabled={loading || success}
         >
-          {loading ? "Processando..." : "Criar Conta"}
+          {loading ? (
+            <>
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              Processando...
+            </>
+          ) : (
+            <>
+              <CheckCircle2 className="mr-2 h-5 w-5" />
+              Criar Conta
+            </>
+          )}
         </Button>
       </form>
-    </CardContent>
+    </div>
   );
 } 

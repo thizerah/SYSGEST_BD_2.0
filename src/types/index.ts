@@ -1,6 +1,7 @@
 // Service Order data structure
 export interface ServiceOrder {
   codigo_os: string;
+  codigo_item?: string; // Código do item específico da OS (para OSs com múltiplos itens)
   id_tecnico: string;
   nome_tecnico: string;
   sigla_tecnico: string;
@@ -28,7 +29,71 @@ export interface ServiceOrder {
   tempo_atendimento?: number | null;
   atingiu_meta?: boolean;
   include_in_metrics?: boolean; // Indica se deve ser incluído nas métricas de tempo e reabertura
+  
+  // Materiais utilizados na ordem de serviço
+  materiais?: MaterialUtilizado[];
 }
+
+// Interface para materiais utilizados
+export interface MaterialUtilizado {
+  nome: string;
+  quantidade: number;
+}
+
+// Lista de materiais padrão que sempre devem aparecer
+export const MATERIAIS_PADRAO = [
+  "ANTENA 150 CM C/ KIT FIXACAO",
+  "ANTENA 75 CM",
+  "ANTENA 90CM C/ KIT FIXACAO",
+  "ANTENA DE 60 CM C/ KIT FIXACAO",
+  "CABO COAXIAL RGC06 BOBINA 100METROS", 
+  "CONECTOR F série-59 COMPRESSÃO",
+  "LNBF SIMPLES ANTENA 45/60/90 CM",
+  "LNBF DUPLO ANTENA 45/60/90 CM"
+] as const;
+
+// Lista completa de todos os materiais possíveis
+export const TODOS_MATERIAIS = [
+  "AMPLIFICADOR INTERMEDIARIO FAIXA LARGA",
+  "AMPLIFICADOR TRONCO FAIXA LARGA",
+  "ANTENA 150 CM C/ KIT FIXACAO",
+  "ANTENA 75 CM",
+  "ANTENA 90CM C/ KIT FIXACAO",
+  "ANTENA DE 60 CM C/ KIT FIXACAO",
+  "CABO AV STEREO 1,8M VM/AM/BR RCA",
+  "CABO COAXIAL RGC06 BOBINA 100METROS",
+  "CABO DE REDE INTERNO",
+  "CABO DROP PRE-CON OPTITAP 150M PRETO",
+  "CABO HDMI 1,8M",
+  "CABO mini-DIN",
+  "CHAVE 2X4",
+  "CHAVE COMUTADORA 20 DB",
+  "CHAVE COMUTADORA 3 X 4",
+  "CHAVE COMUTADORA FAIXA LARGA 00DB",
+  "CHAVE COMUTADORA FAIXA LARGA 10DB",
+  "CONECTOR F série-59 COMPRESSÃO",
+  "CONTROLE REMOTO HD",
+  "CONTROLE REMOTO HD ZAPPER UL1 C/ CAIXA",
+  "CONTROLE REMOTO REUSO E RECICLAGEM DIGIT",
+  "CONTROLE REMOTO REUSO E RECICLAGEM PLUS",
+  "CONTROLE REMOTO REUSO E RECICLAGEM ZAPPER",
+  "CONTROLE REMOTO ZAPPER",
+  "Controle Remoto HD Plus URLR1 C/Caixa",
+  "Controle Remoto Media Center",
+  "KIT 20M ENGATE RAPIDO",
+  "KIT CABO 20 METROS",
+  "KIT CONTROLE REMOTO AT - HD",
+  "KIT CONTROLE REMOTO HD ZAPPER",
+  "KIT DE FIXACAO ANTENA",
+  "KIT NOVO CLIENTE S14",
+  "LNB DUPLO ANTENA 150CM",
+  "LNB SIMPLES ANTENA 150CM",
+  "LNBF DUPLO ANTENA 45/60/90 CM",
+  "LNBF SIMPLES ANTENA 45/60/90 CM",
+  "MISTURADOR MCA 16 B TELEVOX",
+  "POWER INSERT SWM 21V",
+  "ROLDANA PLASTICA RP-2"
+] as const;
 
 // User authentication model
 export interface User {

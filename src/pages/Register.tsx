@@ -29,9 +29,9 @@ export default function Register() {
         <div className="mb-8 text-center">
           <div className="flex items-center justify-center space-x-2 mb-4">
             <Shield className="text-sysgest-blue" size={32} />
-            <span className="text-2xl font-bold text-sysgest-blue">SysGest</span>
+            <span className="text-2xl font-bold text-sysgest-blue">InsightPro</span>
           </div>
-          <h1 className="text-3xl font-bold text-sysgest-blue">Insight Metrics</h1>
+          <h1 className="text-3xl font-bold text-sysgest-blue">InsightPro</h1>
           <p className="text-gray-600 mt-2">Crie sua conta para acessar a plataforma</p>
         </div>
         

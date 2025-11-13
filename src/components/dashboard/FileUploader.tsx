@@ -6,9 +6,129 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/use-toast";
-import { ServiceOrder, BaseData } from "@/types";
+import { ServiceOrder, BaseData, TODOS_MATERIAIS } from "@/types";
 import * as XLSX from "xlsx";
 import { File, FileUp, X, FileText } from "lucide-react";
+
+// Função para consolidar materiais de OSs duplicadas
+function consolidateMaterials(orders: ServiceOrder[]): ServiceOrder[] {
+  console.log(`[MaterialConsolidation] === INICIANDO CONSOLIDAÇÃO ===`);
+  console.log(`[MaterialConsolidation] Total de OSs recebidas: ${orders.length}`);
+  
+  // Agrupar OSs por codigo_os
+  const ordersByCode = orders.reduce((acc, order) => {
+    if (!acc[order.codigo_os]) {
+      acc[order.codigo_os] = [];
+    }
+    acc[order.codigo_os].push(order);
+    return acc;
+  }, {} as Record<string, ServiceOrder[]>);
+
+  console.log(`[MaterialConsolidation] Grupos únicos de OS: ${Object.keys(ordersByCode).length}`);
+  
+  // Log de grupos com duplicatas
+  Object.entries(ordersByCode).forEach(([codigo, group]) => {
+    if (group.length > 1) {
+      console.log(`[MaterialConsolidation] OS ${codigo} tem ${group.length} itens:`, 
+        group.map(g => `${g.tipo_servico} - ${g.subtipo_servico} (${g.codigo_item})`)
+      );
+    }
+  });
+
+  const consolidatedOrders: ServiceOrder[] = [];
+
+  // Processar cada grupo de OSs
+  Object.values(ordersByCode).forEach(group => {
+    if (group.length === 1) {
+      // OS única, manter como está
+      console.log(`[MaterialConsolidation] OS ${group[0].codigo_os} é única, mantendo como está`);
+      consolidatedOrders.push(group[0]);
+    } else {
+      // Múltiplas OSs com mesmo código, consolidar
+      console.log(`[MaterialConsolidation] === CONSOLIDANDO OS ${group[0].codigo_os} ===`);
+      console.log(`[MaterialConsolidation] Encontradas ${group.length} OSs com mesmo código`);
+      
+      // Mostrar detalhes de cada OS no grupo
+      group.forEach((order, index) => {
+        console.log(`[MaterialConsolidation] OS ${index + 1}: ${order.tipo_servico} - ${order.subtipo_servico} - ${order.codigo_item} - Materiais: ${order.materiais?.length || 0}`);
+        if (order.materiais && order.materiais.length > 0) {
+          console.log(`[MaterialConsolidation]   Materiais:`, order.materiais.map(m => `${m.nome}=${m.quantidade}`));
+        }
+      });
+      
+      // Encontrar OS primária (Ponto Principal) e secundária (Sistema Opcional)
+      const osPrimaria = group.find(order => order.subtipo_servico === "Ponto Principal");
+      const osSecundaria = group.find(order => order.subtipo_servico === "Sistema Opcional");
+      
+      console.log(`[MaterialConsolidation] OS Primária encontrada: ${osPrimaria ? 'SIM' : 'NÃO'}`);
+      console.log(`[MaterialConsolidation] OS Secundária encontrada: ${osSecundaria ? 'SIM' : 'NÃO'}`);
+      
+      if (osPrimaria && osSecundaria) {
+        console.log(`[MaterialConsolidation] === CONSOLIDANDO MATERIAIS ===`);
+        
+        // Consolidar materiais na primária
+        const materiaisPrimaria = osPrimaria.materiais || [];
+        const materiaisSecundaria = osSecundaria.materiais || [];
+        
+        console.log(`[MaterialConsolidation] Materiais OS Primária (${osPrimaria.codigo_item}):`, 
+          materiaisPrimaria.map(m => `${m.nome}=${m.quantidade}`)
+        );
+        console.log(`[MaterialConsolidation] Materiais OS Secundária (${osSecundaria.codigo_item}):`, 
+          materiaisSecundaria.map(m => `${m.nome}=${m.quantidade}`)
+        );
+        
+        // Combinar materiais (replicar da secundária para primária, sem somar)
+        const materiaisConsolidados = [...materiaisPrimaria];
+        
+        materiaisSecundaria.forEach(materialSecundario => {
+          const materialExistente = materiaisConsolidados.find(m => m.nome === materialSecundario.nome);
+          
+          if (materialExistente) {
+            // Material já existe na primária, manter quantidade original (não somar)
+            console.log(`[MaterialConsolidation] Material ${materialSecundario.nome} já existe na primária (${materialExistente.quantidade}), mantendo quantidade original`);
+          } else {
+            // Adicionar novo material da secundária
+            materiaisConsolidados.push({ ...materialSecundario });
+            console.log(`[MaterialConsolidation] Adicionando novo material ${materialSecundario.nome}: ${materialSecundario.quantidade}`);
+          }
+        });
+        
+        console.log(`[MaterialConsolidation] Materiais consolidados:`, 
+          materiaisConsolidados.map(m => `${m.nome}=${m.quantidade}`)
+        );
+        
+        // Atualizar OS primária com materiais consolidados
+        const osPrimariaConsolidada = {
+          ...osPrimaria,
+          materiais: materiaisConsolidados
+        };
+        
+        // Zerar materiais da OS secundária
+        const osSecundariaZerada = {
+          ...osSecundaria,
+          materiais: []
+        };
+        
+        console.log(`[MaterialConsolidation] RESULTADO FINAL:`);
+        console.log(`[MaterialConsolidation] - OS ${osPrimaria.codigo_os} (${osPrimaria.codigo_item}): ${materiaisConsolidados.length} materiais`);
+        console.log(`[MaterialConsolidation] - OS ${osSecundaria.codigo_os} (${osSecundaria.codigo_item}): 0 materiais`);
+        
+        consolidatedOrders.push(osPrimariaConsolidada);
+        consolidatedOrders.push(osSecundariaZerada);
+      } else {
+        // Se não encontrar Ponto Principal e Sistema Opcional, manter todas como estão
+        console.log(`[MaterialConsolidation] ⚠️ Não encontrou Ponto Principal/Sistema Opcional para OS ${group[0].codigo_os}`);
+        console.log(`[MaterialConsolidation] Subtipos encontrados:`, group.map(g => g.subtipo_servico));
+        console.log(`[MaterialConsolidation] Mantendo todas como estão`);
+        consolidatedOrders.push(...group);
+      }
+    }
+  });
+
+  console.log(`[MaterialConsolidation] === CONSOLIDAÇÃO CONCLUÍDA ===`);
+  console.log(`[MaterialConsolidation] Total: ${orders.length} → ${consolidatedOrders.length} OSs`);
+  return consolidatedOrders;
+}
 
 const FIELD_MAPPING: Record<string, string> = {
   "Código OS": "codigo_os",
@@ -38,7 +158,13 @@ const FIELD_MAPPING: Record<string, string> = {
   "Tel. Cel": "telefone_celular",
   "Tel. Com": "telefone_comercial",
   "Total IRD": "total_ird",
-  "Código Item (não permita duplicacao)": "codigo_item"
+  "Código Item (não permita duplicacao)": "codigo_item",
+  
+  // Adicionar todos os materiais ao mapeamento
+  ...TODOS_MATERIAIS.reduce((acc, material) => {
+    acc[material] = material.toLowerCase().replace(/\s+/g, '_');
+    return acc;
+  }, {} as Record<string, string>)
 };
 
 const REQUIRED_FIELDS = [
@@ -287,6 +413,26 @@ export function FileUploader() {
     }
   };
 
+  // Função para processar materiais de uma linha
+  const processarMateriais = (row: Record<string, unknown>) => {
+    const materiais: { nome: string; quantidade: number }[] = [];
+    
+    TODOS_MATERIAIS.forEach(material => {
+      const quantidade = row[material];
+      if (quantidade !== undefined && quantidade !== null && quantidade !== '') {
+        const qtd = parseInt(String(quantidade)) || 0;
+        if (qtd > 0) {
+          materiais.push({
+            nome: material,
+            quantidade: qtd
+          });
+        }
+      }
+    });
+    
+    return materiais.length > 0 ? materiais : undefined;
+  };
+
   const processData = (data: Record<string, unknown>[]): ServiceOrder[] => {
     if (data.length === 0) {
       throw new Error("Nenhum dado encontrado para processamento");
@@ -326,6 +472,9 @@ export function FileUploader() {
     if (missingRequiredFields.length > 0) {
       throw new Error(`Campos obrigatórios ausentes na planilha: ${missingRequiredFields.join(", ")}`);
     }
+    
+    console.log("Processando dados de serviços:", data.length, "linhas");
+    console.log("Primeiras 3 linhas de dados:", data.slice(0, 3));
     
     const processedOrders = data.map((row, index) => {
       const formatDate = (dateStr: string | null | undefined, isFinalizacao = false): string => {
@@ -398,6 +547,7 @@ export function FileUploader() {
       
       const order: ServiceOrder = {
         codigo_os: String(row["Código OS"]),
+        codigo_item: String(row["Código Item"] || ""), // Código do item específico
         id_tecnico: row["ID Técnico"] ? String(row["ID Técnico"]) : "",
         nome_tecnico: String(row["Técnico"]),
         sigla_tecnico: String(row["SGL"]),
@@ -417,13 +567,32 @@ export function FileUploader() {
         info_porta: row["Info: info_porta"] as string | null || null,
         info_endereco_completo: row["Info: info_endereco_completo"] as string | null || null,
         info_empresa_parceira: row["Info: info_empresa_parceira"] as string | null || null,
-        telefone_celular: row["Tel. Cel"] as string | null || null
+        telefone_celular: row["Tel. Cel"] as string | null || null,
+        
+        // Processar materiais
+        materiais: processarMateriais(row)
       };
+      
+      // Log para debug
+      if (index < 5) {
+        console.log(`[FileUploader] Linha ${index + 1}:`, {
+          codigo_os: order.codigo_os,
+          codigo_item: order.codigo_item,
+          tipo_servico: order.tipo_servico,
+          subtipo_servico: order.subtipo_servico
+        });
+      }
       
       return order;
     });
     
-    return processedOrders;
+    console.log(`[FileUploader] Processados ${processedOrders.length} registros`);
+    console.log("Primeiros 3 registros processados:", processedOrders.slice(0, 3));
+    
+    // Consolidar materiais de OSs duplicadas
+    const consolidatedOrders = consolidateMaterials(processedOrders);
+    
+    return consolidatedOrders;
   };
 
   const processBaseData = (data: Record<string, unknown>[]): BaseData[] => {
