@@ -40,6 +40,10 @@ interface ImportResult {
   newRecords: number;
   updatedRecords: number;
   duplicatesIgnored: number;
+  // Novos campos para pagamentos
+  dateOnlyUpdates?: number;
+  statusChanges?: number;
+  stepChanges?: number;
 }
 
 interface DataContextType {
@@ -823,9 +827,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Converter o map de volta para um array
       const pagamentosAtualizados = Array.from(propostaMap.values());
       
-      // Calcular novos e atualizados separadamente
+      // Calcular novos e atualizados separadamente com categorização detalhada
       let novosRegistros = 0;
-      let registrosAtualizados = 0;
+      let dateOnlyUpdates = 0;
+      let statusChanges = 0;
+      let stepChanges = 0;
       
       pagamentosAtualizados.forEach(pagamento => {
         const existingInState = primeirosPagamentos.find(existing => existing.proposta === pagamento.proposta);
@@ -836,12 +842,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           // Verificar se foi atualizado (data mais recente)
           if (new Date(pagamento.data_importacao) > new Date(existingInState.data_importacao)) {
-            registrosAtualizados++;
+            // Categorizar o tipo de atualização
+            const statusMudou = pagamento.status_pacote !== existingInState.status_pacote;
+            const passoMudou = pagamento.passo !== existingInState.passo;
+            const dataPasso = pagamento.data_passo_cobranca !== existingInState.data_passo_cobranca;
+            const vencimento = pagamento.vencimento_fatura !== existingInState.vencimento_fatura;
+            
+            if (statusMudou) {
+              // PRIORIDADE 1: Mudança de status (N, S, C)
+              statusChanges++;
+              debugLog(`[PAGAMENTO] Status mudou para proposta ${pagamento.proposta}: ${existingInState.status_pacote} → ${pagamento.status_pacote}`);
+            } else if (passoMudou) {
+              // PRIORIDADE 2: Mudança de passo
+              stepChanges++;
+              debugLog(`[PAGAMENTO] Passo mudou para proposta ${pagamento.proposta}: ${existingInState.passo} → ${pagamento.passo}`);
+            } else if (!dataPasso && !vencimento) {
+              // PRIORIDADE 3: Apenas data de importação mudou
+              dateOnlyUpdates++;
+              debugLog(`[PAGAMENTO] Apenas data atualizada para proposta ${pagamento.proposta}`);
+            } else {
+              // Outras mudanças (datas)
+              dateOnlyUpdates++;
+              debugLog(`[PAGAMENTO] Datas atualizadas para proposta ${pagamento.proposta}`);
+            }
           }
         }
       });
       
-      const duplicatasIgnoradas = pagamentos.length - novosRegistros - registrosAtualizados;
+      const totalAtualizados = dateOnlyUpdates + statusChanges + stepChanges;
+      const duplicatasIgnoradas = pagamentos.length - novosRegistros - totalAtualizados;
       
       setPrimeirosPagamentos(pagamentosAtualizados);
       
@@ -876,8 +905,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return {
         totalProcessed: pagamentos.length,
         newRecords: Math.max(0, novosRegistros),
-        updatedRecords: Math.max(0, registrosAtualizados),
-        duplicatesIgnored: Math.max(0, duplicatasIgnoradas)
+        updatedRecords: Math.max(0, totalAtualizados),
+        duplicatesIgnored: Math.max(0, duplicatasIgnoradas),
+        dateOnlyUpdates: Math.max(0, dateOnlyUpdates),
+        statusChanges: Math.max(0, statusChanges),
+        stepChanges: Math.max(0, stepChanges)
       };
     } else {
       // Se não for append, apenas substitui todos os registros

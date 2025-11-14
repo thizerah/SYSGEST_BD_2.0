@@ -15,6 +15,10 @@ interface ImportResult {
   newRecords: number;
   updatedRecords: number;
   duplicatesIgnored: number;
+  // Novos campos para pagamentos
+  dateOnlyUpdates?: number;
+  statusChanges?: number;
+  stepChanges?: number;
 }
 
 export interface SupabaseDataState {

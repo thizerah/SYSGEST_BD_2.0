@@ -44,7 +44,8 @@ import {
   User as UserIcon,
   Mail,
   Columns,
-  Settings
+  Settings,
+  Eye
 } from "lucide-react";
 import { 
   ChartContainer, 
@@ -1537,6 +1538,9 @@ export function MetricsOverview() {
     return saved ? JSON.parse(saved) : { pontoTV: true, assistenciaTV: true, assistenciaFibra: true };
   });
 
+  // Estado para controlar o modal de detalhes do técnico
+  const [selectedTechnicianDetails, setSelectedTechnicianDetails] = useState<string | null>(null);
+
   const [timeVisibleColumns, setTimeVisibleColumns] = useState<{
     pontoTV: boolean;
     assistenciaTV: boolean;
@@ -2388,9 +2392,10 @@ export function MetricsOverview() {
         const city = normalizeCityName(pair.reopeningOrder.cidade) || "Desconhecido";
         reopeningsByCity[city] = (reopeningsByCity[city] || 0) + 1;
         
-        // Reaberturas por bairro
+        // Reaberturas por bairro (incluindo cidade entre parênteses)
         const neighborhood = normalizeNeighborhoodName(pair.reopeningOrder.bairro) || "Desconhecido";
-        reopeningsByNeighborhood[neighborhood] = (reopeningsByNeighborhood[neighborhood] || 0) + 1;
+        const neighborhoodWithCity = `${neighborhood} (${city})`;
+        reopeningsByNeighborhood[neighborhoodWithCity] = (reopeningsByNeighborhood[neighborhoodWithCity] || 0) + 1;
       });
     }
     
@@ -4000,9 +4005,18 @@ export function MetricsOverview() {
                             >
                               <div className="flex justify-between items-center mb-1">
                                 <span className="font-semibold text-xs text-gray-800 truncate">{technician}</span>
-                                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 font-semibold text-[10px] px-1.5 py-0 ml-2 flex-shrink-0">
-                                  {count}
-                                </Badge>
+                                <div className="flex items-center gap-1.5">
+                                  <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 font-semibold text-[10px] px-1.5 py-0 flex-shrink-0">
+                                    {count}
+                                  </Badge>
+                                  <button
+                                    onClick={() => setSelectedTechnicianDetails(technician)}
+                                    className="p-1 rounded hover:bg-blue-100 transition-colors"
+                                    title="Ver detalhes por localização"
+                                  >
+                                    <Eye className="h-3.5 w-3.5 text-blue-600" />
+                                  </button>
+                                </div>
                           </div>
                               <div className="bg-orange-100 rounded-full h-2 overflow-hidden w-full mb-0.5">
                             <div 
@@ -4108,6 +4122,140 @@ export function MetricsOverview() {
                 </Tabs>
             </CardContent>
           </Card>
+
+          {/* Modal de detalhes do técnico por localização */}
+          <Dialog open={!!selectedTechnicianDetails} onOpenChange={(open) => {
+            if (!open) setSelectedTechnicianDetails(null);
+          }}>
+            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  Detalhes de Reaberturas - {selectedTechnicianDetails}
+                </DialogTitle>
+                <DialogDescription>
+                  Reaberturas por cidade e bairro para este técnico
+                </DialogDescription>
+              </DialogHeader>
+              
+              {selectedTechnicianDetails && (
+                <div className="space-y-4 mt-4">
+                  {(() => {
+                    // Filtrar reaberturas deste técnico
+                    const technicianReopenings = getFilteredReopeningPairs.filter(
+                      pair => pair.originalOrder.nome_tecnico === selectedTechnicianDetails
+                    );
+                    
+                    // Agrupar por cidade e bairro com detalhes
+                    const byCity: Record<string, Record<string, Array<{
+                      os: string;
+                      cliente: string;
+                      tipoServico: string;
+                      originalOs: string;
+                    }>>> = {};
+                    
+                    technicianReopenings.forEach(pair => {
+                      const city = normalizeCityName(pair.reopeningOrder.cidade) || "Desconhecido";
+                      const bairro = normalizeNeighborhoodName(pair.reopeningOrder.bairro) || "Desconhecido";
+                      
+                      if (!byCity[city]) {
+                        byCity[city] = {};
+                      }
+                      if (!byCity[city][bairro]) {
+                        byCity[city][bairro] = [];
+                      }
+                      
+                      byCity[city][bairro].push({
+                        os: pair.reopeningOrder.codigo_os || "N/A",
+                        cliente: pair.reopeningOrder.nome_cliente || "Desconhecido",
+                        tipoServico: pair.reopeningOrder.subtipo_servico || "N/A",
+                        originalOs: pair.originalOrder.codigo_os || "N/A"
+                      });
+                    });
+                    
+                    // Criar estrutura ordenada
+                    const citySummary = Object.entries(byCity).map(([city, bairros]) => {
+                      const bairroDetails = Object.entries(bairros).map(([bairro, orders]) => ({
+                        bairro,
+                        count: orders.length,
+                        orders: orders
+                      })).sort((a, b) => b.count - a.count);
+                      
+                      return {
+                        city,
+                        total: bairroDetails.reduce((acc, b) => acc + b.count, 0),
+                        bairros: bairroDetails
+                      };
+                    }).sort((a, b) => b.total - a.total);
+                    
+                    return (
+                      <div className="space-y-4">
+                        {citySummary.map(({ city, total, bairros }) => (
+                          <Card key={city} className="border-2">
+                            <CardHeader className="pb-3 bg-gradient-to-r from-blue-50 to-indigo-50">
+                              <CardTitle className="text-sm flex items-center justify-between">
+                                <span className="flex items-center gap-2">
+                                  <MapPin className="h-4 w-4 text-blue-600" />
+                                  {city.toUpperCase()}
+                                </span>
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                  {total} {total === 1 ? 'reabertura' : 'reaberturas'}
+                                </Badge>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-3">
+                              <div className="space-y-3">
+                                {bairros.map(({ bairro, count, orders }) => (
+                                  <div key={bairro} className="border border-gray-200 rounded-lg overflow-hidden">
+                                    <div className="flex justify-between items-center p-2 bg-gray-100">
+                                      <span className="text-sm font-semibold text-gray-800">{bairro.toUpperCase()}</span>
+                                      <Badge variant="secondary" className="text-xs">
+                                        {count}
+                                      </Badge>
+                                    </div>
+                                    <div className="divide-y divide-gray-200">
+                                      {orders.map((order, idx) => (
+                                        <div key={idx} className="p-2.5 bg-white hover:bg-gray-50 transition-colors">
+                                          <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div>
+                                              <span className="text-gray-500 font-medium">OS Reabertura:</span>
+                                              <span className="ml-1 font-semibold text-orange-600">{order.os}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-gray-500 font-medium">OS Original:</span>
+                                              <span className="ml-1 font-semibold text-blue-600">{order.originalOs}</span>
+                                            </div>
+                                            <div className="col-span-2">
+                                              <span className="text-gray-500 font-medium">Cliente:</span>
+                                              <span className="ml-1 text-gray-800">{order.cliente}</span>
+                                            </div>
+                                            <div className="col-span-2">
+                                              <span className="text-gray-500 font-medium">Tipo:</span>
+                                              <span className="ml-1 text-gray-800">{order.tipoServico}</span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                        
+                        {citySummary.length === 0 && (
+                          <div className="text-center text-muted-foreground py-8">
+                            Nenhuma reabertura encontrada para este técnico
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
           </>
         )}
@@ -7452,26 +7600,11 @@ function ImportData() {
               const processedPagamentos = processPagamentos(data as Record<string, unknown>[], toast);
               const result = importPrimeirosPagamentos(processedPagamentos, true);
               
-              const buildDescription = () => {
-                const messages = [];
-                
-                if (result.newRecords > 0) {
-                  messages.push(`Foram adicionados ${result.newRecords} novos registros`);
-                }
-                
-                if (result.updatedRecords > 0) {
-                  messages.push(`Foram atualizados ${result.updatedRecords} registros`);
-                }
-                
-                if (messages.length === 0) {
-                  return "Nenhum registro novo ou atualizado foi encontrado.";
-                }
-                
-                return messages.join(" • ");
-              };
-
               const hasNewRecords = result.newRecords > 0;
-              const hasUpdatedRecords = result.updatedRecords > 0;
+              const hasDateUpdates = (result.dateOnlyUpdates || 0) > 0;
+              const hasStatusChanges = (result.statusChanges || 0) > 0;
+              const hasStepChanges = (result.stepChanges || 0) > 0;
+              const hasAnyUpdates = hasNewRecords || hasDateUpdates || hasStatusChanges || hasStepChanges;
 
               toast({
                 title: (
@@ -7482,24 +7615,48 @@ function ImportData() {
                     <span className="font-semibold">Importação de Pagamentos Concluída</span>
                   </div>
                 ) as unknown as string,
-                description: hasNewRecords || hasUpdatedRecords ? (
+                description: hasAnyUpdates ? (
                   <div className="space-y-2 mt-2">
                     {hasNewRecords && (
                       <div className="flex items-center justify-between p-2 bg-green-50 rounded-lg border border-green-200">
-                        <span className="text-sm text-green-800">Novas informações de Pagamentos adicionadas</span>
+                        <span className="text-sm text-green-800 flex items-center gap-1.5">
+                          <span>✅</span>
+                          <span>Novas informações adicionadas</span>
+                        </span>
                         <span className="font-bold text-green-700 text-base">{result.newRecords.toLocaleString('pt-BR')}</span>
                       </div>
                     )}
-                    {hasUpdatedRecords && (
+                    {hasDateUpdates && (
                       <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200">
-                        <span className="text-sm text-blue-800">Informações de pagamentos atualizados</span>
-                        <span className="font-bold text-blue-700 text-base">{result.updatedRecords.toLocaleString('pt-BR')}</span>
+                        <span className="text-sm text-blue-800 flex items-center gap-1.5">
+                          <span>📅</span>
+                          <span>Atualizações de data apenas</span>
+                        </span>
+                        <span className="font-bold text-blue-700 text-base">{result.dateOnlyUpdates?.toLocaleString('pt-BR')}</span>
+                      </div>
+                    )}
+                    {hasStatusChanges && (
+                      <div className="flex items-center justify-between p-2 bg-orange-50 rounded-lg border border-orange-200">
+                        <span className="text-sm text-orange-800 flex items-center gap-1.5">
+                          <span>🔄</span>
+                          <span>Alterações de status</span>
+                        </span>
+                        <span className="font-bold text-orange-700 text-base">{result.statusChanges?.toLocaleString('pt-BR')}</span>
+                      </div>
+                    )}
+                    {hasStepChanges && (
+                      <div className="flex items-center justify-between p-2 bg-purple-50 rounded-lg border border-purple-200">
+                        <span className="text-sm text-purple-800 flex items-center gap-1.5">
+                          <span>🔢</span>
+                          <span>Alterações de passo</span>
+                        </span>
+                        <span className="font-bold text-purple-700 text-base">{result.stepChanges?.toLocaleString('pt-BR')}</span>
                       </div>
                     )}
                     <div className="pt-2 border-t border-gray-200 mt-2">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-semibold text-gray-700">Total processado</span>
-                        <span className="font-bold text-gray-900 text-lg">{(result.newRecords + result.updatedRecords).toLocaleString('pt-BR')}</span>
+                        <span className="font-bold text-gray-900 text-lg">{result.totalProcessed.toLocaleString('pt-BR')}</span>
                       </div>
                     </div>
                   </div>
