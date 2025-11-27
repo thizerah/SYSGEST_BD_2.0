@@ -1528,6 +1528,15 @@ export function MetricsOverview() {
   // Estado para o filtro de data de habilitação (usado nos componentes de permanência)
   const [filtroDataHabilitacao, setFiltroDataHabilitacao] = useState<string[]>([]);
   
+  // Estado para controlar indicadores selecionados no ranking de excelência
+  const [selectedExcellenceIndicators, setSelectedExcellenceIndicators] = useState({
+    reaberturaAT: true,
+    reaberturaPontoPrincipal: true,
+    reaberturaATTV: true,        // Novo indicador - TA Ponto Principal TV
+    reaberturaATFibra: true,     // Novo indicador - TA Assistência Técnica TV
+    otimizacao: true
+  });
+  
   // Estados para controle de colunas visíveis nas tabelas de técnicos
   const [reopeningVisibleColumns, setReopeningVisibleColumns] = useState<{
     pontoTV: boolean;
@@ -2702,6 +2711,34 @@ export function MetricsOverview() {
         const assistenciaTVRate = assistenciaTecnicaTVServices > 0 ? (assistenciaTVReopenings / assistenciaTecnicaTVServices) * 100 : 0;
         const assistenciaFibraRate = assistenciaTecnicaFibraServices > 0 ? (assistenciaFibraReopenings / assistenciaTecnicaFibraServices) * 100 : 0;
         
+        // Contar OSs finalizadas por tempo de atendimento (meta atingida)
+        const pontoTvWithinGoal = techOrders.filter(o => {
+          const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+          return category === "Ponto Principal TV" && o.atingiu_meta === true && o.data_finalizacao && o.include_in_metrics;
+        }).length;
+        
+        const pontoTvOutsideGoal = techOrders.filter(o => {
+          const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+          return category === "Ponto Principal TV" && o.atingiu_meta === false && o.data_finalizacao && o.include_in_metrics;
+        }).length;
+        
+        const assistTvWithinGoal = techOrders.filter(o => {
+          const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+          return category === "Assistência Técnica TV" && o.atingiu_meta === true && o.data_finalizacao && o.include_in_metrics;
+        }).length;
+        
+        const assistTvOutsideGoal = techOrders.filter(o => {
+          const category = standardizeServiceCategory(o.subtipo_servico || "", o.motivo || "");
+          return category === "Assistência Técnica TV" && o.atingiu_meta === false && o.data_finalizacao && o.include_in_metrics;
+        }).length;
+        
+        // Calcular percentuais de tempo de atendimento (% na meta)
+        const totalPontoTv = pontoTvWithinGoal + pontoTvOutsideGoal;
+        const percentPontoTvTA = totalPontoTv > 0 ? (pontoTvWithinGoal / totalPontoTv) * 100 : 0;
+        
+        const totalAssistTv = assistTvWithinGoal + assistTvOutsideGoal;
+        const percentAssistTvTA = totalAssistTv > 0 ? (assistTvWithinGoal / totalAssistTv) * 100 : 0;
+        
         // Reabertura de AT (TV + FIBRA combinadas)
         const totalATServices = assistenciaTecnicaTVServices + assistenciaTecnicaFibraServices;
         const totalATReopenings = assistenciaTVReopenings + assistenciaFibraReopenings;
@@ -2718,13 +2755,64 @@ export function MetricsOverview() {
           : 0;
         const percentualOtimizacao = 100 - percentualConsumo;
         
-        // Calcular score final
-        // Menor reabertura = melhor (inverter: 100 - taxa)
-        const scoreReaberturaAT = 100 - atRate; // 40% do peso
-        const scoreReaberturaPonto = 100 - pontoTVRate; // 40% do peso
-        const scoreOtimizacao = percentualOtimizacao; // 20% do peso
+        // Calcular score final baseado em pesos por categoria
+        // REABERTURA: 50%, OTIMIZAÇÃO: 30%, TEMPO DE ATENDIMENTO: 20%
         
-        const scoreFinal = (scoreReaberturaAT * 0.4) + (scoreReaberturaPonto * 0.4) + (scoreOtimizacao * 0.2);
+        // Categoria 1: REABERTURA (média dos indicadores de reabertura selecionados)
+        const reaberturaIndicators = [];
+        if (selectedExcellenceIndicators.reaberturaAT) {
+          reaberturaIndicators.push(100 - atRate);
+        }
+        if (selectedExcellenceIndicators.reaberturaPontoPrincipal) {
+          reaberturaIndicators.push(100 - pontoTVRate);
+        }
+        const avgReabertura = reaberturaIndicators.length > 0
+          ? reaberturaIndicators.reduce((sum, val) => sum + val, 0) / reaberturaIndicators.length
+          : null;
+        
+        // Categoria 2: TEMPO DE ATENDIMENTO (média dos indicadores de TA selecionados)
+        const taIndicators = [];
+        if (selectedExcellenceIndicators.reaberturaATTV) {
+          taIndicators.push(percentPontoTvTA);
+        }
+        if (selectedExcellenceIndicators.reaberturaATFibra) {
+          taIndicators.push(percentAssistTvTA);
+        }
+        const avgTA = taIndicators.length > 0
+          ? taIndicators.reduce((sum, val) => sum + val, 0) / taIndicators.length
+          : null;
+        
+        // Categoria 3: OTIMIZAÇÃO
+        const avgOtimizacao = selectedExcellenceIndicators.otimizacao
+          ? percentualOtimizacao
+          : null;
+        
+        // Calcular pesos proporcionais baseado nas categorias ativas
+        // Pesos base: Reabertura 50%, Otimização 30%, TA 20%
+        let pesoReabertura = 0.50;
+        let pesoOtimizacao = 0.30;
+        let pesoTA = 0.20;
+        
+        // Se alguma categoria não estiver ativa, redistribuir proporcionalmente
+        const categoriasAtivas = [];
+        if (avgReabertura !== null) categoriasAtivas.push({ nome: 'reabertura', peso: 0.50 });
+        if (avgOtimizacao !== null) categoriasAtivas.push({ nome: 'otimizacao', peso: 0.30 });
+        if (avgTA !== null) categoriasAtivas.push({ nome: 'ta', peso: 0.20 });
+        
+        // Normalizar pesos para somar 100%
+        const somaPesos = categoriasAtivas.reduce((sum, cat) => sum + cat.peso, 0);
+        if (somaPesos > 0) {
+          const fatorNormalizacao = 1.0 / somaPesos;
+          pesoReabertura = avgReabertura !== null ? 0.50 * fatorNormalizacao : 0;
+          pesoOtimizacao = avgOtimizacao !== null ? 0.30 * fatorNormalizacao : 0;
+          pesoTA = avgTA !== null ? 0.20 * fatorNormalizacao : 0;
+        }
+        
+        // Score final: soma ponderada das categorias ativas
+        const scoreFinal = 
+          (avgReabertura !== null ? avgReabertura * pesoReabertura : 0) +
+          (avgOtimizacao !== null ? avgOtimizacao * pesoOtimizacao : 0) +
+          (avgTA !== null ? avgTA * pesoTA : 0);
         
         // Total geral de serviços (excluindo canceladas e tipos específicos)
         // Excluir: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto
@@ -2748,10 +2836,23 @@ export function MetricsOverview() {
           scoreFinal,
           atRate,
           pontoTVRate,
+          assistenciaTVRate,
+          assistenciaFibraRate,
           percentualOtimizacao,
           percentualConsumo,
+          percentPontoTvTA,       // % tempo de atendimento PP TV
+          percentAssistTvTA,      // % tempo de atendimento AT TV
+          pontoTvWithinGoal,      // Quantidade na meta PP TV
+          pontoTvOutsideGoal,     // Quantidade fora da meta PP TV
+          assistTvWithinGoal,     // Quantidade na meta AT TV
+          assistTvOutsideGoal,    // Quantidade fora da meta AT TV
+          totalPontoTv,           // Total de OSs PP TV
+          totalAssistTv,          // Total de OSs AT TV
           totalServices,
-          volumeOS
+          volumeOS,
+          pontoPrincipalTVServices,
+          assistenciaTecnicaTVServices,
+          assistenciaTecnicaFibraServices
         };
       })
       .filter(tech => tech.totalServices > 0) // Apenas técnicos com serviços
@@ -2765,7 +2866,7 @@ export function MetricsOverview() {
       });
     
     return techStats.slice(0, 3); // Top 3
-  }, [technicians, filteredServiceOrders, getFilteredReopeningPairs, showData, selectedMonth, selectedYear, optimizationStatsByTechnician]);
+  }, [technicians, filteredServiceOrders, getFilteredReopeningPairs, showData, selectedMonth, selectedYear, optimizationStatsByTechnician, selectedExcellenceIndicators]);
   
   // Extrair tipos de serviço únicos das ordens originais para o filtro
   const uniqueOriginalServiceTypes = useMemo(() => {
@@ -4807,17 +4908,119 @@ export function MetricsOverview() {
             {/* Ranking de Excelência - Top 3 Técnicos */}
             {technicianExcellenceRanking.length > 0 && (
               <Card className="shadow-xl border-2 border-yellow-200 bg-gradient-to-br from-yellow-50 via-amber-50 to-orange-50">
-                  <CardHeader className="pb-4 bg-gradient-to-r from-yellow-400 via-amber-400 to-orange-400 rounded-t-lg">
-                    <CardTitle className="flex items-center text-lg font-bold text-gray-900 drop-shadow-sm">
-                      <Trophy className="mr-2 h-6 w-6 text-gray-900" />
-                      Ranking de Excelência - Top 3 Técnicos
-                    </CardTitle>
-                    <CardDescription className="text-gray-800 text-xs mt-2 space-y-1 font-medium">
-                      <div className="font-semibold text-gray-900">Critérios de Avaliação:</div>
-                      <div>• Score Final: 40% Reabertura AT + 40% Reabertura Ponto Principal + 20% Otimização</div>
-                      <div>• Em caso de empate: maior volume de serviços</div>
-                      <div>• Excluídos da contagem: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto</div>
-                    </CardDescription>
+                  <CardHeader className="pb-3 bg-gradient-to-r from-yellow-400 via-amber-400 to-orange-400 rounded-t-lg">
+                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                      {/* Título e Critérios */}
+                      <div className="flex-shrink-0">
+                        <CardTitle className="flex items-center text-base font-bold text-gray-900 drop-shadow-sm mb-2">
+                          <Trophy className="mr-2 h-5 w-5 text-gray-900" />
+                          Ranking de Excelência - Top 3 Técnicos
+                        </CardTitle>
+                        <CardDescription className="text-gray-800 text-[10px] font-medium space-y-0.5">
+                          <div className="font-semibold text-gray-900">Critérios de Avaliação:</div>
+                          <div>• Score Final: <strong>Reabertura 50%</strong> + <strong>Otimização 30%</strong> + <strong>Tempo de Atendimento 20%</strong></div>
+                          <div>• Dentro de cada categoria, faz-se a média dos indicadores selecionados</div>
+                          <div>• Se uma categoria não tiver indicadores, seu peso é redistribuído proporcionalmente</div>
+                          <div>• Em caso de empate: maior volume de serviços</div>
+                          <div>• Excluídos da contagem: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto</div>
+                        </CardDescription>
+                      </div>
+                      
+                      {/* Checkboxes Compactos por Categoria */}
+                      <div className="flex-1 lg:max-w-2xl">
+                        <div className="text-[10px] font-bold text-gray-900 mb-2">Indicadores por Categoria (Reabertura: 50% | Otimização: 30% | TA: 20%):</div>
+                        <div className="space-y-2">
+                          {/* Categoria: REABERTURA */}
+                          <div className="bg-red-50/60 px-3 py-1.5 rounded border border-red-200/60">
+                            <div className="flex items-center gap-4">
+                              <div className="text-[10px] font-bold text-red-700 whitespace-nowrap">🔴 REABERTURA (50%)</div>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                <label className="flex items-center space-x-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedExcellenceIndicators.reaberturaAT}
+                                    onChange={(e) => setSelectedExcellenceIndicators(prev => ({
+                                      ...prev,
+                                      reaberturaAT: e.target.checked
+                                    }))}
+                                    className="w-3.5 h-3.5 cursor-pointer"
+                                  />
+                                  <span className="text-[11px]">Reabertura AT</span>
+                                </label>
+                                
+                                <label className="flex items-center space-x-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedExcellenceIndicators.reaberturaPontoPrincipal}
+                                    onChange={(e) => setSelectedExcellenceIndicators(prev => ({
+                                      ...prev,
+                                      reaberturaPontoPrincipal: e.target.checked
+                                    }))}
+                                    className="w-3.5 h-3.5 cursor-pointer"
+                                  />
+                                  <span className="text-[11px]">Reabertura Ponto Principal</span>
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Categoria: TEMPO DE ATENDIMENTO */}
+                          <div className="bg-blue-50/60 px-3 py-1.5 rounded border border-blue-200/60">
+                            <div className="flex items-center gap-4">
+                              <div className="text-[10px] font-bold text-blue-700 whitespace-nowrap">⏱️ TEMPO DE ATENDIMENTO (20%)</div>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                <label className="flex items-center space-x-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedExcellenceIndicators.reaberturaATTV}
+                                    onChange={(e) => setSelectedExcellenceIndicators(prev => ({
+                                      ...prev,
+                                      reaberturaATTV: e.target.checked
+                                    }))}
+                                    className="w-3.5 h-3.5 cursor-pointer"
+                                  />
+                                  <span className="text-[11px]">TA Ponto Principal TV</span>
+                                </label>
+                                
+                                <label className="flex items-center space-x-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedExcellenceIndicators.reaberturaATFibra}
+                                    onChange={(e) => setSelectedExcellenceIndicators(prev => ({
+                                      ...prev,
+                                      reaberturaATFibra: e.target.checked
+                                    }))}
+                                    className="w-3.5 h-3.5 cursor-pointer"
+                                  />
+                                  <span className="text-[11px]">TA Assistência Técnica TV</span>
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Categoria: OTIMIZAÇÃO */}
+                          <div className="bg-green-50/60 px-3 py-1.5 rounded border border-green-200/60">
+                            <div className="flex items-center gap-4">
+                              <div className="text-[10px] font-bold text-green-700 whitespace-nowrap">🎯 OTIMIZAÇÃO (30%)</div>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                <label className="flex items-center space-x-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedExcellenceIndicators.otimizacao}
+                                    onChange={(e) => setSelectedExcellenceIndicators(prev => ({
+                                      ...prev,
+                                      otimizacao: e.target.checked
+                                    }))}
+                                    className="w-3.5 h-3.5 cursor-pointer"
+                                  />
+                                  <span className="text-[11px]">Otimização</span>
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </CardHeader>
                   <CardContent className="p-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -4853,24 +5056,58 @@ export function MetricsOverview() {
                                   </div>
                                   
                                   <div className="grid grid-cols-2 gap-2 text-xs">
-                                    <div className="bg-white/80 rounded p-2">
-                                      <div className="text-gray-600 font-semibold">Reab. AT</div>
-                                      <div className={`font-bold ${tech.atRate <= 5 ? 'text-green-600' : tech.atRate <= 10 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                        {tech.atRate.toFixed(2)}%
+                                    {/* Mostrar apenas indicadores selecionados */}
+                                    {selectedExcellenceIndicators.reaberturaAT && (
+                                      <div className="bg-white/80 rounded p-2">
+                                        <div className="text-gray-600 font-semibold">Reab. AT</div>
+                                        <div className={`font-bold ${tech.atRate <= 5 ? 'text-green-600' : tech.atRate <= 10 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                          {tech.atRate.toFixed(2)}%
+                                        </div>
                                       </div>
-                                    </div>
-                                    <div className="bg-white/80 rounded p-2">
-                                      <div className="text-gray-600 font-semibold">Reab. Ponto</div>
-                                      <div className={`font-bold ${tech.pontoTVRate <= 5 ? 'text-green-600' : tech.pontoTVRate <= 10 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                        {tech.pontoTVRate.toFixed(2)}%
+                                    )}
+                                    
+                                    {selectedExcellenceIndicators.reaberturaPontoPrincipal && (
+                                      <div className="bg-white/80 rounded p-2">
+                                        <div className="text-gray-600 font-semibold">Reab. Ponto</div>
+                                        <div className={`font-bold ${tech.pontoTVRate <= 5 ? 'text-green-600' : tech.pontoTVRate <= 10 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                          {tech.pontoTVRate.toFixed(2)}%
+                                        </div>
                                       </div>
-                                    </div>
-                                    <div className="bg-white/80 rounded p-2">
-                                      <div className="text-gray-600 font-semibold">Consumo</div>
-                                      <div className={`font-bold ${tech.percentualConsumo <= 50 ? 'text-green-600' : tech.percentualConsumo <= 70 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                        {tech.percentualConsumo.toFixed(2)}%
+                                    )}
+                                    
+                                    {selectedExcellenceIndicators.reaberturaATTV && (
+                                      <div className="bg-white/80 rounded p-2">
+                                        <div className="text-gray-600 font-semibold">TA PP TV</div>
+                                        <div className={`font-bold ${tech.percentPontoTvTA >= 90 ? 'text-green-600' : tech.percentPontoTvTA >= 80 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                          {tech.percentPontoTvTA.toFixed(2)}%
+                                        </div>
+                                        <div className="text-[10px] text-gray-500 mt-0.5">
+                                          {tech.pontoTvWithinGoal}/{tech.totalPontoTv} na meta
+                                        </div>
                                       </div>
-                                    </div>
+                                    )}
+                                    
+                                    {selectedExcellenceIndicators.reaberturaATFibra && (
+                                      <div className="bg-white/80 rounded p-2">
+                                        <div className="text-gray-600 font-semibold">TA AT TV</div>
+                                        <div className={`font-bold ${tech.percentAssistTvTA >= 90 ? 'text-green-600' : tech.percentAssistTvTA >= 80 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                          {tech.percentAssistTvTA.toFixed(2)}%
+                                        </div>
+                                        <div className="text-[10px] text-gray-500 mt-0.5">
+                                          {tech.assistTvWithinGoal}/{tech.totalAssistTv} na meta
+                                        </div>
+                                      </div>
+                                    )}
+                                    
+                                    {selectedExcellenceIndicators.otimizacao && (
+                                      <div className="bg-white/80 rounded p-2">
+                                        <div className="text-gray-600 font-semibold">Consumo</div>
+                                        <div className={`font-bold ${tech.percentualConsumo <= 50 ? 'text-green-600' : tech.percentualConsumo <= 70 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                          {tech.percentualConsumo.toFixed(2)}%
+                                        </div>
+                                      </div>
+                                    )}
+                                    
                                     <div className="bg-white/80 rounded p-2">
                                       <div className="text-gray-600 font-semibold">Serviços</div>
                                       <div className="font-bold text-blue-600">
