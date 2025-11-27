@@ -996,8 +996,11 @@ function MetasTabContent() {
                 const formasOrdenadas = Object.entries(totaisPorForma)
                   .sort(([,a], [,b]) => b - a);
                   
-                // Calcular valor total geral
-                const valorTotalGeral = produtosOrdenados.reduce((sum, [, dados]) => sum + dados.valorTotal, 0);
+                // Calcular valor total geral (de TODAS as vendas, não apenas top 10)
+                const valorTotalGeral = vendasDoPeriodo.reduce((sum, venda) => {
+                  const valor = ('valor' in venda ? (venda as Venda).valor : 0) || 0;
+                  return sum + valor;
+                }, 0);
                   
                   return (
                   <div className="overflow-x-auto">
@@ -8267,8 +8270,13 @@ function ImportData() {
       }
     });
     
+    console.log("╔════════════════════════════════════════════════════════════════════════════════╗");
+    console.log("║                    INICIANDO IMPORTAÇÃO DE VENDAS PERMANÊNCIA                  ║");
+    console.log("╚════════════════════════════════════════════════════════════════════════════════╝");
+    console.log(`Total de linhas para processar: ${processedRows.length}`);
+    
     // Formatar os dados para o formato de Venda
-    return processedRows.map((row, index) => {
+    const vendas = processedRows.map((row, index) => {
       const formatDate = (dateStr: string | null | undefined): string => {
         if (!dateStr) {
           throw new Error(`Data de habilitação inválida na linha ${index + 2}`);
@@ -8403,8 +8411,24 @@ function ImportData() {
         forma_pagamento: formaPagamentoColumn ? String(row[formaPagamentoColumn] || "") : undefined
       };
       
+      // Log de cada venda processada
+      console.log(`[PERMANÊNCIA] Linha ${index + 2}: Proposta ${venda.numero_proposta} | Produto: ${venda.produto_principal} | Valor: R$ ${venda.valor.toFixed(2)} | Data: ${venda.data_habilitacao.split('T')[0]}`);
+      
       return venda;
     });
+    
+    // Calcular totais
+    const totalPacotes = vendas.length;
+    const valorTotal = vendas.reduce((sum, venda) => sum + venda.valor, 0);
+    
+    console.log("╔════════════════════════════════════════════════════════════════════════════════╗");
+    console.log("║                      RESUMO DA IMPORTAÇÃO - VENDAS PERMANÊNCIA                 ║");
+    console.log("╠════════════════════════════════════════════════════════════════════════════════╣");
+    console.log(`║ Total de Pacotes: ${totalPacotes.toString().padEnd(60)} ║`);
+    console.log(`║ Valor Total: R$ ${valorTotal.toFixed(2).padEnd(58)} ║`);
+    console.log("╚════════════════════════════════════════════════════════════════════════════════╝");
+    
+    return vendas;
   };
   
   // Nova função para processar dados de primeiro pagamento
@@ -8629,6 +8653,11 @@ function ImportData() {
       throw new Error("Nenhum dado de vendas de meta encontrado para processamento");
     }
     
+    console.log("╔════════════════════════════════════════════════════════════════════════════════╗");
+    console.log("║                        INICIANDO IMPORTAÇÃO DE VENDAS META                     ║");
+    console.log("╚════════════════════════════════════════════════════════════════════════════════╝");
+    console.log(`Total de linhas para processar: ${data.length}`);
+    
     const firstRow = data[0];
     const excelHeaders = Object.keys(firstRow);
     
@@ -8768,6 +8797,9 @@ function ImportData() {
           ano: ano
                 };
         
+        // Log de cada venda meta processada
+        console.log(`[META] Linha ${index + 2}: Proposta ${vendaMeta.numero_proposta} | Produto: ${vendaMeta.produto} | Valor: R$ ${vendaMeta.valor.toFixed(2)} | Data: ${dataHabilitacao} | Mês/Ano: ${mes}/${ano}`);
+        
         processedVendasMeta.push(vendaMeta);
         
       } catch (error) {
@@ -8775,7 +8807,18 @@ function ImportData() {
       }
     });
     
+    // Calcular totais
+    const totalPacotesMeta = processedVendasMeta.length;
+    const valorTotalMeta = processedVendasMeta.reduce((sum, venda) => sum + venda.valor, 0);
+    
+    console.log("╔════════════════════════════════════════════════════════════════════════════════╗");
+    console.log("║                         RESUMO DA IMPORTAÇÃO - VENDAS META                     ║");
+    console.log("╠════════════════════════════════════════════════════════════════════════════════╣");
+    console.log(`║ Total de Pacotes: ${totalPacotesMeta.toString().padEnd(60)} ║`);
+    console.log(`║ Valor Total: R$ ${valorTotalMeta.toFixed(2).padEnd(58)} ║`);
+    console.log("╚════════════════════════════════════════════════════════════════════════════════╝");
     console.log(`Processadas ${processedVendasMeta.length} vendas de meta de ${data.length} linhas`);
+    
     return processedVendasMeta;
   };
 
