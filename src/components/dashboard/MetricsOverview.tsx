@@ -7446,6 +7446,51 @@ function ImportData() {
   const [importType, setImportType] = useState<'pagamentos' | 'metas' | 'servicos-base'>('pagamentos');
   const { toast } = useToast();
   
+  // Função auxiliar para agrupar vendas por produto principal (sem secundários)
+  const agruparVendasPorProduto = (vendas: (Venda | VendaMeta)[]) => {
+    const grupos = new Map<string, number>();
+    
+    vendas.forEach(venda => {
+      // VendaMeta usa 'produto', Venda usa 'produto_principal'
+      const produtoPrincipal = ('produto' in venda ? venda.produto : venda.produto_principal) || 'Sem produto';
+      grupos.set(produtoPrincipal, (grupos.get(produtoPrincipal) || 0) + 1);
+    });
+    
+    // Ordenar por quantidade (decrescente) e pegar top 5
+    return Array.from(grupos.entries())
+      .map(([produto, count]) => ({ produto, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  };
+
+  // Função auxiliar para agrupar serviços por subtipo
+  const agruparServicosPorTipo = (servicos: ServiceOrder[]) => {
+    const grupos = new Map<string, number>();
+    
+    servicos.forEach(servico => {
+      const subtipo = servico.subtipo_servico || 'Sem subtipo';
+      grupos.set(subtipo, (grupos.get(subtipo) || 0) + 1);
+    });
+    
+    // Ordenar por quantidade (decrescente) e pegar top 5
+    return Array.from(grupos.entries())
+      .map(([tipo, count]) => ({ tipo, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  };
+
+  // Função auxiliar para formatar bases em tabela
+  const formatarBasesTabela = (bases: BaseData[]) => {
+    // Pegar até 3 bases mais recentes
+    return bases.slice(0, 3).map(base => ({
+      mes: base.mes,
+      ano: base.ano,
+      base_tv: base.base_tv.toLocaleString('pt-BR'),
+      base_fibra: base.base_fibra.toLocaleString('pt-BR'),
+      alianca: `${base.alianca.toFixed(2)}%`
+    }));
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
@@ -7523,12 +7568,17 @@ function ImportData() {
               let novasVendasPermanencia = 0;
               let novasVendasMeta = 0;
               let novasMetas = 0;
+              let vendasPermanenciaImportadas: Venda[] = [];
+              let vendasMetaImportadas: VendaMeta[] = [];
+              let metasImportadas: Meta[] = [];
               
               // Processar vendas de permanência (usando a função existente)
               if (vendasPermanenciaData.length > 0) {
                 const processedVendasPermanencia = processVendas(vendasPermanenciaData as Record<string, unknown>[]);
                 const result = importVendas(processedVendasPermanencia, true);
                 novasVendasPermanencia = result.newRecords;
+                // Capturar apenas as novas vendas importadas
+                vendasPermanenciaImportadas = processedVendasPermanencia.slice(-result.newRecords);
                 if (process.env.NODE_ENV === 'development') {
               console.log(`Importadas ${result.newRecords} novas vendas de permanência`);
             }
@@ -7539,6 +7589,8 @@ function ImportData() {
                 const processedVendasMeta = processVendasMeta(vendasMetaData as Record<string, unknown>[]);
                 const result = importVendasMeta(processedVendasMeta, true);
                 novasVendasMeta = result.newRecords;
+                // Capturar apenas as novas vendas importadas
+                vendasMetaImportadas = processedVendasMeta.slice(-result.newRecords);
                 if (process.env.NODE_ENV === 'development') {
               console.log(`Importadas ${result.newRecords} novas vendas de meta`);
             }
@@ -7549,6 +7601,8 @@ function ImportData() {
                 const processedMetas = processMetas(metasData as Record<string, unknown>[]);
                 const result = importMetas(processedMetas, true);
                 novasMetas = result.newRecords;
+                // Capturar apenas as novas metas importadas
+                metasImportadas = processedMetas.slice(-result.newRecords);
                 if (process.env.NODE_ENV === 'development') {
               console.log(`Importadas ${result.newRecords} novas metas`);
             }
@@ -7568,6 +7622,10 @@ function ImportData() {
               
               const totalNovos = novasVendasPermanencia + novasVendasMeta + novasMetas;
               
+              // Agrupar vendas por produto
+              const vendasPermanenciaAgrupadas = novasVendasPermanencia > 0 ? agruparVendasPorProduto(vendasPermanenciaImportadas) : [];
+              const vendasMetaAgrupadas = novasVendasMeta > 0 ? agruparVendasPorProduto(vendasMetaImportadas) : [];
+              
               toast({
                 title: (
                   <div className="flex items-center gap-2">
@@ -7578,23 +7636,47 @@ function ImportData() {
                   </div>
                 ) as unknown as string,
                 description: totalNovos > 0 ? (
-                  <div className="space-y-2 mt-2">
+                  <div className="space-y-3 mt-2">
                     {novasVendasPermanencia > 0 && (
-                      <div className="flex items-center justify-between p-2 bg-green-50 rounded-lg border border-green-200">
-                        <span className="text-sm text-green-800">Novas vendas de permanência</span>
-                        <span className="font-bold text-green-700 text-base">{novasVendasPermanencia.toLocaleString('pt-BR')}</span>
+                      <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-semibold text-green-800">🟢 Novas vendas de permanência</span>
+                          <span className="font-bold text-green-700 text-base">{novasVendasPermanencia.toLocaleString('pt-BR')}</span>
+                        </div>
+                        {vendasPermanenciaAgrupadas.length > 0 && (
+                          <div className="mt-2 space-y-1 pl-2 border-l-2 border-green-300">
+                            {vendasPermanenciaAgrupadas.map((grupo, idx) => (
+                              <div key={idx} className="text-xs text-green-700">
+                                <span className="font-semibold">{grupo.count}x</span> {grupo.produto}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                     {novasVendasMeta > 0 && (
-                      <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200">
-                        <span className="text-sm text-blue-800">Novas vendas de meta</span>
-                        <span className="font-bold text-blue-700 text-base">{novasVendasMeta.toLocaleString('pt-BR')}</span>
+                      <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-semibold text-blue-800">🔵 Novas vendas de meta</span>
+                          <span className="font-bold text-blue-700 text-base">{novasVendasMeta.toLocaleString('pt-BR')}</span>
+                        </div>
+                        {vendasMetaAgrupadas.length > 0 && (
+                          <div className="mt-2 space-y-1 pl-2 border-l-2 border-blue-300">
+                            {vendasMetaAgrupadas.map((grupo, idx) => (
+                              <div key={idx} className="text-xs text-blue-700">
+                                <span className="font-semibold">{grupo.count}x</span> {grupo.produto}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                     {novasMetas > 0 && (
-                      <div className="flex items-center justify-between p-2 bg-purple-50 rounded-lg border border-purple-200">
-                        <span className="text-sm text-purple-800">Novas metas</span>
-                        <span className="font-bold text-purple-700 text-base">{novasMetas.toLocaleString('pt-BR')}</span>
+                      <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-purple-800">🟣 Novas metas</span>
+                          <span className="font-bold text-purple-700 text-base">{novasMetas.toLocaleString('pt-BR')}</span>
+                        </div>
                       </div>
                     )}
                     <div className="pt-2 border-t border-gray-200 mt-2">
@@ -7675,6 +7757,8 @@ function ImportData() {
             let totalProcessedServices = 0;
             let totalProcessedBase = 0;
             let hasValidData = false;
+            let servicosImportados: ServiceOrder[] = [];
+            let basesImportadas: BaseData[] = [];
             
             // Processar aba de serviços
             if (servicosSheet) {
@@ -7688,6 +7772,8 @@ function ImportData() {
                   const result = importServiceOrders(processedServices, true);
                   processedServiceOrders = result.newRecords;
                   totalProcessedServices = result.totalProcessed;
+                  // Capturar apenas as novas ordens importadas
+                  servicosImportados = processedServices.slice(-result.newRecords);
                   hasValidData = true;
                   console.log(`[ImportData] Serviços: ${result.totalProcessed} processados, ${result.newRecords} novos, ${result.duplicatesIgnored} duplicados`);
                 } catch (serviceError) {
@@ -7710,6 +7796,8 @@ function ImportData() {
                   processedBaseData = result.newRecords;
                   processedBaseUpdated = result.updatedRecords || 0;
                   totalProcessedBase = result.totalProcessed;
+                  // Capturar apenas as novas bases importadas
+                  basesImportadas = processedBase.slice(-result.newRecords);
                   hasValidData = true;
                   console.log(`[ImportData] BASE: ${result.totalProcessed} processados, ${result.newRecords} novos, ${result.updatedRecords || 0} atualizados, ${result.duplicatesIgnored} duplicados`);
                 } catch (baseError) {
@@ -7751,17 +7839,9 @@ function ImportData() {
               return;
             }
             
-            // Mensagem de sucesso baseada nos dados processados
-            const detalhes = [];
-            if (processedServiceOrders > 0) {
-              detalhes.push(`${processedServiceOrders} Nova${processedServiceOrders > 1 ? 's' : ''} ordem${processedServiceOrders > 1 ? 's' : ''} de serviço`);
-            }
-            if (processedBaseData > 0) {
-              detalhes.push(`${processedBaseData} Nova${processedBaseData > 1 ? 's' : ''} base${processedBaseData > 1 ? 's' : ''}`);
-            }
-            if (processedBaseUpdated > 0) {
-              detalhes.push(`${processedBaseUpdated} Base${processedBaseUpdated > 1 ? 's' : ''} atualizada${processedBaseUpdated > 1 ? 's' : ''}`);
-            }
+            // Agrupar serviços por tipo e formatar bases
+            const servicosAgrupados = processedServiceOrders > 0 ? agruparServicosPorTipo(servicosImportados) : [];
+            const basesFormatadas = processedBaseData > 0 ? formatarBasesTabela(basesImportadas) : [];
             
             toast({
               title: (
@@ -7772,26 +7852,70 @@ function ImportData() {
                   <span className="font-semibold">Importação Operacional Concluída</span>
                 </div>
               ) as unknown as string,
-              description: detalhes.length > 0 ? (
-                <div className="space-y-2 mt-2">
+              description: totalProcessados > 0 ? (
+                <div className="space-y-3 mt-2">
                   {processedServiceOrders > 0 && (
-                    <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200">
-                      <span className="text-sm text-blue-800">Novas ordens de serviço</span>
-                      <span className="font-bold text-blue-700 text-base">{processedServiceOrders.toLocaleString('pt-BR')}</span>
+                    <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-blue-800">🔵 Novas ordens de serviço</span>
+                        <span className="font-bold text-blue-700 text-base">{processedServiceOrders.toLocaleString('pt-BR')}</span>
+                      </div>
+                      {servicosAgrupados.length > 0 && (
+                        <div className="mt-2 space-y-1 pl-2 border-l-2 border-blue-300">
+                          {servicosAgrupados.map((grupo, idx) => (
+                            <div key={idx} className="text-xs text-blue-700">
+                              <span className="font-semibold">{grupo.count}</span> {grupo.tipo}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
+                  
                   {processedBaseData > 0 && (
-                    <div className="flex items-center justify-between p-2 bg-indigo-50 rounded-lg border border-indigo-200">
-                      <span className="text-sm text-indigo-800">Novas bases</span>
-                      <span className="font-bold text-indigo-700 text-base">{processedBaseData.toLocaleString('pt-BR')}</span>
+                    <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-indigo-800">🟣 Novas bases</span>
+                        <span className="font-bold text-indigo-700 text-base">{processedBaseData.toLocaleString('pt-BR')}</span>
+                      </div>
+                      {basesFormatadas.length > 0 && (
+                        <div className="mt-3 overflow-x-auto">
+                          <table className="w-full text-xs border-collapse">
+                            <thead>
+                              <tr className="border-b border-indigo-300">
+                                <th className="text-left py-1 px-2 text-indigo-900 font-semibold">Mês</th>
+                                <th className="text-left py-1 px-2 text-indigo-900 font-semibold">Ano</th>
+                                <th className="text-right py-1 px-2 text-indigo-900 font-semibold">BASE TV</th>
+                                <th className="text-right py-1 px-2 text-indigo-900 font-semibold">BASE FIBRA</th>
+                                <th className="text-right py-1 px-2 text-indigo-900 font-semibold">ALIANÇA</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {basesFormatadas.map((base, idx) => (
+                                <tr key={idx} className="border-b border-indigo-200 last:border-0">
+                                  <td className="py-1.5 px-2 text-indigo-800">{base.mes}</td>
+                                  <td className="py-1.5 px-2 text-indigo-800">{base.ano}</td>
+                                  <td className="py-1.5 px-2 text-right text-indigo-800 font-medium">{base.base_tv}</td>
+                                  <td className="py-1.5 px-2 text-right text-indigo-800 font-medium">{base.base_fibra}</td>
+                                  <td className="py-1.5 px-2 text-right text-indigo-800 font-medium">{base.alianca}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   )}
+                  
                   {processedBaseUpdated > 0 && (
-                    <div className="flex items-center justify-between p-2 bg-amber-50 rounded-lg border border-amber-200">
-                      <span className="text-sm text-amber-800">Bases atualizadas</span>
-                      <span className="font-bold text-amber-700 text-base">{processedBaseUpdated.toLocaleString('pt-BR')}</span>
+                    <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-amber-800">🟠 Bases atualizadas</span>
+                        <span className="font-bold text-amber-700 text-base">{processedBaseUpdated.toLocaleString('pt-BR')}</span>
+                      </div>
                     </div>
                   )}
+                  
                   <div className="pt-2 border-t border-gray-200 mt-2">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-semibold text-gray-700">Total processado</span>
