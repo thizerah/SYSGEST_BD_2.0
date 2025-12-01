@@ -9400,6 +9400,42 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     return data.getFullYear();
   }, []);
 
+  // Função para calcular os meses de referência das vendas baseado nos filtros de permanência
+  const calcularMesesReferencia = useCallback(() => {
+    if (filtroMesPermanencia.length === 0 || filtroAnoPermanencia.length === 0) {
+      return '';
+    }
+
+    const mesesMap: { [key: string]: number } = {
+      'Janeiro': 0, 'Fevereiro': 1, 'Março': 2, 'Abril': 3, 'Maio': 4, 'Junho': 5,
+      'Julho': 6, 'Agosto': 7, 'Setembro': 8, 'Outubro': 9, 'Novembro': 10, 'Dezembro': 11
+    };
+    const mesesNomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+    const referenciaInfo = filtroMesPermanencia.map(mesPermanencia => {
+      const mesIndex = mesesMap[mesPermanencia];
+      // Subtrair 4 meses para encontrar o mês de referência das vendas
+      let mesReferenciaIndex = mesIndex - 4;
+      let anoReferencia = parseInt(filtroAnoPermanencia[0]);
+      
+      // Ajustar caso o mês de referência seja negativo (ano anterior)
+      if (mesReferenciaIndex < 0) {
+        mesReferenciaIndex += 12;
+        anoReferencia -= 1;
+      }
+      
+      return `${mesesNomes[mesReferenciaIndex]}/${anoReferencia}`;
+    });
+
+    // Retornar apenas o texto de referência
+    if (referenciaInfo.length === 1) {
+      return `Ref. Vendas: ${referenciaInfo[0]}`;
+    } else {
+      return `Ref. Vendas: ${referenciaInfo.join(', ')}`;
+    }
+  }, [filtroMesPermanencia, filtroAnoPermanencia]);
+
   // Função para gerar link do WhatsApp com a mensagem padrão
   const gerarLinkWhatsApp = useCallback((telefone: string, nomeFantasia: string, produto: string) => {
     // Limpar telefone para conter apenas números
@@ -10620,17 +10656,22 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
           {/* Quadro de Permanência POS */}
             <Card className="shadow-lg border-2">
               <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b-2 pb-4">
-                <CardTitle className="text-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-green-100 rounded-lg">
-                      <MapPin className="h-5 w-5 text-green-600" />
-                    </div>
-                    <span className="text-gray-800 font-semibold">Permanência POS</span>
-                </div>
-              </CardTitle>
-                <CardDescription className="text-sm mt-2 text-gray-600">
-                Informações de permanência para serviços POS
-              </CardDescription>
+              <CardTitle className="text-lg">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <MapPin className="h-5 w-5 text-green-600" />
+                  </div>
+                  <span className="text-gray-800 font-semibold">Permanência POS</span>
+              </div>
+            </CardTitle>
+              <CardDescription className="text-sm mt-2 text-gray-600">
+              Informações de permanência para vendas POS
+              {calcularMesesReferencia() && (
+                <span className="block mt-1 text-emerald-700 font-semibold">
+                  {calcularMesesReferencia()}
+                </span>
+              )}
+            </CardDescription>
             </CardHeader>
               <CardContent className="pt-6">
               <PermanenciaPorTipoServico sigla="POS" datasHabilitacaoFiltradas={filtroDataHabilitacao} vendasFiltradas={vendasFiltradas} />
