@@ -2758,64 +2758,41 @@ export function MetricsOverview() {
           : 0;
         const percentualOtimizacao = 100 - percentualConsumo;
         
-        // Calcular score final baseado em pesos por categoria
-        // REABERTURA: 50%, OTIMIZAÇÃO: 30%, TEMPO DE ATENDIMENTO: 20%
+        // Nova métrica de cálculo do score (mais justa e direta)
+        // Fórmula base: (TA PP TV + TA AT TV) - (Reab. AT + Reab. Ponto) + (100 - Consumo)
+        // Apenas os indicadores SELECIONADOS são incluídos no cálculo
+        // 
+        // Exemplo completo (todos selecionados):
+        // TA PP TV = 90,32% | TA AT TV = 97,06%
+        // Reab. AT = 2,38%  | Reab. Ponto = 1,38%
+        // Consumo = 24,07%
+        //
+        // Cálculo: 90,32 + 97,06 - 2,38 - 1,38 + (100 - 24,07) = 259,55 pontos
+        //
+        // Critério de desempate: quantidade de serviços realizados
         
-        // Categoria 1: REABERTURA (média dos indicadores de reabertura selecionados)
-        const reaberturaIndicators = [];
-        if (selectedExcellenceIndicators.reaberturaAT) {
-          reaberturaIndicators.push(100 - atRate);
-        }
-        if (selectedExcellenceIndicators.reaberturaPontoPrincipal) {
-          reaberturaIndicators.push(100 - pontoTVRate);
-        }
-        const avgReabertura = reaberturaIndicators.length > 0
-          ? reaberturaIndicators.reduce((sum, val) => sum + val, 0) / reaberturaIndicators.length
-          : null;
+        let scoreFinal = 0;
         
-        // Categoria 2: TEMPO DE ATENDIMENTO (média dos indicadores de TA selecionados)
-        const taIndicators = [];
+        // Somar TAs apenas se estiverem selecionadas
         if (selectedExcellenceIndicators.reaberturaATTV) {
-          taIndicators.push(percentPontoTvTA);
+          scoreFinal += percentPontoTvTA;  // TA PP TV
         }
         if (selectedExcellenceIndicators.reaberturaATFibra) {
-          taIndicators.push(percentAssistTvTA);
-        }
-        const avgTA = taIndicators.length > 0
-          ? taIndicators.reduce((sum, val) => sum + val, 0) / taIndicators.length
-          : null;
-        
-        // Categoria 3: OTIMIZAÇÃO
-        const avgOtimizacao = selectedExcellenceIndicators.otimizacao
-          ? percentualOtimizacao
-          : null;
-        
-        // Calcular pesos proporcionais baseado nas categorias ativas
-        // Pesos base: Reabertura 50%, Otimização 30%, TA 20%
-        let pesoReabertura = 0.50;
-        let pesoOtimizacao = 0.30;
-        let pesoTA = 0.20;
-        
-        // Se alguma categoria não estiver ativa, redistribuir proporcionalmente
-        const categoriasAtivas = [];
-        if (avgReabertura !== null) categoriasAtivas.push({ nome: 'reabertura', peso: 0.50 });
-        if (avgOtimizacao !== null) categoriasAtivas.push({ nome: 'otimizacao', peso: 0.30 });
-        if (avgTA !== null) categoriasAtivas.push({ nome: 'ta', peso: 0.20 });
-        
-        // Normalizar pesos para somar 100%
-        const somaPesos = categoriasAtivas.reduce((sum, cat) => sum + cat.peso, 0);
-        if (somaPesos > 0) {
-          const fatorNormalizacao = 1.0 / somaPesos;
-          pesoReabertura = avgReabertura !== null ? 0.50 * fatorNormalizacao : 0;
-          pesoOtimizacao = avgOtimizacao !== null ? 0.30 * fatorNormalizacao : 0;
-          pesoTA = avgTA !== null ? 0.20 * fatorNormalizacao : 0;
+          scoreFinal += percentAssistTvTA;  // TA AT TV
         }
         
-        // Score final: soma ponderada das categorias ativas
-        const scoreFinal = 
-          (avgReabertura !== null ? avgReabertura * pesoReabertura : 0) +
-          (avgOtimizacao !== null ? avgOtimizacao * pesoOtimizacao : 0) +
-          (avgTA !== null ? avgTA * pesoTA : 0);
+        // Subtrair Reaberturas apenas se estiverem selecionadas
+        if (selectedExcellenceIndicators.reaberturaAT) {
+          scoreFinal -= atRate;  // Reab. AT
+        }
+        if (selectedExcellenceIndicators.reaberturaPontoPrincipal) {
+          scoreFinal -= pontoTVRate;  // Reab. Ponto
+        }
+        
+        // Adicionar Potencial de Consumo apenas se estiver selecionado
+        if (selectedExcellenceIndicators.otimizacao) {
+          scoreFinal += (100 - percentualConsumo);  // Potencial (100% - Consumo)
+        }
         
         // Total geral de serviços (excluindo canceladas e tipos específicos)
         // Excluir: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto
@@ -4931,7 +4908,7 @@ export function MetricsOverview() {
                       
                       {/* Checkboxes Compactos por Categoria */}
                       <div className="flex-1 lg:max-w-2xl">
-                        <div className="text-[10px] font-bold text-gray-900 mb-2">Indicadores por Categoria (Reabertura: 50% | Otimização: 30% | TA: 20%):</div>
+                        <div className="text-[10px] font-bold text-gray-900 mb-2">Indicadores por Categoria:</div>
                         <div className="space-y-2">
                           {/* Categoria: REABERTURA */}
                           <div className="bg-red-50/60 px-3 py-1.5 rounded border border-red-200/60">
