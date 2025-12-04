@@ -4942,7 +4942,7 @@ export function MetricsOverview() {
                           <div className="font-semibold text-gray-900">🎯 Nova Métrica - "Melhor de 3":</div>
                           <div>• <strong>Fórmula do Score:</strong> (100 - Consumo) × 1000 + (Soma TAs) × 10 + Serviços</div>
                           <div>• <strong>Ordem de Classificação:</strong> 1º) Menor Consumo → 2º) Maior TAs → 3º) Maior Serviços</div>
-                          <div>• <strong>⚠️ Critérios Eliminatórios:</strong> Reabertura > 0% ou Falta → vai pro final da fila (score ÷ 10)</div>
+                          <div>• <strong>⚠️ Critérios Eliminatórios:</strong> Reabertura &gt; 0% ou Falta → vai pro final da fila (score ÷ 10)</div>
                           <div>• <strong>🏆 Destaque:</strong> Top 3 recebem medalhas (ouro, prata, bronze)</div>
                           <div>• Excluídos da contagem: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto</div>
                         </CardDescription>
