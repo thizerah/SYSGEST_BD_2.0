@@ -1540,6 +1540,9 @@ export function MetricsOverview() {
     otimizacao: true
   });
   
+  // Estado para controlar técnicos com falta marcada (novo critério eliminatório)
+  const [techniciansWithAbsence, setTechniciansWithAbsence] = useState<Set<string>>(new Set());
+  
   // Estados para controle de colunas visíveis nas tabelas de técnicos
   const [reopeningVisibleColumns, setReopeningVisibleColumns] = useState<{
     pontoTV: boolean;
@@ -2742,9 +2745,9 @@ export function MetricsOverview() {
         const totalAssistTv = assistTvWithinGoal + assistTvOutsideGoal;
         const percentAssistTvTA = totalAssistTv > 0 ? (assistTvWithinGoal / totalAssistTv) * 100 : 0;
         
-        // Reabertura de AT (TV + FIBRA combinadas)
-        const totalATServices = assistenciaTecnicaTVServices + assistenciaTecnicaFibraServices;
-        const totalATReopenings = assistenciaTVReopenings + assistenciaFibraReopenings;
+        // Reabertura de AT (apenas TV - FIBRA descontinuada)
+        const totalATServices = assistenciaTecnicaTVServices;  // Apenas TV, sem FIBRA
+        const totalATReopenings = assistenciaTVReopenings;     // Apenas TV, sem FIBRA
         const atRate = totalATServices > 0 ? (totalATReopenings / totalATServices) * 100 : 0;
         
         const optimizationStats = optimizationStatsByTechnician.get(name) || {
@@ -2758,44 +2761,31 @@ export function MetricsOverview() {
           : 0;
         const percentualOtimizacao = 100 - percentualConsumo;
         
-        // Nova métrica de cálculo do score (mais justa e direta)
-        // Fórmula base: (TA PP TV + TA AT TV) - (Reab. AT + Reab. Ponto) + (100 - Consumo)
-        // Apenas os indicadores SELECIONADOS são incluídos no cálculo
-        // 
-        // Exemplo completo (todos selecionados):
-        // TA PP TV = 90,32% | TA AT TV = 97,06%
-        // Reab. AT = 2,38%  | Reab. Ponto = 1,38%
-        // Consumo = 24,07%
+        // ═══════════════════════════════════════════════════════════════════════
+        // NOVA MÉTRICA DE SCORE - "MELHOR DE 3" (Hierarquia de Critérios)
+        // ═══════════════════════════════════════════════════════════════════════
         //
-        // Cálculo: 90,32 + 97,06 - 2,38 - 1,38 + (100 - 24,07) = 259,55 pontos
+        // FÓRMULA OPÇÃO 1 (Score por Componentes Sequenciais):
+        // Score = (100 - Consumo) × 1000 + (Soma TAs) × 10 + Serviços
         //
-        // Critério de desempate: quantidade de serviços realizados
-        
-        let scoreFinal = 0;
-        
-        // Somar TAs apenas se estiverem selecionadas
-        if (selectedExcellenceIndicators.reaberturaATTV) {
-          scoreFinal += percentPontoTvTA;  // TA PP TV
-        }
-        if (selectedExcellenceIndicators.reaberturaATFibra) {
-          scoreFinal += percentAssistTvTA;  // TA AT TV
-        }
-        
-        // Subtrair Reaberturas apenas se estiverem selecionadas
-        if (selectedExcellenceIndicators.reaberturaAT) {
-          scoreFinal -= atRate;  // Reab. AT
-        }
-        if (selectedExcellenceIndicators.reaberturaPontoPrincipal) {
-          scoreFinal -= pontoTVRate;  // Reab. Ponto
-        }
-        
-        // Adicionar Potencial de Consumo apenas se estiver selecionado
-        if (selectedExcellenceIndicators.otimizacao) {
-          scoreFinal += (100 - percentualConsumo);  // Potencial (100% - Consumo)
-        }
+        // CRITÉRIOS ELIMINATÓRIOS (vão pro final da fila):
+        // - Reabertura AT > 0% OU Reabertura Ponto > 0% OU Falta Marcada
+        // - Penalidade: Score = Score / 10
+        //
+        // ORDEM DE CLASSIFICAÇÃO:
+        // Grupo Principal (0% reab + sem falta):
+        //   1. Menor Consumo (prioridade #1)
+        //   2. Maior Soma TAs (desempate)
+        //   3. Maior Serviços (desempate final)
+        //
+        // Grupo Final da Fila (tem reab OU falta):
+        //   - Mesma ordenação, mas sempre aparecem depois
+        //
+        // ═══════════════════════════════════════════════════════════════════════
         
         // Total geral de serviços (excluindo canceladas e tipos específicos)
         // Excluir: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto
+        // IMPORTANTE: Calcular ANTES do score, pois é usado nele
         const totalServices = techOrders.filter(o => {
           if (o.status === "Cancelada") return false;
           const subtipo = o.subtipo_servico || "";
@@ -2811,9 +2801,49 @@ export function MetricsOverview() {
           return true;
         }).length;
         
+        // Somar TAs (respeitando indicadores selecionados)
+        let somaTAs = 0;
+        if (selectedExcellenceIndicators.reaberturaATTV) {
+          somaTAs += percentPontoTvTA;  // TA PP TV
+        }
+        if (selectedExcellenceIndicators.reaberturaATFibra) {
+          somaTAs += percentAssistTvTA;  // TA AT TV
+        }
+        
+        // Calcular score base (Ajustado v6 - EQUILÍBRIO PERFEITO!)
+        // Score = (100 - Consumo) × 1 + (Soma TAs) × 0.2 + (Serviços × 0.5)
+        // Prioridades: Consumo (1.0) > TAs (0.2) > Serviços (0.5)
+        // Foco em QUALIDADE com peso balanceado para produtividade
+        let scoreBase = 0;
+        
+        if (selectedExcellenceIndicators.otimizacao) {
+          scoreBase += (100 - percentualConsumo) * 1;  // Consumo: 1 ponto por %
+        }
+        
+        scoreBase += somaTAs * 0.2;  // TAs: 0.2 ponto por % (premia qualidade!)
+        
+        // Adicionar serviços com peso 0.5 - cada serviço vale meio ponto
+        scoreBase += totalServices * 0.5;
+        
+        // Verificar se técnico deve ser penalizado (critérios eliminatórios)
+        const temReabertura = (
+          (selectedExcellenceIndicators.reaberturaAT && atRate > 0) ||
+          (selectedExcellenceIndicators.reaberturaPontoPrincipal && pontoTVRate > 0)
+        );
+        const temFalta = techniciansWithAbsence.has(name);
+        const isPenalizado = temReabertura || temFalta;
+        
+        // Aplicar penalidade: dividir score por 10 se penalizado
+        const scoreFinal = isPenalizado ? scoreBase / 10 : scoreBase;
+        
         return {
           nome: name,
           scoreFinal,
+          scoreBase,              // Score sem penalidade (para debug)
+          somaTAs,                // Soma dos TAs para ordenação
+          isPenalizado,           // Flag se está penalizado
+          temReabertura,          // Flag se tem reabertura
+          temFalta,               // Flag se tem falta marcada
           atRate,
           pontoTVRate,
           assistenciaTVRate,
@@ -2837,16 +2867,28 @@ export function MetricsOverview() {
       })
       .filter(tech => tech.totalServices > 0) // Apenas técnicos com serviços
       .sort((a, b) => {
-        // Ordenar por score (maior = melhor)
+        // ═══════════════════════════════════════════════════════════════════════
+        // ORDENAÇÃO POR SCORE FINAL - Mais Justa e Simples
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        // 1º) Separar em 2 grupos: Principais vs Penalizados
+        if (a.isPenalizado !== b.isPenalizado) {
+          // Principais (false) vêm antes dos Penalizados (true)
+          return a.isPenalizado ? 1 : -1;
+        }
+        
+        // 2º) Dentro do mesmo grupo, ordenar por SCORE FINAL (maior = melhor)
         if (b.scoreFinal !== a.scoreFinal) {
           return b.scoreFinal - a.scoreFinal;
         }
-        // Em caso de empate: maior volume de serviços
+        
+        // 3º) Desempate improvável: maior volume de serviços (backup)
         return b.totalServices - a.totalServices;
       });
     
-    return techStats.slice(0, 3); // Top 3
-  }, [technicians, filteredServiceOrders, getFilteredReopeningPairs, showData, selectedMonth, selectedYear, optimizationStatsByTechnician, selectedExcellenceIndicators]);
+    // Retornar TODOS os técnicos (não apenas top 3)
+    return techStats;
+  }, [technicians, filteredServiceOrders, getFilteredReopeningPairs, showData, selectedMonth, selectedYear, optimizationStatsByTechnician, selectedExcellenceIndicators, techniciansWithAbsence]);
   
   // Extrair tipos de serviço únicos das ordens originais para o filtro
   const uniqueOriginalServiceTypes = useMemo(() => {
@@ -4885,7 +4927,7 @@ export function MetricsOverview() {
           <NoDataMessage />
         ) : technicians.length > 0 ? (
           <>
-            {/* Ranking de Excelência - Top 3 Técnicos */}
+            {/* Ranking de Excelência - Todos os Técnicos */}
             {technicianExcellenceRanking.length > 0 && (
               <Card className="shadow-xl border-2 border-yellow-200 bg-gradient-to-br from-yellow-50 via-amber-50 to-orange-50">
                   <CardHeader className="pb-3 bg-gradient-to-r from-yellow-400 via-amber-400 to-orange-400 rounded-t-lg">
@@ -4894,14 +4936,14 @@ export function MetricsOverview() {
                       <div className="flex-shrink-0">
                         <CardTitle className="flex items-center text-base font-bold text-gray-900 drop-shadow-sm mb-2">
                           <Trophy className="mr-2 h-5 w-5 text-gray-900" />
-                          Ranking de Excelência - Top 3 Técnicos
+                          Ranking de Excelência de Técnicos
                         </CardTitle>
                         <CardDescription className="text-gray-800 text-[10px] font-medium space-y-0.5">
-                          <div className="font-semibold text-gray-900">Critérios de Avaliação:</div>
-                          <div>• Score Final: <strong>Reabertura 50%</strong> + <strong>Otimização 30%</strong> + <strong>Tempo de Atendimento 20%</strong></div>
-                          <div>• Dentro de cada categoria, faz-se a média dos indicadores selecionados</div>
-                          <div>• Se uma categoria não tiver indicadores, seu peso é redistribuído proporcionalmente</div>
-                          <div>• Em caso de empate: maior volume de serviços</div>
+                          <div className="font-semibold text-gray-900">🎯 Nova Métrica - "Melhor de 3":</div>
+                          <div>• <strong>Fórmula do Score:</strong> (100 - Consumo) × 1000 + (Soma TAs) × 10 + Serviços</div>
+                          <div>• <strong>Ordem de Classificação:</strong> 1º) Menor Consumo → 2º) Maior TAs → 3º) Maior Serviços</div>
+                          <div>• <strong>⚠️ Critérios Eliminatórios:</strong> Reabertura > 0% ou Falta → vai pro final da fila (score ÷ 10)</div>
+                          <div>• <strong>🏆 Destaque:</strong> Top 3 recebem medalhas (ouro, prata, bronze)</div>
                           <div>• Excluídos da contagem: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto</div>
                         </CardDescription>
                       </div>
@@ -4913,7 +4955,7 @@ export function MetricsOverview() {
                           {/* Categoria: REABERTURA */}
                           <div className="bg-red-50/60 px-3 py-1.5 rounded border border-red-200/60">
                             <div className="flex items-center gap-4">
-                              <div className="text-[10px] font-bold text-red-700 whitespace-nowrap">🔴 REABERTURA (50%)</div>
+                              <div className="text-[10px] font-bold text-red-700 whitespace-nowrap">🔴 REABERTURA (Eliminatório)</div>
                               <div className="flex flex-wrap gap-x-4 gap-y-1">
                                 <label className="flex items-center space-x-1.5 cursor-pointer">
                                   <input
@@ -4947,7 +4989,7 @@ export function MetricsOverview() {
                           {/* Categoria: TEMPO DE ATENDIMENTO */}
                           <div className="bg-blue-50/60 px-3 py-1.5 rounded border border-blue-200/60">
                             <div className="flex items-center gap-4">
-                              <div className="text-[10px] font-bold text-blue-700 whitespace-nowrap">⏱️ TEMPO DE ATENDIMENTO (20%)</div>
+                              <div className="text-[10px] font-bold text-blue-700 whitespace-nowrap">⏱️ TEMPO DE ATENDIMENTO (Desempate)</div>
                               <div className="flex flex-wrap gap-x-4 gap-y-1">
                                 <label className="flex items-center space-x-1.5 cursor-pointer">
                                   <input
@@ -4981,7 +5023,7 @@ export function MetricsOverview() {
                           {/* Categoria: OTIMIZAÇÃO */}
                           <div className="bg-green-50/60 px-3 py-1.5 rounded border border-green-200/60">
                             <div className="flex items-center gap-4">
-                              <div className="text-[10px] font-bold text-green-700 whitespace-nowrap">🎯 OTIMIZAÇÃO (30%)</div>
+                              <div className="text-[10px] font-bold text-green-700 whitespace-nowrap">🎯 CONSUMO (Prioridade #1)</div>
                               <div className="flex flex-wrap gap-x-4 gap-y-1">
                                 <label className="flex items-center space-x-1.5 cursor-pointer">
                                   <input
@@ -5002,104 +5044,268 @@ export function MetricsOverview() {
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="p-6">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {technicianExcellenceRanking.map((tech, index) => {
+                  <CardContent className="p-6 space-y-6">
+                    {/* ═══════════════════════════════════════════════════════════ */}
+                    {/* SEÇÃO 1: TOP 3 - CARDS COMPACTOS COM DESTAQUE               */}
+                    {/* ═══════════════════════════════════════════════════════════ */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-4">
+                        <Trophy className="h-5 w-5 text-yellow-600" />
+                        <h3 className="text-lg font-bold text-gray-900">🏆 Top 3 - Pódio de Excelência</h3>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {technicianExcellenceRanking.slice(0, 3).map((tech, index) => {
                           const position = index + 1;
+                          
+                          // Cores das medalhas para Top 3
                           const medalColors = [
-                            { bg: "from-yellow-400 to-yellow-600", border: "border-yellow-500", text: "text-yellow-700", icon: "🥇" },
-                            { bg: "from-gray-300 to-gray-500", border: "border-gray-400", text: "text-gray-700", icon: "🥈" },
-                            { bg: "from-orange-300 to-orange-500", border: "border-orange-400", text: "text-orange-700", icon: "🥉" }
+                            { bg: "from-yellow-400 to-yellow-600", border: "border-yellow-500", text: "text-yellow-900", icon: "🥇" },
+                            { bg: "from-gray-300 to-gray-500", border: "border-gray-400", text: "text-gray-900", icon: "🥈" },
+                            { bg: "from-orange-300 to-orange-500", border: "border-orange-400", text: "text-orange-900", icon: "🥉" }
                           ];
                           const colors = medalColors[index];
                           
                           return (
                             <div
                               key={tech.nome}
-                              className={`relative bg-gradient-to-br ${colors.bg} rounded-xl p-4 shadow-lg border-2 ${colors.border} transform transition-all hover:scale-105`}
+                              className={`relative bg-gradient-to-br ${colors.bg} rounded-lg p-4 border-2 ${colors.border} shadow-lg`}
                             >
                               <div className="flex flex-col items-center text-center">
-                                <div className="text-4xl mb-2">{colors.icon}</div>
+                                {/* Medalha */}
+                                <div className="text-5xl mb-2">{colors.icon}</div>
+                                
+                                {/* Posição */}
                                 <div className={`text-2xl font-bold ${colors.text} mb-1`}>
                                   {position}º Lugar
                                 </div>
-                                <div className="text-lg font-semibold text-gray-900 mb-3">
+                                
+                                {/* Nome do Técnico */}
+                                <div className="text-sm font-bold text-gray-900 mb-3">
                                   {tech.nome}
                                 </div>
                                 
-                                <div className="w-full space-y-2 mt-3">
-                                  <div className="bg-white/80 rounded-lg p-2">
-                                    <div className="text-xs font-semibold text-gray-600 mb-1">Score Final</div>
-                                    <div className={`text-xl font-bold ${colors.text}`}>
-                                      {tech.scoreFinal.toFixed(2)} pts
-                                    </div>
+                                {/* Score Final - Destaque */}
+                                <div className="bg-white/95 rounded-lg p-3 w-full shadow-md">
+                                  <div className="text-xs font-semibold text-gray-600 mb-1">Score Final</div>
+                                  <div className={`text-2xl font-bold ${colors.text}`}>
+                                    {tech.scoreFinal.toFixed(2)}
                                   </div>
-                                  
-                                  <div className="grid grid-cols-2 gap-2 text-xs">
-                                    {/* Mostrar apenas indicadores selecionados */}
-                                    {selectedExcellenceIndicators.reaberturaAT && (
-                                      <div className="bg-white/80 rounded p-2">
-                                        <div className="text-gray-600 font-semibold">Reab. AT</div>
-                                        <div className={`font-bold ${tech.atRate <= 5 ? 'text-green-600' : tech.atRate <= 10 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                          {tech.atRate.toFixed(2)}%
-                                        </div>
-                                      </div>
-                                    )}
-                                    
-                                    {selectedExcellenceIndicators.reaberturaPontoPrincipal && (
-                                      <div className="bg-white/80 rounded p-2">
-                                        <div className="text-gray-600 font-semibold">Reab. Ponto</div>
-                                        <div className={`font-bold ${tech.pontoTVRate <= 5 ? 'text-green-600' : tech.pontoTVRate <= 10 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                          {tech.pontoTVRate.toFixed(2)}%
-                                        </div>
-                                      </div>
-                                    )}
-                                    
-                                    {selectedExcellenceIndicators.reaberturaATTV && (
-                                      <div className="bg-white/80 rounded p-2">
-                                        <div className="text-gray-600 font-semibold">TA PP TV</div>
-                                        <div className={`font-bold ${tech.percentPontoTvTA >= 90 ? 'text-green-600' : tech.percentPontoTvTA >= 80 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                          {tech.percentPontoTvTA.toFixed(2)}%
-                                        </div>
-                                        <div className="text-[10px] text-gray-500 mt-0.5">
-                                          {tech.pontoTvWithinGoal}/{tech.totalPontoTv} na meta
-                                        </div>
-                                      </div>
-                                    )}
-                                    
-                                    {selectedExcellenceIndicators.reaberturaATFibra && (
-                                      <div className="bg-white/80 rounded p-2">
-                                        <div className="text-gray-600 font-semibold">TA AT TV</div>
-                                        <div className={`font-bold ${tech.percentAssistTvTA >= 90 ? 'text-green-600' : tech.percentAssistTvTA >= 80 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                          {tech.percentAssistTvTA.toFixed(2)}%
-                                        </div>
-                                        <div className="text-[10px] text-gray-500 mt-0.5">
-                                          {tech.assistTvWithinGoal}/{tech.totalAssistTv} na meta
-                                        </div>
-                                      </div>
-                                    )}
-                                    
-                                    {selectedExcellenceIndicators.otimizacao && (
-                                      <div className="bg-white/80 rounded p-2">
-                                        <div className="text-gray-600 font-semibold">Consumo</div>
-                                        <div className={`font-bold ${tech.percentualConsumo <= 50 ? 'text-green-600' : tech.percentualConsumo <= 70 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                          {tech.percentualConsumo.toFixed(2)}%
-                                        </div>
-                                      </div>
-                                    )}
-                                    
-                                    <div className="bg-white/80 rounded p-2">
-                                      <div className="text-gray-600 font-semibold">Serviços</div>
-                                      <div className="font-bold text-blue-600">
-                                        {tech.totalServices}
-                                      </div>
-                                    </div>
-                                  </div>
+                                  <div className="text-xs text-gray-500 mt-1">pontos</div>
                                 </div>
+                                
+                                {/* Badges de Penalização (se houver) */}
+                                {tech.isPenalizado && (
+                                  <div className="mt-2 flex flex-wrap gap-1 justify-center">
+                                    {tech.temReabertura && (
+                                      <span className="text-[9px] bg-red-600 text-white px-2 py-0.5 rounded-full font-semibold">
+                                        ⚠️ Reabertura
+                                      </span>
+                                    )}
+                                    {tech.temFalta && (
+                                      <span className="text-[9px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-semibold">
+                                        ⚠️ Falta
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );
                         })}
+                      </div>
+                    </div>
+                    
+                    {/* ═══════════════════════════════════════════════════════════ */}
+                    {/* SEÇÃO 2: TABELA COMPLETA - ESTILO CAMPEONATO                */}
+                    {/* ═══════════════════════════════════════════════════════════ */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-4">
+                        <svg className="h-5 w-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        <h3 className="text-lg font-bold text-gray-900">📋 Classificação Completa</h3>
+                      </div>
+                      
+                      {/* Tabela Responsiva */}
+                      <div className="overflow-x-auto rounded-lg border-2 border-gray-200 shadow-md">
+                        <table className="min-w-full divide-y divide-gray-300 bg-white">
+                          {/* Cabeçalho da Tabela */}
+                          <thead className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+                            <tr>
+                              <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wider">#</th>
+                              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Técnico</th>
+                              <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wider">Score</th>
+                              {selectedExcellenceIndicators.reaberturaAT && (
+                                <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wider">Reab. AT</th>
+                              )}
+                              {selectedExcellenceIndicators.reaberturaPontoPrincipal && (
+                                <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wider">Reab. PT</th>
+                              )}
+                              {selectedExcellenceIndicators.reaberturaATTV && (
+                                <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wider">TA PP</th>
+                              )}
+                              {selectedExcellenceIndicators.reaberturaATFibra && (
+                                <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wider">TA AT</th>
+                              )}
+                              {selectedExcellenceIndicators.otimizacao && (
+                                <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wider">Consumo</th>
+                              )}
+                              <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wider">Serviços</th>
+                              <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wider">Falta</th>
+                            </tr>
+                          </thead>
+                          
+                          {/* Corpo da Tabela */}
+                          <tbody className="divide-y divide-gray-200">
+                            {technicianExcellenceRanking.map((tech, index) => {
+                              const position = index + 1;
+                              const isTop3 = position <= 3;
+                              const isPenalized = tech.isPenalizado;
+                              
+                              // Background colors para linhas
+                              let rowBg = "";
+                              if (isPenalized) {
+                                rowBg = "bg-red-50 hover:bg-red-100";
+                              } else if (isTop3) {
+                                const top3Bgs = ["bg-yellow-50 hover:bg-yellow-100", "bg-gray-50 hover:bg-gray-100", "bg-orange-50 hover:bg-orange-100"];
+                                rowBg = top3Bgs[index];
+                              } else {
+                                rowBg = "hover:bg-blue-50";
+                              }
+                              
+                              return (
+                                <tr key={tech.nome} className={`${rowBg} transition-colors`}>
+                                  {/* Posição */}
+                                  <td className="px-3 py-3 whitespace-nowrap text-sm font-bold text-gray-900">
+                                    <div className="flex items-center gap-1">
+                                      {isTop3 && (
+                                        <span className="text-lg">
+                                          {position === 1 ? "🥇" : position === 2 ? "🥈" : "🥉"}
+                                        </span>
+                                      )}
+                                      {isPenalized && <span className="text-red-600">⚠️</span>}
+                                      <span>{position}</span>
+                                    </div>
+                                  </td>
+                                  
+                                  {/* Nome do Técnico */}
+                                  <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900">
+                                    {tech.nome}
+                                    {isPenalized && (
+                                      <div className="flex gap-1 mt-1">
+                                        {tech.temReabertura && (
+                                          <span className="text-[8px] bg-red-600 text-white px-1.5 py-0.5 rounded-full">Reab.</span>
+                                        )}
+                                        {tech.temFalta && (
+                                          <span className="text-[8px] bg-orange-600 text-white px-1.5 py-0.5 rounded-full">Falta</span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </td>
+                                  
+                                  {/* Score */}
+                                  <td className="px-3 py-3 whitespace-nowrap text-center">
+                                    <div className={`text-sm font-bold ${isPenalized ? 'text-red-600' : 'text-blue-600'}`}>
+                                      {tech.scoreFinal.toFixed(2)}
+                                    </div>
+                                  </td>
+                                  
+                                  {/* Reab. AT */}
+                                  {selectedExcellenceIndicators.reaberturaAT && (
+                                    <td className="px-3 py-3 whitespace-nowrap text-center text-xs">
+                                      <span className={`inline-block px-2 py-1 rounded-md font-semibold ${
+                                        tech.atRate === 0 ? 'bg-green-100 text-green-700' :
+                                        tech.atRate <= 5 ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-red-100 text-red-700'
+                                      }`}>
+                                        {tech.atRate.toFixed(2)}%
+                                      </span>
+                                    </td>
+                                  )}
+                                  
+                                  {/* Reab. Ponto */}
+                                  {selectedExcellenceIndicators.reaberturaPontoPrincipal && (
+                                    <td className="px-3 py-3 whitespace-nowrap text-center text-xs">
+                                      <span className={`inline-block px-2 py-1 rounded-md font-semibold ${
+                                        tech.pontoTVRate === 0 ? 'bg-green-100 text-green-700' :
+                                        tech.pontoTVRate <= 5 ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-red-100 text-red-700'
+                                      }`}>
+                                        {tech.pontoTVRate.toFixed(2)}%
+                                      </span>
+                                    </td>
+                                  )}
+                                  
+                                  {/* TA PP TV */}
+                                  {selectedExcellenceIndicators.reaberturaATTV && (
+                                    <td className="px-3 py-3 whitespace-nowrap text-center text-xs">
+                                      <span className={`inline-block px-2 py-1 rounded-md font-semibold ${
+                                        tech.percentPontoTvTA >= 90 ? 'bg-green-100 text-green-700' :
+                                        tech.percentPontoTvTA >= 80 ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-red-100 text-red-700'
+                                      }`}>
+                                        {tech.percentPontoTvTA.toFixed(2)}%
+                                      </span>
+                                    </td>
+                                  )}
+                                  
+                                  {/* TA AT TV */}
+                                  {selectedExcellenceIndicators.reaberturaATFibra && (
+                                    <td className="px-3 py-3 whitespace-nowrap text-center text-xs">
+                                      <span className={`inline-block px-2 py-1 rounded-md font-semibold ${
+                                        tech.percentAssistTvTA >= 90 ? 'bg-green-100 text-green-700' :
+                                        tech.percentAssistTvTA >= 80 ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-red-100 text-red-700'
+                                      }`}>
+                                        {tech.percentAssistTvTA.toFixed(2)}%
+                                      </span>
+                                    </td>
+                                  )}
+                                  
+                                  {/* Consumo */}
+                                  {selectedExcellenceIndicators.otimizacao && (
+                                    <td className="px-3 py-3 whitespace-nowrap text-center text-xs">
+                                      <span className={`inline-block px-2 py-1 rounded-md font-semibold ${
+                                        tech.percentualConsumo <= 30 ? 'bg-green-100 text-green-700' :
+                                        tech.percentualConsumo <= 50 ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-red-100 text-red-700'
+                                      }`}>
+                                        {tech.percentualConsumo.toFixed(2)}%
+                                      </span>
+                                    </td>
+                                  )}
+                                  
+                                  {/* Serviços */}
+                                  <td className="px-3 py-3 whitespace-nowrap text-center text-sm font-semibold text-blue-600">
+                                    {tech.totalServices}
+                                  </td>
+                                  
+                                  {/* Checkbox Falta */}
+                                  <td className="px-3 py-3 whitespace-nowrap text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={techniciansWithAbsence.has(tech.nome)}
+                                      onChange={(e) => {
+                                        setTechniciansWithAbsence(prev => {
+                                          const newSet = new Set(prev);
+                                          if (e.target.checked) {
+                                            newSet.add(tech.nome);
+                                          } else {
+                                            newSet.delete(tech.nome);
+                                          }
+                                          return newSet;
+                                        });
+                                      }}
+                                      className="w-4 h-4 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
