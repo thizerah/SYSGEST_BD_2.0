@@ -2668,8 +2668,113 @@ export function MetricsOverview() {
   // Calcular ranking de excelência dos técnicos (Top 3)
   const technicianExcellenceRanking = useMemo(() => {
     if (!showData || !selectedMonth || !selectedYear || technicians.length === 0) {
-      return [];
+      return { ranking: [], stats: { totalServices: 0, avgPerTechnician: 0, minimumServices: 0, numTechnicians: 0 } };
     }
+    
+    // Calcular estatísticas do mês para determinar mínimo dinâmico
+    const totalServicesMonth = filteredServiceOrders.filter(o => 
+      o.data_finalizacao && o.include_in_metrics
+    ).length;
+    
+    // Contar apenas técnicos que têm serviços no período (aparecem na tabela)
+    const techniciansWithServices = technicians.filter(name => {
+      if (!name) return false;
+      const techOrders = filteredServiceOrders.filter(o => o.nome_tecnico === name);
+      const totalServices = techOrders.filter(o => {
+        if (o.status === "Cancelada") return false;
+        const subtipo = o.subtipo_servico || "";
+        const motivo = o.motivo || "";
+        if (subtipo === "Corretiva" || subtipo === "Corretiva BL") return false;
+        if (subtipo.includes("Entrega emergencial Controle Remoto") || 
+            motivo.includes("Entrega emergencial Controle Remoto")) return false;
+        return true;
+      }).length;
+      return totalServices > 0;
+    }).length;
+    
+    const numTechnicians = techniciansWithServices;
+    const avgPerTechnician = numTechnicians > 0 
+      ? Math.floor(totalServicesMonth / numTechnicians) 
+      : 0;
+    
+    // Mínimo = 70% da média mensal (com piso de 30 serviços)
+    const minimumServices = Math.max(
+      Math.floor(avgPerTechnician * 0.70),
+      30
+    );
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // ESTATÍSTICAS COMPARATIVAS
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    // 1. Comparação com mês anterior
+    const currentMonth = parseInt(selectedMonth);
+    const currentYear = parseInt(selectedYear);
+    const previousMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+    const previousYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+    
+    const previousMonthOrders = serviceOrders.filter(o => {
+      if (!o.data_finalizacao || !o.include_in_metrics) return false;
+      const date = new Date(o.data_finalizacao);
+      const month = date.getMonth() + 1;
+      const year = date.getFullYear();
+      return month === previousMonth && year === previousYear;
+    }).length;
+    
+    const comparisonValue = previousMonthOrders > 0 
+      ? ((totalServicesMonth - previousMonthOrders) / previousMonthOrders * 100)
+      : 0;
+    const isIncrease = totalServicesMonth >= previousMonthOrders;
+    
+    // 2. Meta do mês (média dos últimos 3 meses + 5%)
+    const last3Months = [];
+    for (let i = 1; i <= 3; i++) {
+      let targetMonth = currentMonth - i;
+      let targetYear = currentYear;
+      while (targetMonth <= 0) {
+        targetMonth += 12;
+        targetYear -= 1;
+      }
+      const monthTotal = serviceOrders.filter(o => {
+        if (!o.data_finalizacao || !o.include_in_metrics) return false;
+        const date = new Date(o.data_finalizacao);
+        return date.getMonth() + 1 === targetMonth && date.getFullYear() === targetYear;
+      }).length;
+      last3Months.push(monthTotal);
+    }
+    
+    const avgLast3Months = last3Months.reduce((sum, val) => sum + val, 0) / 3;
+    const monthlyGoal = Math.ceil(avgLast3Months * 1.02); // +2% de crescimento
+    const goalProgress = monthlyGoal > 0 ? (totalServicesMonth / monthlyGoal * 100) : 0;
+    const goalRemaining = Math.max(0, monthlyGoal - totalServicesMonth);
+    
+    // 3. Record dos últimos 12 meses
+    const last12MonthsData = [];
+    for (let i = 0; i < 12; i++) {
+      let targetMonth = currentMonth - i;
+      let targetYear = currentYear;
+      while (targetMonth <= 0) {
+        targetMonth += 12;
+        targetYear -= 1;
+      }
+      const monthTotal = serviceOrders.filter(o => {
+        if (!o.data_finalizacao || !o.include_in_metrics) return false;
+        const date = new Date(o.data_finalizacao);
+        return date.getMonth() + 1 === targetMonth && date.getFullYear() === targetYear;
+      }).length;
+      if (monthTotal > 0) {
+        last12MonthsData.push({ month: targetMonth, year: targetYear, total: monthTotal });
+      }
+    }
+    
+    const recordEntry = last12MonthsData.reduce((max, current) => 
+      current.total > max.total ? current : max
+    , { month: 0, year: 0, total: 0 });
+    
+    const recordMonthName = recordEntry.month > 0 
+      ? new Date(recordEntry.year, recordEntry.month - 1).toLocaleString('pt-BR', { month: 'short' }).replace('.', '')
+      : '';
+    const recordPercentage = recordEntry.total > 0 ? (totalServicesMonth / recordEntry.total * 100) : 0;
     
     const techStats = technicians
       .filter(name => name)
@@ -2831,7 +2936,8 @@ export function MetricsOverview() {
           (selectedExcellenceIndicators.reaberturaPontoPrincipal && pontoTVRate > 0)
         );
         const temFalta = techniciansWithAbsence.has(name);
-        const isPenalizado = temReabertura || temFalta;
+        const temBaixoVolume = totalServices < minimumServices; // Novo critério: volume mínimo
+        const isPenalizado = temReabertura || temFalta || temBaixoVolume;
         
         // Aplicar penalidade: dividir score por 10 se penalizado
         const scoreFinal = isPenalizado ? scoreBase / 10 : scoreBase;
@@ -2844,6 +2950,7 @@ export function MetricsOverview() {
           isPenalizado,           // Flag se está penalizado
           temReabertura,          // Flag se tem reabertura
           temFalta,               // Flag se tem falta marcada
+          temBaixoVolume,         // Flag se tem volume abaixo do mínimo
           atRate,
           pontoTVRate,
           assistenciaTVRate,
@@ -2886,8 +2993,36 @@ export function MetricsOverview() {
         return b.totalServices - a.totalServices;
       });
     
-    // Retornar TODOS os técnicos (não apenas top 3)
-    return techStats;
+    // Retornar ranking + estatísticas do mês
+    return {
+      ranking: techStats,
+      stats: {
+        totalServices: totalServicesMonth,
+        avgPerTechnician,
+        minimumServices,
+        numTechnicians,
+        // Estatísticas comparativas
+        comparison: {
+          value: comparisonValue,
+          isIncrease,
+          previous: previousMonthOrders,
+          previousMonth,
+          previousYear
+        },
+        goal: {
+          target: monthlyGoal,
+          progress: goalProgress,
+          remaining: goalRemaining,
+          last3Average: Math.floor(avgLast3Months)
+        },
+        record: {
+          value: recordEntry.total,
+          month: recordMonthName,
+          year: recordEntry.year,
+          percentage: recordPercentage
+        }
+      }
+    };
   }, [technicians, filteredServiceOrders, getFilteredReopeningPairs, showData, selectedMonth, selectedYear, optimizationStatsByTechnician, selectedExcellenceIndicators, techniciansWithAbsence]);
   
   // Extrair tipos de serviço únicos das ordens originais para o filtro
@@ -4928,28 +5063,99 @@ export function MetricsOverview() {
         ) : technicians.length > 0 ? (
           <>
             {/* Ranking de Excelência - Todos os Técnicos */}
-            {technicianExcellenceRanking.length > 0 && (
+            {technicianExcellenceRanking.ranking.length > 0 && (
               <Card className="shadow-xl border-2 border-yellow-200 bg-gradient-to-br from-yellow-50 via-amber-50 to-orange-50">
                   <CardHeader className="pb-3 bg-gradient-to-r from-yellow-400 via-amber-400 to-orange-400 rounded-t-lg">
-                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-                      {/* Título e Critérios */}
-                      <div className="flex-shrink-0">
+                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                      {/* Coluna Esquerda: Título e Critérios */}
+                      <div className="flex-shrink-0 lg:w-[280px]">
                         <CardTitle className="flex items-center text-base font-bold text-gray-900 drop-shadow-sm mb-2">
                           <Trophy className="mr-2 h-5 w-5 text-gray-900" />
                           Ranking de Excelência de Técnicos
                         </CardTitle>
-                        <CardDescription className="text-gray-800 text-[10px] font-medium space-y-0.5">
-                          <div className="font-semibold text-gray-900">🎯 Nova Métrica - "Melhor de 3":</div>
-                          <div>• <strong>Fórmula do Score:</strong> (100 - Consumo) × 1000 + (Soma TAs) × 10 + Serviços</div>
-                          <div>• <strong>Ordem de Classificação:</strong> 1º) Menor Consumo → 2º) Maior TAs → 3º) Maior Serviços</div>
-                          <div>• <strong>⚠️ Critérios Eliminatórios:</strong> Reabertura &gt; 0% ou Falta → vai pro final da fila (score ÷ 10)</div>
+                        <CardDescription className="text-gray-800 text-[10px] font-medium space-y-1">
+                          <div className="font-semibold text-gray-900">🎯 Critérios de Avaliação:</div>
+                          <div>• <strong>Fórmula:</strong> (100 - Consumo) + (TAs × 0.2) + (Serviços × 0.5)</div>
+                          <div>• <strong>Prioridade:</strong> 1º) Consumo → 2º) TAs → 3º) Serviços</div>
+                          <div>• <strong>⚠️ Eliminatórios:</strong> Reabertura &gt; 0%, Falta ou &lt; {technicianExcellenceRanking.stats.minimumServices} serviços → (score ÷ 10)</div>
                           <div>• <strong>🏆 Destaque:</strong> Top 3 recebem medalhas (ouro, prata, bronze)</div>
-                          <div>• Excluídos da contagem: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto</div>
+                          <div>• Excluídos: Corretiva, Corretiva BL, Entrega emergencial Controle Remoto</div>
                         </CardDescription>
                       </div>
+
+                      {/* Coluna Meio: Estatísticas e Comparativos */}
+                      <div className="flex-shrink-0 lg:w-[360px]">
+                        {/* Estatísticas do Mês */}
+                        <div className="bg-blue-50/80 p-3 rounded-lg mb-2 border-2 border-blue-300/70 shadow-sm">
+                          <div className="font-semibold text-gray-900 mb-2 text-xs">
+                            📊 Estatísticas do Mês ({selectedMonth}/{selectedYear}):
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-gray-700 font-medium">Total de Serviços:</span>
+                              <span className="font-bold text-blue-700">{technicianExcellenceRanking.stats.totalServices}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-700 font-medium">Técnicos Ativos:</span>
+                              <span className="font-bold text-blue-700">{technicianExcellenceRanking.stats.numTechnicians}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-700 font-medium">Média/Técnico:</span>
+                              <span className="font-bold text-green-700">{technicianExcellenceRanking.stats.avgPerTechnician} serv</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-700 font-medium">Mínimo (70%):</span>
+                              <span className="font-bold text-orange-700">{technicianExcellenceRanking.stats.minimumServices} serv</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Análise Comparativa */}
+                        <div className="bg-gradient-to-r from-green-50/80 to-purple-50/80 p-3 rounded-lg border-2 border-green-300/70 shadow-sm">
+                          <div className="font-semibold text-gray-900 mb-2 text-xs">
+                            📈 Análise Comparativa:
+                          </div>
+                          <div className="space-y-2 text-xs">
+                            {/* vs Mês Anterior */}
+                            <div className="flex items-center justify-between">
+                              <span className="text-gray-700 font-medium">vs {String(technicianExcellenceRanking.stats.comparison.previousMonth).padStart(2, '0')}/{technicianExcellenceRanking.stats.comparison.previousYear}:</span>
+                              <span className={`font-bold flex items-center gap-1 ${technicianExcellenceRanking.stats.comparison.isIncrease ? 'text-green-700' : 'text-red-700'}`}>
+                                {technicianExcellenceRanking.stats.comparison.isIncrease ? '↑' : '↓'} {Math.abs(technicianExcellenceRanking.stats.comparison.value).toFixed(2)}%
+                                <span className="text-gray-500 text-[10px]">
+                                  ({technicianExcellenceRanking.stats.comparison.previous} → {technicianExcellenceRanking.stats.totalServices})
+                                </span>
+                              </span>
+                            </div>
+                            
+                            {/* Meta do Mês */}
+                            <div className="flex items-center justify-between">
+                              <span className="text-gray-700 font-medium">🎯 Meta do Mês:</span>
+                              <span className="font-bold text-blue-700">
+                                {technicianExcellenceRanking.stats.goal.target} serv [{technicianExcellenceRanking.stats.goal.progress.toFixed(2)}%]
+                                {technicianExcellenceRanking.stats.goal.remaining > 0 ? (
+                                  <span className="text-orange-600 ml-1 text-[10px]">⚠️ {technicianExcellenceRanking.stats.goal.remaining}</span>
+                                ) : (
+                                  <span className="text-green-600 ml-1 text-[10px]">✓</span>
+                                )}
+                              </span>
+                            </div>
+                            
+                            {/* Record Histórico */}
+                            {technicianExcellenceRanking.stats.record.value > 0 && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-700 font-medium">🏆 Record (12m):</span>
+                                <span className="font-bold text-purple-700">
+                                  {technicianExcellenceRanking.stats.record.value} serv ({technicianExcellenceRanking.stats.record.month}/{technicianExcellenceRanking.stats.record.year})
+                                  <span className="text-gray-500 ml-1 text-[10px]">[{technicianExcellenceRanking.stats.record.percentage.toFixed(2)}%]</span>
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                       
-                      {/* Checkboxes Compactos por Categoria */}
-                      <div className="flex-1 lg:max-w-2xl">
+                      {/* Coluna Direita: Checkboxes Compactos por Categoria */}
+                      <div className="flex-1 lg:max-w-xl">
                         <div className="text-[10px] font-bold text-gray-900 mb-2">Indicadores por Categoria:</div>
                         <div className="space-y-2">
                           {/* Categoria: REABERTURA */}
@@ -5055,7 +5261,7 @@ export function MetricsOverview() {
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {technicianExcellenceRanking.slice(0, 3).map((tech, index) => {
+                        {technicianExcellenceRanking.ranking.slice(0, 3).map((tech, index) => {
                           const position = index + 1;
                           
                           // Cores das medalhas para Top 3
@@ -5158,7 +5364,7 @@ export function MetricsOverview() {
                           
                           {/* Corpo da Tabela */}
                           <tbody className="divide-y divide-gray-200">
-                            {technicianExcellenceRanking.map((tech, index) => {
+                            {technicianExcellenceRanking.ranking.map((tech, index) => {
                               const position = index + 1;
                               const isTop3 = position <= 3;
                               const isPenalized = tech.isPenalizado;
@@ -5184,7 +5390,6 @@ export function MetricsOverview() {
                                           {position === 1 ? "🥇" : position === 2 ? "🥈" : "🥉"}
                                         </span>
                                       )}
-                                      {isPenalized && <span className="text-red-600">⚠️</span>}
                                       <span>{position}</span>
                                     </div>
                                   </td>
@@ -5199,6 +5404,9 @@ export function MetricsOverview() {
                                         )}
                                         {tech.temFalta && (
                                           <span className="text-[8px] bg-orange-600 text-white px-1.5 py-0.5 rounded-full">Falta</span>
+                                        )}
+                                        {tech.temBaixoVolume && (
+                                          <span className="text-[8px] bg-yellow-600 text-white px-1.5 py-0.5 rounded-full">Vol.</span>
                                         )}
                                       </div>
                                     )}
