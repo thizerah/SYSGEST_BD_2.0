@@ -7878,7 +7878,7 @@ function ImportData() {
       ano: base.ano,
       base_tv: base.base_tv.toLocaleString('pt-BR'),
       base_fibra: base.base_fibra.toLocaleString('pt-BR'),
-      alianca: `${base.alianca.toFixed(2)}%`
+      alianca: `R$ ${base.alianca.toFixed(2).replace('.', ',')}`
     }));
   };
 
