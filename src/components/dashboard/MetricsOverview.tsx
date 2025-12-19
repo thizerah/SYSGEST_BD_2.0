@@ -3298,10 +3298,12 @@ export function MetricsOverview() {
           <NoDataMessage />
         ) : (
           <>
-        {/* Três quadros lado a lado */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Service Type Time Performance */}
-          <Card className="shadow-md">
+            {/* Grid 2x1: Coluna esquerda com 2 cards empilhados, coluna direita com Otimização */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Coluna Esquerda - 2 cards empilhados */}
+              <div className="space-y-4">
+                {/* Service Type Time Performance - Altura reduzida */}
+                <Card className="shadow-md max-h-[450px] flex flex-col">
             <CardHeader className="pb-3 border-b border-gray-200">
               <CardTitle className="text-lg">
                 <div className="flex items-center space-x-2">
@@ -3315,7 +3317,7 @@ export function MetricsOverview() {
                 Análise do tempo médio de atendimento por tipo de serviço
               </CardDescription>
             </CardHeader>
-            <CardContent className="pt-4">
+            <CardContent className="pt-4 overflow-y-auto flex-1">
               <div className="overflow-x-auto w-full">
                 <Table className="w-full">
                   <TableHeader>
@@ -3630,12 +3632,13 @@ export function MetricsOverview() {
                    </div>
                  )}
                </div>
-             </CardContent>
-          </Card>
-
-          {/* Card de Contagem de Economia de Materiais */}
-          <OptimizationCountCard serviceOrders={tableFilteredServiceOrders} />
-        </div>
+                </CardContent>
+              </Card>
+              </div>
+              
+              {/* Coluna Direita - Otimização de Consumo (altura completa) */}
+              <OptimizationCountCard serviceOrders={tableFilteredServiceOrders} />
+            </div>
           </>
         )}
       </TabsContent>

@@ -2,9 +2,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TrendingUp, TrendingDown, Package, Zap, Trophy, Medal, Award } from "lucide-react";
+import { TrendingUp, TrendingDown, Package, Zap, Trophy, Medal, Award, AlertCircle, DollarSign } from "lucide-react";
 import { useOptimizationCounts } from "@/hooks/useOptimizationCounts";
-import { ServiceOrder } from "@/types";
+import { ServiceOrder, VALID_STATUS } from "@/types";
 import { ProtectedCard } from "@/components/common/ProtectedCard";
 import { useMemo } from "react";
 
@@ -141,6 +141,174 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
     return rankingFinal;
   }, [serviceOrders, volumeOS]);
 
+  // Calcular métricas de consumo excessivo
+  const excessiveConsumption = useMemo(() => {
+    // Filtrar AT CORRETIVA (apenas OSs finalizadas)
+    const atCorretiva = serviceOrders.filter(order => 
+      order.tipo_servico === "Assistência Técnica" && 
+      order.subtipo_servico === "Corretiva" &&
+      VALID_STATUS.includes(order.status)
+    );
+
+    // Filtrar UP/DOWN (apenas OSs finalizadas)
+    const upDown = serviceOrders.filter(order => 
+      order.tipo_servico === "Instalação" && 
+      order.subtipo_servico === "Substituição" &&
+      VALID_STATUS.includes(order.status)
+    );
+
+    // Função para calcular consumo de materiais
+    const calcularConsumo = (orders: ServiceOrder[]) => {
+      let antenas = 0;
+      let cabo = 0;
+      let lnbs = 0;
+
+      orders.forEach(order => {
+        const materiais = order.materiais || [];
+        
+        // Contar antenas (todas as variações)
+        const antena150 = materiais.find(m => m.nome === "ANTENA 150 CM C/ KIT FIXACAO");
+        const antena75 = materiais.find(m => m.nome === "ANTENA 75 CM");
+        const antena90 = materiais.find(m => m.nome === "ANTENA 90CM C/ KIT FIXACAO");
+        const antena60 = materiais.find(m => m.nome === "ANTENA DE 60 CM C/ KIT FIXACAO");
+        antenas += (antena150?.quantidade || 0) + 
+                   (antena75?.quantidade || 0) + 
+                   (antena90?.quantidade || 0) + 
+                   (antena60?.quantidade || 0);
+
+        // Contar cabo (em metros)
+        const caboMaterial = materiais.find(m => m.nome === "CABO COAXIAL RGC06 BOBINA 100METROS");
+        cabo += (caboMaterial?.quantidade || 0);
+
+        // Contar LNBs
+        const lnbfSimples = materiais.find(m => m.nome === "LNBF SIMPLES ANTENA 45/60/90 CM");
+        const lnbfDuplo = materiais.find(m => m.nome === "LNBF DUPLO ANTENA 45/60/90 CM");
+        lnbs += (lnbfSimples?.quantidade || 0) + (lnbfDuplo?.quantidade || 0);
+      });
+
+      return { antenas, cabo, lnbs };
+    };
+
+    // Calcular AT CORRETIVA
+    const atCorretivaVolume = atCorretiva.length;
+    const atCorretivaConsumo = calcularConsumo(atCorretiva);
+    
+    // Gatilhos AT CORRETIVA
+    const atCorretivaGatilhos = {
+      antenas: 12, // 12%
+      cabo: 1000, // 1000%
+      lnbs: 25 // 25%
+    };
+
+    // Calcular métricas AT CORRETIVA
+    const atCorretivaMetrics = {
+      antenas: {
+        volumeOS: atCorretivaVolume,
+        volumeConsumo: atCorretivaConsumo.antenas,
+        pdv: atCorretivaVolume > 0 ? (atCorretivaConsumo.antenas / atCorretivaVolume) * 100 : 0,
+        gatilho: atCorretivaGatilhos.antenas,
+        limitePermitido: Math.floor((atCorretivaVolume * atCorretivaGatilhos.antenas) / 100),
+        quantidadeExcedida: Math.max(0, atCorretivaConsumo.antenas - Math.floor((atCorretivaVolume * atCorretivaGatilhos.antenas) / 100)),
+        valorUnitario: 81.00,
+        totalExcedido: 0
+      },
+      cabo: {
+        volumeOS: atCorretivaVolume,
+        volumeConsumo: atCorretivaConsumo.cabo,
+        pdv: atCorretivaVolume > 0 ? (atCorretivaConsumo.cabo / atCorretivaVolume) * 100 : 0,
+        gatilho: atCorretivaGatilhos.cabo,
+        limitePermitido: Math.floor((atCorretivaVolume * atCorretivaGatilhos.cabo) / 100),
+        quantidadeExcedida: Math.max(0, atCorretivaConsumo.cabo - Math.floor((atCorretivaVolume * atCorretivaGatilhos.cabo) / 100)),
+        valorUnitario: 0.85,
+        totalExcedido: 0
+      },
+      lnbs: {
+        volumeOS: atCorretivaVolume,
+        volumeConsumo: atCorretivaConsumo.lnbs,
+        pdv: atCorretivaVolume > 0 ? (atCorretivaConsumo.lnbs / atCorretivaVolume) * 100 : 0,
+        gatilho: atCorretivaGatilhos.lnbs,
+        limitePermitido: Math.floor((atCorretivaVolume * atCorretivaGatilhos.lnbs) / 100),
+        quantidadeExcedida: Math.max(0, atCorretivaConsumo.lnbs - Math.floor((atCorretivaVolume * atCorretivaGatilhos.lnbs) / 100)),
+        valorUnitario: 17.50,
+        totalExcedido: 0
+      }
+    };
+
+    // Calcular valores totais excedidos AT CORRETIVA
+    atCorretivaMetrics.antenas.totalExcedido = atCorretivaMetrics.antenas.quantidadeExcedida * atCorretivaMetrics.antenas.valorUnitario;
+    atCorretivaMetrics.cabo.totalExcedido = atCorretivaMetrics.cabo.quantidadeExcedida * atCorretivaMetrics.cabo.valorUnitario;
+    atCorretivaMetrics.lnbs.totalExcedido = atCorretivaMetrics.lnbs.quantidadeExcedida * atCorretivaMetrics.lnbs.valorUnitario;
+
+    // Calcular UP/DOWN
+    const upDownVolume = upDown.length;
+    const upDownConsumo = calcularConsumo(upDown);
+    
+    // Gatilhos UP/DOWN
+    const upDownGatilhos = {
+      antenas: 0, // 0%
+      cabo: 1000, // 1000%
+      lnbs: 10 // 10%
+    };
+
+    // Calcular métricas UP/DOWN
+    const upDownMetrics = {
+      antenas: {
+        volumeOS: upDownVolume,
+        volumeConsumo: upDownConsumo.antenas,
+        pdv: upDownVolume > 0 ? (upDownConsumo.antenas / upDownVolume) * 100 : 0,
+        gatilho: upDownGatilhos.antenas,
+        limitePermitido: Math.floor((upDownVolume * upDownGatilhos.antenas) / 100),
+        quantidadeExcedida: Math.max(0, upDownConsumo.antenas - Math.floor((upDownVolume * upDownGatilhos.antenas) / 100)),
+        valorUnitario: 81.00,
+        totalExcedido: 0
+      },
+      cabo: {
+        volumeOS: upDownVolume,
+        volumeConsumo: upDownConsumo.cabo,
+        pdv: upDownVolume > 0 ? (upDownConsumo.cabo / upDownVolume) * 100 : 0,
+        gatilho: upDownGatilhos.cabo,
+        limitePermitido: Math.floor((upDownVolume * upDownGatilhos.cabo) / 100),
+        quantidadeExcedida: Math.max(0, upDownConsumo.cabo - Math.floor((upDownVolume * upDownGatilhos.cabo) / 100)),
+        valorUnitario: 0.85,
+        totalExcedido: 0
+      },
+      lnbs: {
+        volumeOS: upDownVolume,
+        volumeConsumo: upDownConsumo.lnbs,
+        pdv: upDownVolume > 0 ? (upDownConsumo.lnbs / upDownVolume) * 100 : 0,
+        gatilho: upDownGatilhos.lnbs,
+        limitePermitido: Math.floor((upDownVolume * upDownGatilhos.lnbs) / 100),
+        quantidadeExcedida: Math.max(0, upDownConsumo.lnbs - Math.floor((upDownVolume * upDownGatilhos.lnbs) / 100)),
+        valorUnitario: 17.50,
+        totalExcedido: 0
+      }
+    };
+
+    // Calcular valores totais excedidos UP/DOWN
+    upDownMetrics.antenas.totalExcedido = upDownMetrics.antenas.quantidadeExcedida * upDownMetrics.antenas.valorUnitario;
+    upDownMetrics.cabo.totalExcedido = upDownMetrics.cabo.quantidadeExcedida * upDownMetrics.cabo.valorUnitario;
+    upDownMetrics.lnbs.totalExcedido = upDownMetrics.lnbs.quantidadeExcedida * upDownMetrics.lnbs.valorUnitario;
+
+    // Calcular totais
+    const totalAtCorretiva = atCorretivaMetrics.antenas.totalExcedido + 
+                             atCorretivaMetrics.cabo.totalExcedido + 
+                             atCorretivaMetrics.lnbs.totalExcedido;
+    
+    const totalUpDown = upDownMetrics.antenas.totalExcedido + 
+                        upDownMetrics.cabo.totalExcedido + 
+                        upDownMetrics.lnbs.totalExcedido;
+
+    const totalGeral = totalAtCorretiva + totalUpDown;
+
+    return {
+      atCorretiva: atCorretivaMetrics,
+      upDown: upDownMetrics,
+      totalAtCorretiva,
+      totalUpDown,
+      totalGeral
+    };
+  }, [serviceOrders]);
+
   return (
     <Card className="w-full shadow-md">
       <CardHeader className="pb-3 border-b border-gray-200">
@@ -155,9 +323,10 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
       </CardHeader>
       <CardContent className="pt-4">
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="overview">Visão Geral</TabsTrigger>
             <TabsTrigger value="ranking">Ranking</TabsTrigger>
+            <TabsTrigger value="consumo-excessivo">Consumo Excessivo</TabsTrigger>
           </TabsList>
           
           <TabsContent value="overview" className="mt-3">
@@ -504,6 +673,467 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                   <p className="text-sm">Nenhum técnico encontrado com dados de otimização</p>
                 </div>
               )}
+            </div>
+          </TabsContent>
+
+          {/* Consumo Excessivo Tab */}
+          <TabsContent value="consumo-excessivo" className="mt-3">
+            <div className="space-y-4">
+              {/* Tabela AT CORRETIVA */}
+              <div className="bg-white rounded-lg border-2 border-red-200 shadow-md overflow-hidden">
+                <div className="bg-gradient-to-r from-red-50 to-rose-50 px-4 py-3 border-b border-red-200">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-red-600" />
+                    <h3 className="font-bold text-base text-red-900">AT CORRETIVA</h3>
+                  </div>
+                  <p className="text-xs text-red-700 mt-1">Assistência Técnica • Corretiva</p>
+                </div>
+                
+                <div className="overflow-x-auto">
+                  <Table className="w-full">
+                    <TableHeader>
+                      <TableRow className="bg-red-50/50 hover:bg-red-50/50">
+                        <TableHead className="font-semibold text-gray-700 text-xs px-3">Material</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Vol OS</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Vol Consumo</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">%PDV</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Gatilho</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Qtd Exc</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Valor Unit</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Total Exc</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {/* Antenas */}
+                      <TableRow className={`border-l-4 border-l-red-500 ${excessiveConsumption.atCorretiva.antenas.quantidadeExcedida > 0 ? 'bg-red-50' : 'bg-white'}`}>
+                        <TableCell className="font-semibold text-sm px-3">Antenas</TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            {excessiveConsumption.atCorretiva.antenas.volumeOS}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {excessiveConsumption.atCorretiva.antenas.volumeConsumo}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.atCorretiva.antenas.pdv > excessiveConsumption.atCorretiva.antenas.gatilho 
+                              ? 'bg-red-500' 
+                              : excessiveConsumption.atCorretiva.antenas.pdv > excessiveConsumption.atCorretiva.antenas.gatilho * 0.8 
+                                ? 'bg-yellow-500' 
+                                : 'bg-green-500'
+                          } text-white`}>
+                            {excessiveConsumption.atCorretiva.antenas.pdv.toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold text-gray-700">
+                          {excessiveConsumption.atCorretiva.antenas.gatilho}%
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.atCorretiva.antenas.quantidadeExcedida > 0 
+                              ? 'bg-red-600 text-white' 
+                              : 'bg-green-600 text-white'
+                          }`}>
+                            {excessiveConsumption.atCorretiva.antenas.quantidadeExcedida}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 text-gray-600">
+                          {formatBRL(excessiveConsumption.atCorretiva.antenas.valorUnitario)}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <span className={`font-bold ${
+                            excessiveConsumption.atCorretiva.antenas.totalExcedido >= 500 
+                              ? 'text-red-600' 
+                              : excessiveConsumption.atCorretiva.antenas.totalExcedido > 0 
+                                ? 'text-yellow-600' 
+                                : 'text-green-600'
+                          }`}>
+                            {formatBRL(excessiveConsumption.atCorretiva.antenas.totalExcedido)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Cabo */}
+                      <TableRow className={`border-l-4 border-l-red-500 ${excessiveConsumption.atCorretiva.cabo.quantidadeExcedida > 0 ? 'bg-red-50' : 'bg-gray-50/50'}`}>
+                        <TableCell className="font-semibold text-sm px-3">Cabo</TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            {excessiveConsumption.atCorretiva.cabo.volumeOS}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {excessiveConsumption.atCorretiva.cabo.volumeConsumo}m
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.atCorretiva.cabo.pdv > excessiveConsumption.atCorretiva.cabo.gatilho 
+                              ? 'bg-red-500' 
+                              : excessiveConsumption.atCorretiva.cabo.pdv > excessiveConsumption.atCorretiva.cabo.gatilho * 0.8 
+                                ? 'bg-yellow-500' 
+                                : 'bg-green-500'
+                          } text-white`}>
+                            {excessiveConsumption.atCorretiva.cabo.pdv.toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold text-gray-700">
+                          {excessiveConsumption.atCorretiva.cabo.gatilho}%
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.atCorretiva.cabo.quantidadeExcedida > 0 
+                              ? 'bg-red-600 text-white' 
+                              : 'bg-green-600 text-white'
+                          }`}>
+                            {excessiveConsumption.atCorretiva.cabo.quantidadeExcedida}m
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 text-gray-600">
+                          {formatBRL(excessiveConsumption.atCorretiva.cabo.valorUnitario)}/m
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <span className={`font-bold ${
+                            excessiveConsumption.atCorretiva.cabo.totalExcedido >= 500 
+                              ? 'text-red-600' 
+                              : excessiveConsumption.atCorretiva.cabo.totalExcedido > 0 
+                                ? 'text-yellow-600' 
+                                : 'text-green-600'
+                          }`}>
+                            {formatBRL(excessiveConsumption.atCorretiva.cabo.totalExcedido)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* LNBs */}
+                      <TableRow className={`border-l-4 border-l-red-500 ${excessiveConsumption.atCorretiva.lnbs.quantidadeExcedida > 0 ? 'bg-red-50' : 'bg-white'}`}>
+                        <TableCell className="font-semibold text-sm px-3">LNBs</TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            {excessiveConsumption.atCorretiva.lnbs.volumeOS}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {excessiveConsumption.atCorretiva.lnbs.volumeConsumo}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.atCorretiva.lnbs.pdv > excessiveConsumption.atCorretiva.lnbs.gatilho 
+                              ? 'bg-red-500' 
+                              : excessiveConsumption.atCorretiva.lnbs.pdv > excessiveConsumption.atCorretiva.lnbs.gatilho * 0.8 
+                                ? 'bg-yellow-500' 
+                                : 'bg-green-500'
+                          } text-white`}>
+                            {excessiveConsumption.atCorretiva.lnbs.pdv.toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold text-gray-700">
+                          {excessiveConsumption.atCorretiva.lnbs.gatilho}%
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.atCorretiva.lnbs.quantidadeExcedida > 0 
+                              ? 'bg-red-600 text-white' 
+                              : 'bg-green-600 text-white'
+                          }`}>
+                            {excessiveConsumption.atCorretiva.lnbs.quantidadeExcedida}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 text-gray-600">
+                          {formatBRL(excessiveConsumption.atCorretiva.lnbs.valorUnitario)}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <span className={`font-bold ${
+                            excessiveConsumption.atCorretiva.lnbs.totalExcedido >= 500 
+                              ? 'text-red-600' 
+                              : excessiveConsumption.atCorretiva.lnbs.totalExcedido > 0 
+                                ? 'text-yellow-600' 
+                                : 'text-green-600'
+                          }`}>
+                            {formatBRL(excessiveConsumption.atCorretiva.lnbs.totalExcedido)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Total AT CORRETIVA */}
+                      <TableRow className="bg-gradient-to-r from-red-100 to-rose-100 border-t-2 border-red-300">
+                        <TableCell colSpan={7} className="text-right font-bold text-sm px-3 text-red-900">
+                          TOTAL AT CORRETIVA
+                        </TableCell>
+                        <TableCell className="text-center text-base px-2">
+                          <span className="font-bold text-red-700">
+                            {formatBRL(excessiveConsumption.totalAtCorretiva)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* Tabela UP/DOWN */}
+              <div className="bg-white rounded-lg border-2 border-orange-200 shadow-md overflow-hidden">
+                <div className="bg-gradient-to-r from-orange-50 to-amber-50 px-4 py-3 border-b border-orange-200">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-orange-600" />
+                    <h3 className="font-bold text-base text-orange-900">UP / DOWN</h3>
+                  </div>
+                  <p className="text-xs text-orange-700 mt-1">Instalação • Substituição</p>
+                </div>
+                
+                <div className="overflow-x-auto">
+                  <Table className="w-full">
+                    <TableHeader>
+                      <TableRow className="bg-orange-50/50 hover:bg-orange-50/50">
+                        <TableHead className="font-semibold text-gray-700 text-xs px-3">Material</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Vol OS</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Vol Consumo</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">%PDV</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Gatilho</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Qtd Exc</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Valor Unit</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Total Exc</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {/* Antenas */}
+                      <TableRow className={`border-l-4 border-l-orange-500 ${excessiveConsumption.upDown.antenas.quantidadeExcedida > 0 ? 'bg-orange-50' : 'bg-white'}`}>
+                        <TableCell className="font-semibold text-sm px-3">Antenas</TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            {excessiveConsumption.upDown.antenas.volumeOS}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {excessiveConsumption.upDown.antenas.volumeConsumo}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.upDown.antenas.pdv > excessiveConsumption.upDown.antenas.gatilho 
+                              ? 'bg-red-500' 
+                              : excessiveConsumption.upDown.antenas.pdv > excessiveConsumption.upDown.antenas.gatilho * 0.8 
+                                ? 'bg-yellow-500' 
+                                : 'bg-green-500'
+                          } text-white`}>
+                            {excessiveConsumption.upDown.antenas.pdv.toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold text-gray-700">
+                          {excessiveConsumption.upDown.antenas.gatilho}%
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.upDown.antenas.quantidadeExcedida > 0 
+                              ? 'bg-red-600 text-white' 
+                              : 'bg-green-600 text-white'
+                          }`}>
+                            {excessiveConsumption.upDown.antenas.quantidadeExcedida}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 text-gray-600">
+                          {formatBRL(excessiveConsumption.upDown.antenas.valorUnitario)}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <span className={`font-bold ${
+                            excessiveConsumption.upDown.antenas.totalExcedido >= 500 
+                              ? 'text-red-600' 
+                              : excessiveConsumption.upDown.antenas.totalExcedido > 0 
+                                ? 'text-yellow-600' 
+                                : 'text-green-600'
+                          }`}>
+                            {formatBRL(excessiveConsumption.upDown.antenas.totalExcedido)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Cabo */}
+                      <TableRow className={`border-l-4 border-l-orange-500 ${excessiveConsumption.upDown.cabo.quantidadeExcedida > 0 ? 'bg-orange-50' : 'bg-gray-50/50'}`}>
+                        <TableCell className="font-semibold text-sm px-3">Cabo</TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            {excessiveConsumption.upDown.cabo.volumeOS}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {excessiveConsumption.upDown.cabo.volumeConsumo}m
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.upDown.cabo.pdv > excessiveConsumption.upDown.cabo.gatilho 
+                              ? 'bg-red-500' 
+                              : excessiveConsumption.upDown.cabo.pdv > excessiveConsumption.upDown.cabo.gatilho * 0.8 
+                                ? 'bg-yellow-500' 
+                                : 'bg-green-500'
+                          } text-white`}>
+                            {excessiveConsumption.upDown.cabo.pdv.toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold text-gray-700">
+                          {excessiveConsumption.upDown.cabo.gatilho}%
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.upDown.cabo.quantidadeExcedida > 0 
+                              ? 'bg-red-600 text-white' 
+                              : 'bg-green-600 text-white'
+                          }`}>
+                            {excessiveConsumption.upDown.cabo.quantidadeExcedida}m
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 text-gray-600">
+                          {formatBRL(excessiveConsumption.upDown.cabo.valorUnitario)}/m
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <span className={`font-bold ${
+                            excessiveConsumption.upDown.cabo.totalExcedido >= 500 
+                              ? 'text-red-600' 
+                              : excessiveConsumption.upDown.cabo.totalExcedido > 0 
+                                ? 'text-yellow-600' 
+                                : 'text-green-600'
+                          }`}>
+                            {formatBRL(excessiveConsumption.upDown.cabo.totalExcedido)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* LNBs */}
+                      <TableRow className={`border-l-4 border-l-orange-500 ${excessiveConsumption.upDown.lnbs.quantidadeExcedida > 0 ? 'bg-orange-50' : 'bg-white'}`}>
+                        <TableCell className="font-semibold text-sm px-3">LNBs</TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            {excessiveConsumption.upDown.lnbs.volumeOS}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {excessiveConsumption.upDown.lnbs.volumeConsumo}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.upDown.lnbs.pdv > excessiveConsumption.upDown.lnbs.gatilho 
+                              ? 'bg-red-500' 
+                              : excessiveConsumption.upDown.lnbs.pdv > excessiveConsumption.upDown.lnbs.gatilho * 0.8 
+                                ? 'bg-yellow-500' 
+                                : 'bg-green-500'
+                          } text-white`}>
+                            {excessiveConsumption.upDown.lnbs.pdv.toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold text-gray-700">
+                          {excessiveConsumption.upDown.lnbs.gatilho}%
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <Badge className={`${
+                            excessiveConsumption.upDown.lnbs.quantidadeExcedida > 0 
+                              ? 'bg-red-600 text-white' 
+                              : 'bg-green-600 text-white'
+                          }`}>
+                            {excessiveConsumption.upDown.lnbs.quantidadeExcedida}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 text-gray-600">
+                          {formatBRL(excessiveConsumption.upDown.lnbs.valorUnitario)}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2">
+                          <span className={`font-bold ${
+                            excessiveConsumption.upDown.lnbs.totalExcedido >= 500 
+                              ? 'text-red-600' 
+                              : excessiveConsumption.upDown.lnbs.totalExcedido > 0 
+                                ? 'text-yellow-600' 
+                                : 'text-green-600'
+                          }`}>
+                            {formatBRL(excessiveConsumption.upDown.lnbs.totalExcedido)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Total UP/DOWN */}
+                      <TableRow className="bg-gradient-to-r from-orange-100 to-amber-100 border-t-2 border-orange-300">
+                        <TableCell colSpan={7} className="text-right font-bold text-sm px-3 text-orange-900">
+                          TOTAL UP / DOWN
+                        </TableCell>
+                        <TableCell className="text-center text-base px-2">
+                          <span className="font-bold text-orange-700">
+                            {formatBRL(excessiveConsumption.totalUpDown)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* Card de Total Geral - Protegido */}
+              <ProtectedCard 
+                title="Valor Total do Consumo Excessivo"
+                storageKey="valor-consumo-excessivo"
+                className="mt-4"
+              >
+                <div className={`p-6 rounded-xl border-2 shadow-lg ${
+                  excessiveConsumption.totalGeral >= 2000 
+                    ? 'bg-gradient-to-br from-red-50 to-rose-50 border-red-300' 
+                    : excessiveConsumption.totalGeral > 0 
+                      ? 'bg-gradient-to-br from-yellow-50 to-amber-50 border-yellow-300' 
+                      : 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-300'
+                }`}>
+                  <div className="flex items-center justify-center gap-3 mb-3">
+                    <div className={`p-3 rounded-full ${
+                      excessiveConsumption.totalGeral >= 2000 
+                        ? 'bg-red-100' 
+                        : excessiveConsumption.totalGeral > 0 
+                          ? 'bg-yellow-100' 
+                          : 'bg-green-100'
+                    }`}>
+                      <DollarSign className={`h-8 w-8 ${
+                        excessiveConsumption.totalGeral >= 2000 
+                          ? 'text-red-600' 
+                          : excessiveConsumption.totalGeral > 0 
+                            ? 'text-yellow-600' 
+                            : 'text-green-600'
+                      }`} />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-800">Total Geral do Período</h3>
+                  </div>
+                  <div className="text-center">
+                    <div className={`text-4xl font-bold mb-2 ${
+                      excessiveConsumption.totalGeral >= 2000 
+                        ? 'text-red-600' 
+                        : excessiveConsumption.totalGeral > 0 
+                          ? 'text-yellow-600' 
+                          : 'text-green-600'
+                    }`}>
+                      {formatBRL(excessiveConsumption.totalGeral)}
+                    </div>
+                    <p className="text-sm text-gray-600 mb-3">
+                      AT CORRETIVA + UP / DOWN
+                    </p>
+                    <div className="flex justify-center gap-4 text-xs text-gray-600">
+                      <div className="flex items-center gap-1">
+                        <span className="font-semibold">AT CORRETIVA:</span>
+                        <span className="text-red-700 font-bold">{formatBRL(excessiveConsumption.totalAtCorretiva)}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="font-semibold">UP / DOWN:</span>
+                        <span className="text-orange-700 font-bold">{formatBRL(excessiveConsumption.totalUpDown)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </ProtectedCard>
+
+              {/* Legenda */}
+              <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <h4 className="font-semibold text-sm text-blue-900 mb-2 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" />
+                  Legenda
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-blue-800">
+                  <div><span className="font-semibold">Vol OS:</span> Volume de OSs finalizadas no período</div>
+                  <div><span className="font-semibold">Vol Consumo:</span> Total de materiais consumidos</div>
+                  <div><span className="font-semibold">%PDV:</span> (Vol Consumo ÷ Vol OS) × 100</div>
+                  <div><span className="font-semibold">Gatilho:</span> Limite percentual permitido</div>
+                  <div><span className="font-semibold">Qtd Exc:</span> Quantidade excedida além do gatilho</div>
+                  <div><span className="font-semibold">Total Exc:</span> Valor total do material excedido</div>
+                </div>
+              </div>
             </div>
           </TabsContent>
         </Tabs>
