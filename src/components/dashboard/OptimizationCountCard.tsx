@@ -699,13 +699,11 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">%PDV</TableHead>
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Gatilho</TableHead>
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Qtd Exc</TableHead>
-                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Valor Unit</TableHead>
-                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Total Exc</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {/* Antenas */}
-                      <TableRow className={`border-l-4 border-l-red-500 ${excessiveConsumption.atCorretiva.antenas.quantidadeExcedida > 0 ? 'bg-red-50' : 'bg-white'}`}>
+                      <TableRow className={`${excessiveConsumption.atCorretiva.antenas.quantidadeExcedida > 0 ? 'bg-red-50' : 'bg-white'}`}>
                         <TableCell className="font-semibold text-sm px-3">Antenas</TableCell>
                         <TableCell className="text-center text-sm px-2">
                           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
@@ -738,24 +736,10 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                             {excessiveConsumption.atCorretiva.antenas.quantidadeExcedida}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-center text-sm px-2 text-gray-600">
-                          {formatBRL(excessiveConsumption.atCorretiva.antenas.valorUnitario)}
-                        </TableCell>
-                        <TableCell className="text-center text-sm px-2">
-                          <span className={`font-bold ${
-                            excessiveConsumption.atCorretiva.antenas.totalExcedido >= 500 
-                              ? 'text-red-600' 
-                              : excessiveConsumption.atCorretiva.antenas.totalExcedido > 0 
-                                ? 'text-yellow-600' 
-                                : 'text-green-600'
-                          }`}>
-                            {formatBRL(excessiveConsumption.atCorretiva.antenas.totalExcedido)}
-                          </span>
-                        </TableCell>
                       </TableRow>
 
                       {/* Cabo */}
-                      <TableRow className={`border-l-4 border-l-red-500 ${excessiveConsumption.atCorretiva.cabo.quantidadeExcedida > 0 ? 'bg-red-50' : 'bg-gray-50/50'}`}>
+                      <TableRow className={`${excessiveConsumption.atCorretiva.cabo.quantidadeExcedida > 0 ? 'bg-red-50' : 'bg-gray-50/50'}`}>
                         <TableCell className="font-semibold text-sm px-3">Cabo</TableCell>
                         <TableCell className="text-center text-sm px-2">
                           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
@@ -788,24 +772,10 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                             {excessiveConsumption.atCorretiva.cabo.quantidadeExcedida}m
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-center text-sm px-2 text-gray-600">
-                          {formatBRL(excessiveConsumption.atCorretiva.cabo.valorUnitario)}/m
-                        </TableCell>
-                        <TableCell className="text-center text-sm px-2">
-                          <span className={`font-bold ${
-                            excessiveConsumption.atCorretiva.cabo.totalExcedido >= 500 
-                              ? 'text-red-600' 
-                              : excessiveConsumption.atCorretiva.cabo.totalExcedido > 0 
-                                ? 'text-yellow-600' 
-                                : 'text-green-600'
-                          }`}>
-                            {formatBRL(excessiveConsumption.atCorretiva.cabo.totalExcedido)}
-                          </span>
-                        </TableCell>
                       </TableRow>
 
                       {/* LNBs */}
-                      <TableRow className={`border-l-4 border-l-red-500 ${excessiveConsumption.atCorretiva.lnbs.quantidadeExcedida > 0 ? 'bg-red-50' : 'bg-white'}`}>
+                      <TableRow className={`${excessiveConsumption.atCorretiva.lnbs.quantidadeExcedida > 0 ? 'bg-red-50' : 'bg-white'}`}>
                         <TableCell className="font-semibold text-sm px-3">LNBs</TableCell>
                         <TableCell className="text-center text-sm px-2">
                           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
@@ -838,39 +808,13 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                             {excessiveConsumption.atCorretiva.lnbs.quantidadeExcedida}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-center text-sm px-2 text-gray-600">
-                          {formatBRL(excessiveConsumption.atCorretiva.lnbs.valorUnitario)}
-                        </TableCell>
-                        <TableCell className="text-center text-sm px-2">
-                          <span className={`font-bold ${
-                            excessiveConsumption.atCorretiva.lnbs.totalExcedido >= 500 
-                              ? 'text-red-600' 
-                              : excessiveConsumption.atCorretiva.lnbs.totalExcedido > 0 
-                                ? 'text-yellow-600' 
-                                : 'text-green-600'
-                          }`}>
-                            {formatBRL(excessiveConsumption.atCorretiva.lnbs.totalExcedido)}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-
-                      {/* Total AT CORRETIVA */}
-                      <TableRow className="bg-gradient-to-r from-red-100 to-rose-100 border-t-2 border-red-300">
-                        <TableCell colSpan={7} className="text-right font-bold text-sm px-3 text-red-900">
-                          TOTAL AT CORRETIVA
-                        </TableCell>
-                        <TableCell className="text-center text-base px-2">
-                          <span className="font-bold text-red-700">
-                            {formatBRL(excessiveConsumption.totalAtCorretiva)}
-                          </span>
-                        </TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
                 </div>
               </div>
 
-              {/* Tabela UP/DOWN */}
+              {/* Tabela UP / DOWN */}
               <div className="bg-white rounded-lg border-2 border-orange-200 shadow-md overflow-hidden">
                 <div className="bg-gradient-to-r from-orange-50 to-amber-50 px-4 py-3 border-b border-orange-200">
                   <div className="flex items-center gap-2">
@@ -890,13 +834,11 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">%PDV</TableHead>
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Gatilho</TableHead>
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Qtd Exc</TableHead>
-                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Valor Unit</TableHead>
-                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Total Exc</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {/* Antenas */}
-                      <TableRow className={`border-l-4 border-l-orange-500 ${excessiveConsumption.upDown.antenas.quantidadeExcedida > 0 ? 'bg-orange-50' : 'bg-white'}`}>
+                      <TableRow className={`${excessiveConsumption.upDown.antenas.quantidadeExcedida > 0 ? 'bg-orange-50' : 'bg-white'}`}>
                         <TableCell className="font-semibold text-sm px-3">Antenas</TableCell>
                         <TableCell className="text-center text-sm px-2">
                           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
@@ -929,24 +871,10 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                             {excessiveConsumption.upDown.antenas.quantidadeExcedida}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-center text-sm px-2 text-gray-600">
-                          {formatBRL(excessiveConsumption.upDown.antenas.valorUnitario)}
-                        </TableCell>
-                        <TableCell className="text-center text-sm px-2">
-                          <span className={`font-bold ${
-                            excessiveConsumption.upDown.antenas.totalExcedido >= 500 
-                              ? 'text-red-600' 
-                              : excessiveConsumption.upDown.antenas.totalExcedido > 0 
-                                ? 'text-yellow-600' 
-                                : 'text-green-600'
-                          }`}>
-                            {formatBRL(excessiveConsumption.upDown.antenas.totalExcedido)}
-                          </span>
-                        </TableCell>
                       </TableRow>
 
                       {/* Cabo */}
-                      <TableRow className={`border-l-4 border-l-orange-500 ${excessiveConsumption.upDown.cabo.quantidadeExcedida > 0 ? 'bg-orange-50' : 'bg-gray-50/50'}`}>
+                      <TableRow className={`${excessiveConsumption.upDown.cabo.quantidadeExcedida > 0 ? 'bg-orange-50' : 'bg-gray-50/50'}`}>
                         <TableCell className="font-semibold text-sm px-3">Cabo</TableCell>
                         <TableCell className="text-center text-sm px-2">
                           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
@@ -979,24 +907,10 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                             {excessiveConsumption.upDown.cabo.quantidadeExcedida}m
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-center text-sm px-2 text-gray-600">
-                          {formatBRL(excessiveConsumption.upDown.cabo.valorUnitario)}/m
-                        </TableCell>
-                        <TableCell className="text-center text-sm px-2">
-                          <span className={`font-bold ${
-                            excessiveConsumption.upDown.cabo.totalExcedido >= 500 
-                              ? 'text-red-600' 
-                              : excessiveConsumption.upDown.cabo.totalExcedido > 0 
-                                ? 'text-yellow-600' 
-                                : 'text-green-600'
-                          }`}>
-                            {formatBRL(excessiveConsumption.upDown.cabo.totalExcedido)}
-                          </span>
-                        </TableCell>
                       </TableRow>
 
                       {/* LNBs */}
-                      <TableRow className={`border-l-4 border-l-orange-500 ${excessiveConsumption.upDown.lnbs.quantidadeExcedida > 0 ? 'bg-orange-50' : 'bg-white'}`}>
+                      <TableRow className={`${excessiveConsumption.upDown.lnbs.quantidadeExcedida > 0 ? 'bg-orange-50' : 'bg-white'}`}>
                         <TableCell className="font-semibold text-sm px-3">LNBs</TableCell>
                         <TableCell className="text-center text-sm px-2">
                           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
@@ -1029,71 +943,213 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                             {excessiveConsumption.upDown.lnbs.quantidadeExcedida}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-center text-sm px-2 text-gray-600">
-                          {formatBRL(excessiveConsumption.upDown.lnbs.valorUnitario)}
-                        </TableCell>
-                        <TableCell className="text-center text-sm px-2">
-                          <span className={`font-bold ${
-                            excessiveConsumption.upDown.lnbs.totalExcedido >= 500 
-                              ? 'text-red-600' 
-                              : excessiveConsumption.upDown.lnbs.totalExcedido > 0 
-                                ? 'text-yellow-600' 
-                                : 'text-green-600'
-                          }`}>
-                            {formatBRL(excessiveConsumption.upDown.lnbs.totalExcedido)}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-
-                      {/* Total UP/DOWN */}
-                      <TableRow className="bg-gradient-to-r from-orange-100 to-amber-100 border-t-2 border-orange-300">
-                        <TableCell colSpan={7} className="text-right font-bold text-sm px-3 text-orange-900">
-                          TOTAL UP / DOWN
-                        </TableCell>
-                        <TableCell className="text-center text-base px-2">
-                          <span className="font-bold text-orange-700">
-                            {formatBRL(excessiveConsumption.totalUpDown)}
-                          </span>
-                        </TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
                 </div>
               </div>
 
-              {/* Card de Total Geral - Protegido */}
+              {/* Detalhamento Financeiro - Protegido */}
               <ProtectedCard 
-                title="Valor Total do Consumo Excessivo"
-                storageKey="valor-consumo-excessivo"
+                title="Detalhamento Financeiro - Consumo Excessivo"
+                storageKey="consumo-excessivo-financeiro"
                 className="mt-4"
               >
-                <div className={`p-6 rounded-xl border-2 shadow-lg ${
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Card 1: AT CORRETIVA */}
+                  <div className="bg-white rounded-lg border-2 border-red-300 shadow-md overflow-hidden">
+                    <div className="bg-gradient-to-r from-red-50 to-rose-50 px-4 py-3 border-b border-red-200">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-5 w-5 text-red-600" />
+                        <h3 className="font-bold text-sm text-red-900">AT CORRETIVA</h3>
+                      </div>
+                      <p className="text-xs text-red-700 mt-1">Detalhamento Financeiro</p>
+                    </div>
+                    <div className="p-4">
+                      <Table className="w-full">
+                        <TableHeader>
+                          <TableRow className="bg-red-50/30 hover:bg-red-50/30">
+                            <TableHead className="text-xs font-semibold text-gray-700 px-2">Material</TableHead>
+                            <TableHead className="text-center text-xs font-semibold text-gray-700 px-2">Valor Unit</TableHead>
+                            <TableHead className="text-center text-xs font-semibold text-gray-700 px-2">Total Exc</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          <TableRow>
+                            <TableCell className="text-sm font-semibold px-2">Antenas</TableCell>
+                            <TableCell className="text-center text-sm px-2 text-gray-600">
+                              {formatBRL(excessiveConsumption.atCorretiva.antenas.valorUnitario)}
+                            </TableCell>
+                            <TableCell className="text-center text-sm px-2">
+                              <span className={`font-bold ${
+                                excessiveConsumption.atCorretiva.antenas.totalExcedido >= 500 
+                                  ? 'text-red-600' 
+                                  : excessiveConsumption.atCorretiva.antenas.totalExcedido > 0 
+                                    ? 'text-yellow-600' 
+                                    : 'text-green-600'
+                              }`}>
+                                {formatBRL(excessiveConsumption.atCorretiva.antenas.totalExcedido)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                          <TableRow className="bg-gray-50/50">
+                            <TableCell className="text-sm font-semibold px-2">Cabo</TableCell>
+                            <TableCell className="text-center text-sm px-2 text-gray-600">
+                              {formatBRL(excessiveConsumption.atCorretiva.cabo.valorUnitario)}/m
+                            </TableCell>
+                            <TableCell className="text-center text-sm px-2">
+                              <span className={`font-bold ${
+                                excessiveConsumption.atCorretiva.cabo.totalExcedido >= 500 
+                                  ? 'text-red-600' 
+                                  : excessiveConsumption.atCorretiva.cabo.totalExcedido > 0 
+                                    ? 'text-yellow-600' 
+                                    : 'text-green-600'
+                              }`}>
+                                {formatBRL(excessiveConsumption.atCorretiva.cabo.totalExcedido)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell className="text-sm font-semibold px-2">LNBs</TableCell>
+                            <TableCell className="text-center text-sm px-2 text-gray-600">
+                              {formatBRL(excessiveConsumption.atCorretiva.lnbs.valorUnitario)}
+                            </TableCell>
+                            <TableCell className="text-center text-sm px-2">
+                              <span className={`font-bold ${
+                                excessiveConsumption.atCorretiva.lnbs.totalExcedido >= 500 
+                                  ? 'text-red-600' 
+                                  : excessiveConsumption.atCorretiva.lnbs.totalExcedido > 0 
+                                    ? 'text-yellow-600' 
+                                    : 'text-green-600'
+                              }`}>
+                                {formatBRL(excessiveConsumption.atCorretiva.lnbs.totalExcedido)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                          <TableRow className="bg-gradient-to-r from-red-100 to-rose-100 border-t-2 border-red-300">
+                            <TableCell colSpan={2} className="text-right font-bold text-sm px-2 text-red-900">
+                              TOTAL
+                            </TableCell>
+                            <TableCell className="text-center text-base px-2">
+                              <span className="font-bold text-red-700">
+                                {formatBRL(excessiveConsumption.totalAtCorretiva)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+
+                  {/* Card 2: UP / DOWN */}
+                  <div className="bg-white rounded-lg border-2 border-orange-300 shadow-md overflow-hidden">
+                    <div className="bg-gradient-to-r from-orange-50 to-amber-50 px-4 py-3 border-b border-orange-200">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-5 w-5 text-orange-600" />
+                        <h3 className="font-bold text-sm text-orange-900">UP / DOWN</h3>
+                      </div>
+                      <p className="text-xs text-orange-700 mt-1">Detalhamento Financeiro</p>
+                    </div>
+                    <div className="p-4">
+                      <Table className="w-full">
+                        <TableHeader>
+                          <TableRow className="bg-orange-50/30 hover:bg-orange-50/30">
+                            <TableHead className="text-xs font-semibold text-gray-700 px-2">Material</TableHead>
+                            <TableHead className="text-center text-xs font-semibold text-gray-700 px-2">Valor Unit</TableHead>
+                            <TableHead className="text-center text-xs font-semibold text-gray-700 px-2">Total Exc</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          <TableRow>
+                            <TableCell className="text-sm font-semibold px-2">Antenas</TableCell>
+                            <TableCell className="text-center text-sm px-2 text-gray-600">
+                              {formatBRL(excessiveConsumption.upDown.antenas.valorUnitario)}
+                            </TableCell>
+                            <TableCell className="text-center text-sm px-2">
+                              <span className={`font-bold ${
+                                excessiveConsumption.upDown.antenas.totalExcedido >= 500 
+                                  ? 'text-red-600' 
+                                  : excessiveConsumption.upDown.antenas.totalExcedido > 0 
+                                    ? 'text-yellow-600' 
+                                    : 'text-green-600'
+                              }`}>
+                                {formatBRL(excessiveConsumption.upDown.antenas.totalExcedido)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                          <TableRow className="bg-gray-50/50">
+                            <TableCell className="text-sm font-semibold px-2">Cabo</TableCell>
+                            <TableCell className="text-center text-sm px-2 text-gray-600">
+                              {formatBRL(excessiveConsumption.upDown.cabo.valorUnitario)}/m
+                            </TableCell>
+                            <TableCell className="text-center text-sm px-2">
+                              <span className={`font-bold ${
+                                excessiveConsumption.upDown.cabo.totalExcedido >= 500 
+                                  ? 'text-red-600' 
+                                  : excessiveConsumption.upDown.cabo.totalExcedido > 0 
+                                    ? 'text-yellow-600' 
+                                    : 'text-green-600'
+                              }`}>
+                                {formatBRL(excessiveConsumption.upDown.cabo.totalExcedido)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell className="text-sm font-semibold px-2">LNBs</TableCell>
+                            <TableCell className="text-center text-sm px-2 text-gray-600">
+                              {formatBRL(excessiveConsumption.upDown.lnbs.valorUnitario)}
+                            </TableCell>
+                            <TableCell className="text-center text-sm px-2">
+                              <span className={`font-bold ${
+                                excessiveConsumption.upDown.lnbs.totalExcedido >= 500 
+                                  ? 'text-red-600' 
+                                  : excessiveConsumption.upDown.lnbs.totalExcedido > 0 
+                                    ? 'text-yellow-600' 
+                                    : 'text-green-600'
+                              }`}>
+                                {formatBRL(excessiveConsumption.upDown.lnbs.totalExcedido)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                          <TableRow className="bg-gradient-to-r from-orange-100 to-amber-100 border-t-2 border-orange-300">
+                            <TableCell colSpan={2} className="text-right font-bold text-sm px-2 text-orange-900">
+                              TOTAL
+                            </TableCell>
+                            <TableCell className="text-center text-base px-2">
+                              <span className="font-bold text-orange-700">
+                                {formatBRL(excessiveConsumption.totalUpDown)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Total Geral */}
+                <div className={`mt-4 rounded-lg border-2 shadow-md overflow-hidden p-4 ${
                   excessiveConsumption.totalGeral >= 2000 
                     ? 'bg-gradient-to-br from-red-50 to-rose-50 border-red-300' 
                     : excessiveConsumption.totalGeral > 0 
                       ? 'bg-gradient-to-br from-yellow-50 to-amber-50 border-yellow-300' 
                       : 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-300'
                 }`}>
-                  <div className="flex items-center justify-center gap-3 mb-3">
-                    <div className={`p-3 rounded-full ${
-                      excessiveConsumption.totalGeral >= 2000 
-                        ? 'bg-red-100' 
-                        : excessiveConsumption.totalGeral > 0 
-                          ? 'bg-yellow-100' 
-                          : 'bg-green-100'
-                    }`}>
-                      <DollarSign className={`h-8 w-8 ${
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-start gap-2">
+                      <DollarSign className={`h-5 w-5 mt-0.5 ${
                         excessiveConsumption.totalGeral >= 2000 
                           ? 'text-red-600' 
                           : excessiveConsumption.totalGeral > 0 
                             ? 'text-yellow-600' 
                             : 'text-green-600'
                       }`} />
+                      <div>
+                        <h3 className="font-bold text-sm text-gray-800">TOTAL GERAL</h3>
+                        <p className="text-xs text-gray-600 mt-0.5">Consumo Excessivo do Período</p>
+                      </div>
                     </div>
-                    <h3 className="text-xl font-bold text-gray-800">Total Geral do Período</h3>
-                  </div>
-                  <div className="text-center">
-                    <div className={`text-4xl font-bold mb-2 ${
+                    <div className={`text-xl font-bold ${
                       excessiveConsumption.totalGeral >= 2000 
                         ? 'text-red-600' 
                         : excessiveConsumption.totalGeral > 0 
@@ -1102,38 +1158,9 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                     }`}>
                       {formatBRL(excessiveConsumption.totalGeral)}
                     </div>
-                    <p className="text-sm text-gray-600 mb-3">
-                      AT CORRETIVA + UP / DOWN
-                    </p>
-                    <div className="flex justify-center gap-4 text-xs text-gray-600">
-                      <div className="flex items-center gap-1">
-                        <span className="font-semibold">AT CORRETIVA:</span>
-                        <span className="text-red-700 font-bold">{formatBRL(excessiveConsumption.totalAtCorretiva)}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <span className="font-semibold">UP / DOWN:</span>
-                        <span className="text-orange-700 font-bold">{formatBRL(excessiveConsumption.totalUpDown)}</span>
-                      </div>
-                    </div>
                   </div>
                 </div>
               </ProtectedCard>
-
-              {/* Legenda */}
-              <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <h4 className="font-semibold text-sm text-blue-900 mb-2 flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4" />
-                  Legenda
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-blue-800">
-                  <div><span className="font-semibold">Vol OS:</span> Volume de OSs finalizadas no período</div>
-                  <div><span className="font-semibold">Vol Consumo:</span> Total de materiais consumidos</div>
-                  <div><span className="font-semibold">%PDV:</span> (Vol Consumo ÷ Vol OS) × 100</div>
-                  <div><span className="font-semibold">Gatilho:</span> Limite percentual permitido</div>
-                  <div><span className="font-semibold">Qtd Exc:</span> Quantidade excedida além do gatilho</div>
-                  <div><span className="font-semibold">Total Exc:</span> Valor total do material excedido</div>
-                </div>
-              </div>
             </div>
           </TabsContent>
         </Tabs>

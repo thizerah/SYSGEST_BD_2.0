@@ -3632,13 +3632,13 @@ export function MetricsOverview() {
                    </div>
                  )}
                </div>
-                </CardContent>
-              </Card>
+             </CardContent>
+          </Card>
               </div>
-              
+
               {/* Coluna Direita - Otimização de Consumo (altura completa) */}
-              <OptimizationCountCard serviceOrders={tableFilteredServiceOrders} />
-            </div>
+          <OptimizationCountCard serviceOrders={tableFilteredServiceOrders} />
+        </div>
           </>
         )}
       </TabsContent>
