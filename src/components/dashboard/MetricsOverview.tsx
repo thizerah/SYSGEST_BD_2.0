@@ -3339,8 +3339,14 @@ export function MetricsOverview() {
                         'Ponto Principal FIBRA'
                       ];
                       
+                      // Filtrar Assistência Técnica FIBRA se ano >= 2026
+                      const anoSelecionado = selectedYear ? parseInt(selectedYear) : new Date().getFullYear();
+                      const typesToShow = anoSelecionado >= 2026 
+                        ? orderedTypes.filter(type => type !== 'Assistência Técnica FIBRA')
+                        : orderedTypes;
+                      
                       // Filtrar e ordenar os tipos que existem nos dados
-                      return orderedTypes
+                      return typesToShow
                         .filter(type => timeMetrics.servicesByType[type])
                         .map((type, index) => {
                           const metrics = timeMetrics.servicesByType[type] as {
@@ -3853,6 +3859,11 @@ export function MetricsOverview() {
                       .filter(([type, data]) => {
                         // Remover "Ponto Principal BL" (Ponto Principal FIBRA)
                         if (type === 'Ponto Principal BL') {
+                          return false;
+                        }
+                        // Remover "Corretiva BL" (Assistência Técnica FIBRA) se ano >= 2026
+                        const anoSelecionado = selectedYear ? parseInt(selectedYear) : new Date().getFullYear();
+                        if (type === 'Corretiva BL' && anoSelecionado >= 2026) {
                           return false;
                         }
                         // Se houver um filtro, mostrar apenas o tipo filtrado
@@ -4568,7 +4579,11 @@ export function MetricsOverview() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-3">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className={`grid grid-cols-1 gap-3 ${
+                    selectedYear && parseInt(selectedYear) >= 2026 
+                      ? 'md:grid-cols-2'  // 2026+: 2 colunas
+                      : 'md:grid-cols-3'  // 2025-: 3 colunas
+                  }`}>
                     {/* Coluna 1: Assistência Técnica TV */}
                   {(() => {
                     // Obter o percentual de TA para Assistência Técnica TV
@@ -4584,30 +4599,56 @@ export function MetricsOverview() {
                       const textColorTA = getTimeAttendanceColorByServiceType("Assistência Técnica TV", taPercentage);
                       const colorClassReab = getReopeningColorByServiceType("Corretiva", reopeningRate);
                     
-                    // Determinar a bonificação com base nas tabelas
+                    // Determinar a bonificação com base nas tabelas e no ano
+                    const anoSelecionado = selectedYear ? parseInt(selectedYear) : new Date().getFullYear();
                     let bonusPercentage = 0;
-                    if (taPercentage < 30) {
-                      bonusPercentage = 0;
-                    } else if (taPercentage < 45) {
-                      if (reopeningRate < 3.5) bonusPercentage = 30;
-                      else if (reopeningRate < 7) bonusPercentage = 20;
-                      else if (reopeningRate < 10.5) bonusPercentage = 10;
-                      else bonusPercentage = 0;
-                    } else if (taPercentage < 60) {
-                      if (reopeningRate < 3.5) bonusPercentage = 40;
-                      else if (reopeningRate < 7) bonusPercentage = 30;
-                      else if (reopeningRate < 10.5) bonusPercentage = 20;
-                      else bonusPercentage = 0;
-                    } else if (taPercentage < 75) {
-                      if (reopeningRate < 3.5) bonusPercentage = 50;
-                      else if (reopeningRate < 7) bonusPercentage = 40;
-                      else if (reopeningRate < 10.5) bonusPercentage = 30;
-                      else bonusPercentage = 0;
+                    
+                    if (anoSelecionado >= 2026) {
+                      // NOVA MÉTRICA (2026+): Sem faixa laranja (10.5%)
+                      if (taPercentage < 30) {
+                        bonusPercentage = 0;
+                      } else if (taPercentage < 45) {
+                        if (reopeningRate < 3.5) bonusPercentage = 30;
+                        else if (reopeningRate < 7) bonusPercentage = 20;
+                        else bonusPercentage = 0;
+                      } else if (taPercentage < 60) {
+                        if (reopeningRate < 3.5) bonusPercentage = 40;
+                        else if (reopeningRate < 7) bonusPercentage = 30;
+                        else bonusPercentage = 0;
+                      } else if (taPercentage < 75) {
+                        if (reopeningRate < 3.5) bonusPercentage = 50;
+                        else if (reopeningRate < 7) bonusPercentage = 40;
+                        else bonusPercentage = 0;
+                      } else {
+                        if (reopeningRate < 3.5) bonusPercentage = 60;
+                        else if (reopeningRate < 7) bonusPercentage = 50;
+                        else bonusPercentage = 0;
+                      }
                     } else {
-                      if (reopeningRate < 3.5) bonusPercentage = 60;
-                      else if (reopeningRate < 7) bonusPercentage = 50;
-                      else if (reopeningRate < 10.5) bonusPercentage = 40;
-                      else bonusPercentage = 0;
+                      // MÉTRICA ANTIGA (2025-): Com faixa laranja (10.5%)
+                      if (taPercentage < 30) {
+                        bonusPercentage = 0;
+                      } else if (taPercentage < 45) {
+                        if (reopeningRate < 3.5) bonusPercentage = 30;
+                        else if (reopeningRate < 7) bonusPercentage = 20;
+                        else if (reopeningRate < 10.5) bonusPercentage = 10;
+                        else bonusPercentage = 0;
+                      } else if (taPercentage < 60) {
+                        if (reopeningRate < 3.5) bonusPercentage = 40;
+                        else if (reopeningRate < 7) bonusPercentage = 30;
+                        else if (reopeningRate < 10.5) bonusPercentage = 20;
+                        else bonusPercentage = 0;
+                      } else if (taPercentage < 75) {
+                        if (reopeningRate < 3.5) bonusPercentage = 50;
+                        else if (reopeningRate < 7) bonusPercentage = 40;
+                        else if (reopeningRate < 10.5) bonusPercentage = 30;
+                        else bonusPercentage = 0;
+                      } else {
+                        if (reopeningRate < 3.5) bonusPercentage = 60;
+                        else if (reopeningRate < 7) bonusPercentage = 50;
+                        else if (reopeningRate < 10.5) bonusPercentage = 40;
+                        else bonusPercentage = 0;
+                      }
                     }
                     
                     // Calcular ganho monetário: base TV × aliança
@@ -4743,8 +4784,8 @@ export function MetricsOverview() {
                     );
                   })()}
                   
-                    {/* Coluna 2: Assistência Técnica FIBRA */}
-                  {(() => {
+                    {/* Coluna 2: Assistência Técnica FIBRA - Apenas para 2025 ou anterior */}
+                  {selectedYear && parseInt(selectedYear) < 2026 && (() => {
                     // Obter o percentual de TA para Assistência Técnica FIBRA
                       const metricsATFIBRA = Object.entries(timeMetrics.servicesByType)
                       .filter(([type]) => type === 'Assistência Técnica FIBRA')
@@ -4758,7 +4799,7 @@ export function MetricsOverview() {
                       const textColorTA = getTimeAttendanceColorByServiceType("Assistência Técnica FIBRA", taPercentage);
                       const colorClassReab = getReopeningColorByServiceType("Corretiva BL", reopeningRate);
                     
-                    // Determinar a bonificação com base nas tabelas
+                    // Determinar a bonificação com base nas tabelas (métrica antiga - 2025)
                     let bonusPercentage = 0;
                     if (taPercentage < 40) {
                       bonusPercentage = 0;
@@ -4913,7 +4954,7 @@ export function MetricsOverview() {
                     );
                   })()}
                   
-                    {/* Coluna 3: Ponto Principal TV */}
+                    {/* Coluna 2 ou 3: Ponto Principal TV (depende do ano) */}
                   {(() => {
                     // Obter o percentual de TA para Ponto Principal TV
                       const metricsPPTV = Object.entries(timeMetrics.servicesByType)
@@ -4934,8 +4975,32 @@ export function MetricsOverview() {
                       return category === "Ponto Principal TV" && o.include_in_metrics;
                     }).length;
                     
-                    // Valor vigente por serviço
-                    const valorPorServico = 20.00;
+                    // Determinar o valor por serviço e bonificação baseado no ano
+                    const anoSelecionado = selectedYear ? parseInt(selectedYear) : new Date().getFullYear();
+                    let valorPorServico = 0;
+                    let result = "Não Elegível";
+                    let isEligible = false;
+                    
+                    if (anoSelecionado >= 2026) {
+                      // NOVA MÉTRICA (2026+): R$30 ou R$20 dependendo da faixa
+                      if (taPercentage >= 75 && reopeningRate <= 2) {
+                        valorPorServico = 30.00;
+                        result = "R$30,00";
+                        isEligible = true;
+                      } else if (taPercentage >= 75 && reopeningRate > 2 && reopeningRate <= 5) {
+                        valorPorServico = 20.00;
+                        result = "R$20,00";
+                        isEligible = true;
+                      }
+                    } else {
+                      // MÉTRICA ANTIGA (2025-): R$20 fixo
+                      if (taPercentage >= 75 && reopeningRate <= 2) {
+                        valorPorServico = 20.00;
+                        result = "R$20,00";
+                        isEligible = true;
+                      }
+                    }
+                    
                     const ganhoTotal = servicosFinalizados * valorPorServico;
                     
                     // Calcular tendência - buscar serviços do mês anterior baseado nos filtros aplicados
@@ -4957,15 +5022,6 @@ export function MetricsOverview() {
                     const ganhoAnterior = servicosFinalizadosAnterior * valorPorServico;
                     const diferencaValor = ganhoTotal - ganhoAnterior;
                     const diferencaPercentual = ganhoAnterior > 0 ? (diferencaValor / ganhoAnterior) * 100 : 0;
-                    
-                    // Determinar a bonificação com base nas tabelas
-                    let result = "Não Elegível";
-                    let isEligible = false;
-                    
-                    if (taPercentage >= 75 && reopeningRate <= 2) {
-                      result = "R$20,00";
-                      isEligible = true;
-                    }
                     
                     const textClass = isEligible ? "text-green-700" : "text-red-700";
                     
@@ -5562,14 +5618,17 @@ export function MetricsOverview() {
                         >
                           Assistência Técnica TV
                         </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={reopeningVisibleColumns.assistenciaFibra}
-                          onCheckedChange={(checked) => 
-                            setReopeningVisibleColumns(prev => ({ ...prev, assistenciaFibra: checked as boolean }))
-                          }
-                        >
-                          Assistência Técnica FIBRA
-                        </DropdownMenuCheckboxItem>
+                        {/* Assistência Técnica FIBRA - Apenas para 2025 ou anterior */}
+                        {selectedYear && parseInt(selectedYear) < 2026 && (
+                          <DropdownMenuCheckboxItem
+                            checked={reopeningVisibleColumns.assistenciaFibra}
+                            onCheckedChange={(checked) => 
+                              setReopeningVisibleColumns(prev => ({ ...prev, assistenciaFibra: checked as boolean }))
+                            }
+                          >
+                            Assistência Técnica FIBRA
+                          </DropdownMenuCheckboxItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -5593,7 +5652,7 @@ export function MetricsOverview() {
                               Assistência Técnica TV
                             </TableHead>
                           )}
-                          {reopeningVisibleColumns.assistenciaFibra && (
+                          {reopeningVisibleColumns.assistenciaFibra && selectedYear && parseInt(selectedYear) < 2026 && (
                             <TableHead className="text-center font-bold text-purple-700 bg-purple-50 border-l-2 border-purple-200" colSpan={3}>
                               Assistência Técnica FIBRA
                             </TableHead>
@@ -5616,7 +5675,7 @@ export function MetricsOverview() {
                               <TableHead className="text-center text-xs py-2 bg-green-50">%</TableHead>
                             </>
                           )}
-                          {reopeningVisibleColumns.assistenciaFibra && (
+                          {reopeningVisibleColumns.assistenciaFibra && selectedYear && parseInt(selectedYear) < 2026 && (
                             <>
                               <TableHead className="text-center text-xs py-2 bg-purple-50 border-l-2 border-purple-200">Serv.</TableHead>
                               <TableHead className="text-center text-xs py-2 bg-purple-50">Reab.</TableHead>
@@ -5895,8 +5954,8 @@ export function MetricsOverview() {
                                     </TableCell>
                                   </>
                                 )}
-                                {/* Assistência Técnica FIBRA */}
-                                {reopeningVisibleColumns.assistenciaFibra && (
+                                {/* Assistência Técnica FIBRA - Apenas para 2025 ou anterior */}
+                                {reopeningVisibleColumns.assistenciaFibra && selectedYear && parseInt(selectedYear) < 2026 && (
                                   <>
                                     <TableCell className="text-center bg-purple-50/30 border-l-2 border-purple-200">{tech.assistenciaTecnicaFibraServices}</TableCell>
                                     <TableCell className="text-center bg-purple-50/30">{tech.assistenciaFibraReopenings}</TableCell>
@@ -6002,8 +6061,8 @@ export function MetricsOverview() {
                             </>
                           )}
 
-                          {/* Assistência Técnica FIBRA */}
-                          {reopeningVisibleColumns.assistenciaFibra && (
+                          {/* Assistência Técnica FIBRA - Apenas para 2025 ou anterior */}
+                          {reopeningVisibleColumns.assistenciaFibra && selectedYear && parseInt(selectedYear) < 2026 && (
                             <>
                               <TableCell className="text-center font-medium bg-purple-50/30 border-l-2 border-purple-200">
                                 {filteredServiceOrders.filter(o => {
@@ -6087,14 +6146,17 @@ export function MetricsOverview() {
                         >
                           Assistência Técnica TV
                         </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={timeVisibleColumns.assistenciaFibra}
-                          onCheckedChange={(checked) => 
-                            setTimeVisibleColumns(prev => ({ ...prev, assistenciaFibra: checked as boolean }))
-                          }
-                        >
-                          Assistência Técnica FIBRA
-                        </DropdownMenuCheckboxItem>
+                        {/* Assistência Técnica FIBRA - Apenas para 2025 ou anterior */}
+                        {selectedYear && parseInt(selectedYear) < 2026 && (
+                          <DropdownMenuCheckboxItem
+                            checked={timeVisibleColumns.assistenciaFibra}
+                            onCheckedChange={(checked) => 
+                              setTimeVisibleColumns(prev => ({ ...prev, assistenciaFibra: checked as boolean }))
+                            }
+                          >
+                            Assistência Técnica FIBRA
+                          </DropdownMenuCheckboxItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -6118,7 +6180,7 @@ export function MetricsOverview() {
                               Assistência Técnica TV
                             </TableHead>
                           )}
-                          {timeVisibleColumns.assistenciaFibra && (
+                          {timeVisibleColumns.assistenciaFibra && selectedYear && parseInt(selectedYear) < 2026 && (
                             <TableHead className="text-center font-bold text-purple-700 bg-purple-50 border-l-2 border-purple-200" colSpan={3}>
                               Assistência Técnica FIBRA
                             </TableHead>
@@ -6141,7 +6203,7 @@ export function MetricsOverview() {
                               <TableHead className="text-center text-xs py-2 bg-green-50">%</TableHead>
                             </>
                           )}
-                          {timeVisibleColumns.assistenciaFibra && (
+                          {timeVisibleColumns.assistenciaFibra && selectedYear && parseInt(selectedYear) < 2026 && (
                             <>
                               <TableHead className="text-center text-xs py-2 bg-purple-50 border-l-2 border-purple-200">Na Meta</TableHead>
                               <TableHead className="text-center text-xs py-2 bg-purple-50">Fora</TableHead>
@@ -6407,8 +6469,8 @@ export function MetricsOverview() {
                                   </>
                                 )}
                                 
-                                {/* Assistência Técnica FIBRA */}
-                                {timeVisibleColumns.assistenciaFibra && (
+                                {/* Assistência Técnica FIBRA - Apenas para 2025 ou anterior */}
+                                {timeVisibleColumns.assistenciaFibra && selectedYear && parseInt(selectedYear) < 2026 && (
                                   <>
                                     <TableCell className="text-center bg-purple-50/30 border-l-2 border-purple-200">{tech.assistFibraWithinGoal}</TableCell>
                                     <TableCell className="text-center bg-purple-50/30">{tech.assistFibraOutsideGoal}</TableCell>
@@ -6526,8 +6588,8 @@ export function MetricsOverview() {
                             </>
                           )}
                           
-                          {/* Assistência Técnica FIBRA */}
-                          {timeVisibleColumns.assistenciaFibra && (
+                          {/* Assistência Técnica FIBRA - Apenas para 2025 ou anterior */}
+                          {timeVisibleColumns.assistenciaFibra && selectedYear && parseInt(selectedYear) < 2026 && (
                             <>
                               <TableCell className="text-center font-medium bg-purple-50/30 border-l-2 border-purple-200">
                                 {filteredServiceOrdersByFinalization.filter(o => {
@@ -6596,7 +6658,9 @@ export function MetricsOverview() {
                           <TableHead className="sticky left-16 z-10 bg-gradient-to-r from-gray-100 to-gray-50 min-w-[150px] font-bold text-gray-900 border-r-2 border-gray-300">
                             Técnico
                           </TableHead>
-                          <TableHead className="text-center font-bold text-gray-900 border-l-2 border-gray-300" colSpan={11}>Tipo de Serviço</TableHead>
+                          <TableHead className="text-center font-bold text-gray-900 border-l-2 border-gray-300" colSpan={
+                            selectedYear && parseInt(selectedYear) >= 2026 ? 7 : 11  // 2026+: 7 colunas | 2025-: 11 colunas
+                          }>Tipo de Serviço</TableHead>
                           <TableHead className="sticky right-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50 text-center font-bold text-gray-900 border-l-2 border-gray-300 min-w-[80px]">
                             Total
                           </TableHead>
@@ -6605,15 +6669,23 @@ export function MetricsOverview() {
                           <TableHead className="sticky left-0 z-10 bg-gradient-to-r from-gray-50 to-gray-100"></TableHead>
                           <TableHead className="sticky left-16 z-10 bg-gradient-to-r from-gray-50 to-gray-100 border-r-2 border-gray-300"></TableHead>
                           <TableHead className="text-center text-xs py-2 border-l-2 border-gray-300">Corretiva</TableHead>
-                          <TableHead className="text-center text-xs py-2">Corr. BL</TableHead>
+                          {selectedYear && parseInt(selectedYear) < 2026 && (
+                            <TableHead className="text-center text-xs py-2">Corr. BL</TableHead>
+                          )}
                           <TableHead className="text-center text-xs py-2">Ponto Princ.</TableHead>
                           <TableHead className="text-center text-xs py-2">Prest. Serviço</TableHead>
-                          <TableHead className="text-center text-xs py-2">Prest. Serviço BL</TableHead>
+                          {selectedYear && parseInt(selectedYear) < 2026 && (
+                            <TableHead className="text-center text-xs py-2">Prest. Serviço BL</TableHead>
+                          )}
                           <TableHead className="text-center text-xs py-2">Preventiva</TableHead>
-                          <TableHead className="text-center text-xs py-2">Prev. BL</TableHead>
+                          {selectedYear && parseInt(selectedYear) < 2026 && (
+                            <TableHead className="text-center text-xs py-2">Prev. BL</TableHead>
+                          )}
                           <TableHead className="text-center text-xs py-2">Sist. Opc.</TableHead>
                           <TableHead className="text-center text-xs py-2">Canc. Vol.</TableHead>
-                          <TableHead className="text-center text-xs py-2">Kit TVRO</TableHead>
+                          {selectedYear && parseInt(selectedYear) < 2026 && (
+                            <TableHead className="text-center text-xs py-2">Kit TVRO</TableHead>
+                          )}
                           <TableHead className="text-center text-xs py-2">Substituição</TableHead>
                           <TableHead className="sticky right-0 z-10 bg-gradient-to-r from-gray-50 to-gray-100 text-center text-xs py-2 border-l-2 border-gray-300"></TableHead>
                         </TableRow>
@@ -6700,15 +6772,23 @@ export function MetricsOverview() {
                                   {tech.name}
                                 </TableCell>
                                 <TableCell className="text-center border-l-2 border-gray-300">{tech.servicesByType['Corretiva']}</TableCell>
-                                <TableCell className="text-center">{tech.servicesByType['Corretiva BL']}</TableCell>
+                                {selectedYear && parseInt(selectedYear) < 2026 && (
+                                  <TableCell className="text-center">{tech.servicesByType['Corretiva BL']}</TableCell>
+                                )}
                                 <TableCell className="text-center">{tech.servicesByType['Ponto Principal']}</TableCell>
                                 <TableCell className="text-center">{tech.servicesByType['Prestação de Serviço']}</TableCell>
-                                <TableCell className="text-center">{tech.servicesByType['Prestação de Serviço BL']}</TableCell>
+                                {selectedYear && parseInt(selectedYear) < 2026 && (
+                                  <TableCell className="text-center">{tech.servicesByType['Prestação de Serviço BL']}</TableCell>
+                                )}
                                 <TableCell className="text-center">{tech.servicesByType['Preventiva']}</TableCell>
-                                <TableCell className="text-center">{tech.servicesByType['Preventiva BL']}</TableCell>
+                                {selectedYear && parseInt(selectedYear) < 2026 && (
+                                  <TableCell className="text-center">{tech.servicesByType['Preventiva BL']}</TableCell>
+                                )}
                                 <TableCell className="text-center">{tech.servicesByType['Sistema Opcional']}</TableCell>
                                 <TableCell className="text-center">{tech.servicesByType['Cancelamento Voluntário']}</TableCell>
-                                <TableCell className="text-center">{tech.servicesByType['Kit TVRO']}</TableCell>
+                                {selectedYear && parseInt(selectedYear) < 2026 && (
+                                  <TableCell className="text-center">{tech.servicesByType['Kit TVRO']}</TableCell>
+                                )}
                                 <TableCell className="text-center">{tech.servicesByType['Substituição']}</TableCell>
                                 <TableCell className={`sticky right-0 z-10 text-center font-bold border-l-2 border-gray-300 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
                                   {tech.totalOrders}
@@ -6734,33 +6814,41 @@ export function MetricsOverview() {
                           <TableCell className="text-center font-medium border-l-2 border-gray-300">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Corretiva') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Corretiva BL') && o.status !== "Cancelada").length}
-                          </TableCell>
+                          {selectedYear && parseInt(selectedYear) < 2026 && (
+                            <TableCell className="text-center font-medium">
+                              {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Corretiva BL') && o.status !== "Cancelada").length}
+                            </TableCell>
+                          )}
                           <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Ponto Principal') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço BL') && o.status !== "Cancelada").length}
-                          </TableCell>
+                          {selectedYear && parseInt(selectedYear) < 2026 && (
+                            <TableCell className="text-center font-medium">
+                              {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Prestação de Serviço BL') && o.status !== "Cancelada").length}
+                            </TableCell>
+                          )}
                           <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Preventiva') && !o.subtipo_servico?.includes('BL') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Preventiva BL') && o.status !== "Cancelada").length}
-                          </TableCell>
+                          {selectedYear && parseInt(selectedYear) < 2026 && (
+                            <TableCell className="text-center font-medium">
+                              {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Preventiva BL') && o.status !== "Cancelada").length}
+                            </TableCell>
+                          )}
                           <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Sistema Opcional') && o.status !== "Cancelada").length}
                           </TableCell>
                           <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Cancelamento Voluntário') && o.status !== "Cancelada").length}
                           </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Kit TVRO') && o.status !== "Cancelada").length}
-                          </TableCell>
+                          {selectedYear && parseInt(selectedYear) < 2026 && (
+                            <TableCell className="text-center font-medium">
+                              {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Kit TVRO') && o.status !== "Cancelada").length}
+                            </TableCell>
+                          )}
                           <TableCell className="text-center font-medium">
                             {filteredServiceOrders.filter(o => o.subtipo_servico?.includes('Substituição') && o.status !== "Cancelada").length}
                           </TableCell>
