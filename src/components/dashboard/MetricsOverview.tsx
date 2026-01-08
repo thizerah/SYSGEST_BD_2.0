@@ -1717,7 +1717,7 @@ export function MetricsOverview() {
     });
     
     return {
-      availableYears: Array.from(years).sort((a, b) => b.localeCompare(a)), // Ordenar decrescente
+      availableYears: Array.from(years).sort((a, b) => a.localeCompare(b)), // Ordenar crescente (2025 antes de 2026)
       availableMonths: Array.from(months).sort()
     };
   }, [serviceOrders]);
