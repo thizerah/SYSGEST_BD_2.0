@@ -699,6 +699,8 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">%PDV</TableHead>
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Gatilho</TableHead>
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Qtd Exc</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Qtd Perm</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Vol OS Gat</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -736,6 +738,28 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                             {excessiveConsumption.atCorretiva.antenas.quantidadeExcedida}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const qtdPerm = Math.max(0, excessiveConsumption.atCorretiva.antenas.limitePermitido - excessiveConsumption.atCorretiva.antenas.volumeConsumo);
+                            return qtdPerm;
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const { volumeOS, volumeConsumo, limitePermitido, pdv, gatilho } = excessiveConsumption.atCorretiva.antenas;
+                            const taxaConsumo = volumeOS > 0 ? volumeConsumo / volumeOS : 0;
+                            const qtdPerm = Math.max(0, limitePermitido - volumeConsumo);
+                            
+                            if (pdv <= gatilho) {
+                              // Abaixo do gatilho: quantas OS posso fazer consumindo material
+                              return taxaConsumo > 0 ? Math.floor(qtdPerm / taxaConsumo) : 0;
+                            } else {
+                              // Acima do gatilho: quantas OS preciso fazer SEM consumir material para voltar ao gatilho
+                              const osNecessarias = gatilho > 0 ? Math.ceil((volumeConsumo / (gatilho / 100)) - volumeOS) : 0;
+                              return Math.max(0, osNecessarias);
+                            }
+                          })()}
+                        </TableCell>
                       </TableRow>
 
                       {/* Cabo */}
@@ -771,6 +795,28 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                           }`}>
                             {excessiveConsumption.atCorretiva.cabo.quantidadeExcedida}m
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const qtdPerm = Math.max(0, excessiveConsumption.atCorretiva.cabo.limitePermitido - excessiveConsumption.atCorretiva.cabo.volumeConsumo);
+                            return qtdPerm;
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const { volumeOS, volumeConsumo, limitePermitido, pdv, gatilho } = excessiveConsumption.atCorretiva.cabo;
+                            const taxaConsumo = volumeOS > 0 ? volumeConsumo / volumeOS : 0;
+                            const qtdPerm = Math.max(0, limitePermitido - volumeConsumo);
+                            
+                            if (pdv <= gatilho) {
+                              // Abaixo do gatilho: quantas OS posso fazer consumindo material
+                              return taxaConsumo > 0 ? Math.floor(qtdPerm / taxaConsumo) : 0;
+                            } else {
+                              // Acima do gatilho: quantas OS preciso fazer SEM consumir material para voltar ao gatilho
+                              const osNecessarias = gatilho > 0 ? Math.ceil((volumeConsumo / (gatilho / 100)) - volumeOS) : 0;
+                              return Math.max(0, osNecessarias);
+                            }
+                          })()}
                         </TableCell>
                       </TableRow>
 
@@ -808,6 +854,28 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                             {excessiveConsumption.atCorretiva.lnbs.quantidadeExcedida}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const qtdPerm = Math.max(0, excessiveConsumption.atCorretiva.lnbs.limitePermitido - excessiveConsumption.atCorretiva.lnbs.volumeConsumo);
+                            return qtdPerm;
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const { volumeOS, volumeConsumo, limitePermitido, pdv, gatilho } = excessiveConsumption.atCorretiva.lnbs;
+                            const taxaConsumo = volumeOS > 0 ? volumeConsumo / volumeOS : 0;
+                            const qtdPerm = Math.max(0, limitePermitido - volumeConsumo);
+                            
+                            if (pdv <= gatilho) {
+                              // Abaixo do gatilho: quantas OS posso fazer consumindo material
+                              return taxaConsumo > 0 ? Math.floor(qtdPerm / taxaConsumo) : 0;
+                            } else {
+                              // Acima do gatilho: quantas OS preciso fazer SEM consumir material para voltar ao gatilho
+                              const osNecessarias = gatilho > 0 ? Math.ceil((volumeConsumo / (gatilho / 100)) - volumeOS) : 0;
+                              return Math.max(0, osNecessarias);
+                            }
+                          })()}
+                        </TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
@@ -834,6 +902,8 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">%PDV</TableHead>
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Gatilho</TableHead>
                         <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Qtd Exc</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Qtd Perm</TableHead>
+                        <TableHead className="text-center font-semibold text-gray-700 text-xs px-2">Vol OS Gat</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -871,6 +941,28 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                             {excessiveConsumption.upDown.antenas.quantidadeExcedida}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const qtdPerm = Math.max(0, excessiveConsumption.upDown.antenas.limitePermitido - excessiveConsumption.upDown.antenas.volumeConsumo);
+                            return qtdPerm;
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const { volumeOS, volumeConsumo, limitePermitido, pdv, gatilho } = excessiveConsumption.upDown.antenas;
+                            const taxaConsumo = volumeOS > 0 ? volumeConsumo / volumeOS : 0;
+                            const qtdPerm = Math.max(0, limitePermitido - volumeConsumo);
+                            
+                            if (pdv <= gatilho) {
+                              // Abaixo do gatilho: quantas OS posso fazer consumindo material
+                              return taxaConsumo > 0 ? Math.floor(qtdPerm / taxaConsumo) : 0;
+                            } else {
+                              // Acima do gatilho: quantas OS preciso fazer SEM consumir material para voltar ao gatilho
+                              const osNecessarias = gatilho > 0 ? Math.ceil((volumeConsumo / (gatilho / 100)) - volumeOS) : 0;
+                              return Math.max(0, osNecessarias);
+                            }
+                          })()}
+                        </TableCell>
                       </TableRow>
 
                       {/* Cabo */}
@@ -907,6 +999,28 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                             {excessiveConsumption.upDown.cabo.quantidadeExcedida}m
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const qtdPerm = Math.max(0, excessiveConsumption.upDown.cabo.limitePermitido - excessiveConsumption.upDown.cabo.volumeConsumo);
+                            return qtdPerm;
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const { volumeOS, volumeConsumo, limitePermitido, pdv, gatilho } = excessiveConsumption.upDown.cabo;
+                            const taxaConsumo = volumeOS > 0 ? volumeConsumo / volumeOS : 0;
+                            const qtdPerm = Math.max(0, limitePermitido - volumeConsumo);
+                            
+                            if (pdv <= gatilho) {
+                              // Abaixo do gatilho: quantas OS posso fazer consumindo material
+                              return taxaConsumo > 0 ? Math.floor(qtdPerm / taxaConsumo) : 0;
+                            } else {
+                              // Acima do gatilho: quantas OS preciso fazer SEM consumir material para voltar ao gatilho
+                              const osNecessarias = gatilho > 0 ? Math.ceil((volumeConsumo / (gatilho / 100)) - volumeOS) : 0;
+                              return Math.max(0, osNecessarias);
+                            }
+                          })()}
+                        </TableCell>
                       </TableRow>
 
                       {/* LNBs */}
@@ -942,6 +1056,28 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
                           }`}>
                             {excessiveConsumption.upDown.lnbs.quantidadeExcedida}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const qtdPerm = Math.max(0, excessiveConsumption.upDown.lnbs.limitePermitido - excessiveConsumption.upDown.lnbs.volumeConsumo);
+                            return qtdPerm;
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-center text-sm px-2 font-semibold">
+                          {(() => {
+                            const { volumeOS, volumeConsumo, limitePermitido, pdv, gatilho } = excessiveConsumption.upDown.lnbs;
+                            const taxaConsumo = volumeOS > 0 ? volumeConsumo / volumeOS : 0;
+                            const qtdPerm = Math.max(0, limitePermitido - volumeConsumo);
+                            
+                            if (pdv <= gatilho) {
+                              // Abaixo do gatilho: quantas OS posso fazer consumindo material
+                              return taxaConsumo > 0 ? Math.floor(qtdPerm / taxaConsumo) : 0;
+                            } else {
+                              // Acima do gatilho: quantas OS preciso fazer SEM consumir material para voltar ao gatilho
+                              const osNecessarias = gatilho > 0 ? Math.ceil((volumeConsumo / (gatilho / 100)) - volumeOS) : 0;
+                              return Math.max(0, osNecessarias);
+                            }
+                          })()}
                         </TableCell>
                       </TableRow>
                     </TableBody>
