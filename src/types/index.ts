@@ -274,11 +274,16 @@ export interface VendaMeta {
   valor: number;
   data_venda: string;
   vendedor: string;
+  nome_proprietario: string; // Nome do vendedor (igual Venda)
   categoria: string;
   produto: string;
   produtos_secundarios?: string;
   cidade?: string;
   forma_pagamento?: string;
+  cpf?: string;
+  nome_fantasia?: string;
+  telefone_celular?: string;
+  bairro?: string;
   mes: number;
   ano: number;
 }

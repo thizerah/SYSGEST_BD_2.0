@@ -13,8 +13,11 @@ import {
   Filter,
   ChevronDown,
   MessageCircle,
-  Eye
+  Eye,
+  Download
 } from "lucide-react";
+import * as XLSX from "xlsx";
+import { useToast } from "@/hooks/use-toast";
 import {
   Select,
   SelectContent,
@@ -54,6 +57,7 @@ interface ServiceOrderTableProps {
 
 export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOrderTableProps) {
   const { serviceOrders } = useData();
+  const { toast } = useToast();
   
   const [selectedOrder, setSelectedOrder] = useState<ServiceOrder | null>(null);
   const [isMaterialViewerOpen, setIsMaterialViewerOpen] = useState(false);
@@ -355,6 +359,106 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     (page - 1) * itemsPerPage,
     page * itemsPerPage
   );
+
+  // Função para exportar para Excel
+  const exportarParaExcel = () => {
+    if (uniqueFilteredOrders.length === 0) {
+      toast({
+        title: "Nenhum dado para exportar",
+        description: "Não há ordens de serviço para exportar com os filtros atuais.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Função auxiliar para exibir ação tomada
+    const getAcaoExport = (order: ServiceOrder) => {
+      if (order.acao_tomada === "CORRETIVA - CLIENTE SATISFEITO") return "CLIENTE SATISFEITO";
+      if (order.acao_tomada === "CORRETIVA - TÉCNICO EM TRÂNSITO") return "TÉCNICO EM TRÂNSITO";
+      if (order.acao_tomada === "INSTALAÇÃO REALIZADA") return "INSTALAÇÃO";
+      return order.acao_tomada || '';
+    };
+
+    // Cabeçalhos do Excel
+    const headers = [
+      'Código OS',
+      'Técnico',
+      'Tipo de Serviço',
+      'Motivo',
+      'Ação Tomada',
+      'Cliente',
+      'Status',
+      'Cidade',
+      'Bairro',
+      'Data Criação',
+      'Data Finalização',
+      'Tempo Atendimento (h)',
+      'Atingiu Meta',
+      'Telefone'
+    ];
+
+    // Mapear dados para array
+    const excelData = uniqueFilteredOrders.map(order => {
+      const dataCriacao = order.data_criacao ? new Date(order.data_criacao).toLocaleDateString('pt-BR') : '';
+      const dataFinalizacao = order.data_finalizacao ? new Date(order.data_finalizacao).toLocaleDateString('pt-BR') : '';
+      const tempoAtendimento = order.tempo_atendimento ? order.tempo_atendimento.toFixed(2) : '';
+      const atingiuMeta = order.atingiu_meta ? 'Sim' : 'Não';
+
+      return [
+        order.codigo_os || '',
+        order.nome_tecnico || '',
+        order.subtipo_servico || '',
+        order.motivo || '',
+        getAcaoExport(order),
+        order.nome_cliente || '',
+        order.status || '',
+        order.cidade || '',
+        order.bairro || '',
+        dataCriacao,
+        dataFinalizacao,
+        tempoAtendimento,
+        atingiuMeta,
+        order.telefone_celular || ''
+      ];
+    });
+
+    // Criar workbook Excel
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...excelData]);
+
+    // Configurar larguras das colunas
+    const columnWidths = [
+      { wch: 12 }, // Código OS
+      { wch: 20 }, // Técnico
+      { wch: 20 }, // Tipo de Serviço
+      { wch: 25 }, // Motivo
+      { wch: 20 }, // Ação Tomada
+      { wch: 25 }, // Cliente
+      { wch: 12 }, // Status
+      { wch: 20 }, // Cidade
+      { wch: 20 }, // Bairro
+      { wch: 15 }, // Data Criação
+      { wch: 15 }, // Data Finalização
+      { wch: 18 }, // Tempo Atendimento
+      { wch: 12 }, // Atingiu Meta
+      { wch: 15 }  // Telefone
+    ];
+    worksheet['!cols'] = columnWidths;
+
+    // Adicionar planilha ao workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Ordens de Serviço');
+
+    // Baixar arquivo Excel
+    const dataAtual = new Date().toISOString().split('T')[0];
+    const nomeArquivo = `ordens_servico_${dataAtual}.xlsx`;
+    XLSX.writeFile(workbook, nomeArquivo);
+
+    // Feedback visual
+    toast({
+      title: "Exportação concluída!",
+      description: `${uniqueFilteredOrders.length} ordem(ns) de serviço exportada(s) para ${nomeArquivo}`,
+    });
+  };
   
   // Format date
   const formatDate = (dateString: string | undefined) => {
@@ -644,13 +748,27 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center">
-          <Calendar className="mr-2 h-5 w-5" />
-          Ordens de Serviço
-        </CardTitle>
-        <CardDescription>
-          Lista de ordens de serviço com detalhes de tempo e informações técnicas
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center">
+              <Calendar className="mr-2 h-5 w-5" />
+              Ordens de Serviço
+            </CardTitle>
+            <CardDescription className="mt-1">
+              Lista de ordens de serviço com detalhes de tempo e informações técnicas
+            </CardDescription>
+          </div>
+          <Button
+            onClick={exportarParaExcel}
+            variant="outline"
+            size="sm"
+            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-2 border-emerald-300 font-semibold shadow-sm hover:shadow transition-all"
+            disabled={uniqueFilteredOrders.length === 0}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Exportar Excel
+          </Button>
+        </div>
       </CardHeader>
       
       <CardContent>

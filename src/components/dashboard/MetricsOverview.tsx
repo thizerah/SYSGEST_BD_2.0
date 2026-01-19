@@ -244,6 +244,7 @@ function MetasTabContent() {
   const { metas, vendas, vendasMeta, calculateMetaMetrics } = useData();
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [activeMetasTab, setActiveMetasTab] = useState("dashboard");
 
   // Debug: Log dos dados disponíveis
   // Logs removidos para melhor performance - ativar apenas se necessário para debug
@@ -522,8 +523,8 @@ function MetasTabContent() {
   };
 
   return (
-    <>
-      {/* Controles de filtro */}
+    <div className="space-y-4">
+      {/* Controles de filtro - Comum para todas as sub-abas */}
       <Card className="w-full shadow-lg border-2">
         <CardHeader className="bg-gradient-to-r from-orange-50 to-amber-50 border-b-2 pb-4">
           <div className="flex items-center justify-between">
@@ -647,6 +648,29 @@ function MetasTabContent() {
         </CardContent>
       </Card>
 
+      {/* Tabs para Dashboard e Detalhamento */}
+      <Tabs value={activeMetasTab} onValueChange={setActiveMetasTab} className="space-y-4">
+        <div className="bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 rounded-lg p-1.5 shadow-sm border border-orange-200">
+          <TabsList className="grid w-full grid-cols-2 bg-transparent gap-1.5 h-auto p-0">
+            <TabsTrigger 
+              value="dashboard" 
+              className="data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-orange-700 data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-orange-600 transition-all py-3 px-4 rounded-md font-semibold text-sm"
+            >
+              <BarChart2 className="h-4 w-4 mr-2" />
+              Dashboard
+            </TabsTrigger>
+            <TabsTrigger 
+              value="detalhamento" 
+              className="data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-orange-700 data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-orange-600 transition-all py-3 px-4 rounded-md font-semibold text-sm"
+            >
+              <List className="h-4 w-4 mr-2" />
+              Detalhamento de Propostas
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Sub-aba Dashboard */}
+        <TabsContent value="dashboard" className="space-y-4">
       {/* Conteúdo principal */}
       {!metaMetrics ? (
         <Card>
@@ -1487,7 +1511,879 @@ function MetasTabContent() {
           </Card>
         </div>
       )}
-    </>
+        </TabsContent>
+
+        {/* Sub-aba Detalhamento de Propostas */}
+        <TabsContent value="detalhamento" className="space-y-4">
+          <MetasDetalhamentoContent 
+            selectedMonth={selectedMonth}
+            selectedYear={selectedYear}
+            buscarVendasDoPeriodo={buscarVendasDoPeriodo}
+          />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// Componente para a sub-aba de Detalhamento de Propostas na guia Metas
+function MetasDetalhamentoContent({ 
+  selectedMonth, 
+  selectedYear, 
+  buscarVendasDoPeriodo 
+}: { 
+  selectedMonth: number | null; 
+  selectedYear: number | null; 
+  buscarVendasDoPeriodo: (mes: number, ano: number) => any[];
+}) {
+  const { toast } = useToast();
+  
+  // Estados para paginação
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const itensPorPagina = 15;
+  
+  // Estados para busca e filtros (todos com seleção múltipla)
+  const [termoBusca, setTermoBusca] = useState("");
+  const [filtroVendedor, setFiltroVendedor] = useState<string[]>([]);
+  const [filtroCidade, setFiltroCidade] = useState<string[]>([]);
+  const [filtroBairro, setFiltroBairro] = useState<string[]>([]);
+  const [filtroCategoria, setFiltroCategoria] = useState<string[]>([]);
+  const [filtroProduto, setFiltroProduto] = useState<string[]>([]);
+  const [filtroFormaPagamento, setFiltroFormaPagamento] = useState<string[]>([]);
+  const [filtroDataHabilitacao, setFiltroDataHabilitacao] = useState<string[]>([]);
+
+  // Buscar vendas do período selecionado
+  const vendasDoPeriodo = useMemo(() => {
+    if (!selectedMonth || !selectedYear) return [];
+    return buscarVendasDoPeriodo(selectedMonth, selectedYear);
+  }, [selectedMonth, selectedYear, buscarVendasDoPeriodo]);
+
+  // Verificar se é VendaMeta (tem campo 'categoria') ou Venda (tem 'produto_principal')
+  const isVendaMeta = useCallback((venda: any): boolean => {
+    return 'categoria' in venda;
+  }, []);
+
+  // Mapear categoria do produto
+  const mapearCategoria = useCallback((venda: any): string => {
+    // Se é VendaMeta, já tem o campo categoria
+    if (isVendaMeta(venda)) {
+      return venda.categoria || 'OUTROS';
+    }
+    
+    // Se é Venda normal, mapear pelo produto
+    const produto = venda.produto_principal || '';
+    const agrupamento = venda.agrupamento_produto || '';
+    
+    if (produto.includes('PÓS-PAGO') || agrupamento.includes('POS')) {
+      return 'POS';
+    }
+    if (produto.includes('FLEX') || produto.includes('CONFORTO')) {
+      return 'FLEX';
+    }
+    if (produto.includes('PARABÓLICA')) {
+      return 'PAY TV';
+    }
+    if (produto.includes('SKY MAIS') || agrupamento.includes('SKY MAIS')) {
+      return 'OUT';
+    }
+    if (produto.includes('SEGUROS') || agrupamento.includes('SEGUROS')) {
+      return 'SEG';
+    }
+    return 'OUTROS';
+  }, [isVendaMeta]);
+
+  // Função para gerar link do WhatsApp
+  const gerarLinkWhatsApp = useCallback((telefone: string, nomeFantasia: string, produto: string) => {
+    // Limpar telefone para conter apenas números
+    const telefoneLimpo = telefone.replace(/\D/g, '');
+    
+    // Verificar se o telefone tem pelo menos 10 dígitos (DDD + número)
+    if (telefoneLimpo.length < 10) {
+      return '';
+    }
+    
+    // Montar a mensagem personalizada
+    const mensagem = `Olá ${nomeFantasia}, bem vindo a SKY, seu plano é ${produto} ficamos felizes em você ter escolhido a gente como fonte de entretenimento, qualquer dúvida pode nos chamar porque nesse número.`;
+    
+    // Codificar a mensagem para URL
+    const mensagemCodificada = encodeURIComponent(mensagem);
+    
+    // Retornar o link do WhatsApp
+    return `https://wa.me/55${telefoneLimpo}?text=${mensagemCodificada}`;
+  }, []);
+
+  // Função para obter o nome do vendedor - SEMPRE usa nome_proprietario (igual Permanência)
+  const getNomeVendedor = useCallback((venda: any): string => {
+    // Tanto VendaMeta quanto Venda usam nome_proprietario (igual Permanência)
+    return venda.nome_proprietario || '';
+  }, []);
+
+  // Função para obter a data de habilitação (campo diferente em cada tipo)
+  const getDataHabilitacao = useCallback((venda: any): string => {
+    if (isVendaMeta(venda)) {
+      return venda.data_venda || '';
+    }
+    return venda.data_habilitacao || '';
+  }, [isVendaMeta]);
+
+  // Função para obter o produto (campo diferente em cada tipo)
+  const getProduto = useCallback((venda: any): string => {
+    if (isVendaMeta(venda)) {
+      return venda.produto || '';
+    }
+    return venda.produto_principal || '';
+  }, [isVendaMeta]);
+
+  // Função para obter a forma de pagamento
+  const getForma = useCallback((venda: any): string => {
+    return venda.forma_pagamento || '';
+  }, []);
+
+  // Aplicar filtros e busca (seguindo a mesma lógica da tabela de Permanência)
+  const vendasFiltradas = useMemo(() => {
+    let resultado = [...vendasDoPeriodo];
+
+    // Filtro de busca - mesmos campos que a Permanência
+    if (termoBusca) {
+      const termo = termoBusca.toLowerCase();
+      resultado = resultado.filter(venda => {
+        const numeroProposta = venda.numero_proposta?.toString().toLowerCase() || "";
+        const nomeFantasia = venda.nome_fantasia?.toLowerCase() || "";
+        const produtoPrincipal = getProduto(venda).toLowerCase();
+        const nomeProprietario = getNomeVendedor(venda).toLowerCase();
+        const telefoneCelular = venda.telefone_celular?.toLowerCase() || "";
+        const cpf = venda.cpf?.toString().toLowerCase() || "";
+        
+        return numeroProposta.includes(termo) ||
+               nomeFantasia.includes(termo) ||
+               produtoPrincipal.includes(termo) ||
+               nomeProprietario.includes(termo) ||
+               telefoneCelular.includes(termo) ||
+               cpf.includes(termo);
+      });
+    }
+
+    // Filtro de vendedor (múltiplo)
+    if (filtroVendedor.length > 0) {
+      resultado = resultado.filter(venda => filtroVendedor.includes(getNomeVendedor(venda)));
+    }
+
+    // Filtro de cidade (múltiplo)
+    if (filtroCidade.length > 0) {
+      resultado = resultado.filter(venda => venda.cidade && filtroCidade.includes(venda.cidade));
+    }
+
+    // Filtro de bairro (múltiplo)
+    if (filtroBairro.length > 0) {
+      resultado = resultado.filter(venda => venda.bairro && filtroBairro.includes(venda.bairro));
+    }
+
+    // Filtro de categoria (múltiplo)
+    if (filtroCategoria.length > 0) {
+      resultado = resultado.filter(venda => filtroCategoria.includes(mapearCategoria(venda)));
+    }
+
+    // Filtro de produto (múltiplo)
+    if (filtroProduto.length > 0) {
+      resultado = resultado.filter(venda => filtroProduto.includes(getProduto(venda)));
+    }
+
+    // Filtro de forma de pagamento (múltiplo)
+    if (filtroFormaPagamento.length > 0) {
+      resultado = resultado.filter(venda => filtroFormaPagamento.includes(getForma(venda)));
+    }
+
+    // Filtro de data de habilitação (múltiplo)
+    if (filtroDataHabilitacao.length > 0) {
+      resultado = resultado.filter(venda => {
+        const dataHab = getDataHabilitacao(venda);
+        if (!dataHab) return false;
+        const data = new Date(dataHab);
+        const dataFormatada = data.toISOString().split('T')[0];
+        return filtroDataHabilitacao.includes(dataFormatada);
+      });
+    }
+
+    return resultado;
+  }, [vendasDoPeriodo, termoBusca, filtroVendedor, filtroCidade, filtroBairro, filtroCategoria, 
+      filtroProduto, filtroFormaPagamento, filtroDataHabilitacao, getNomeVendedor, getProduto, 
+      getForma, getDataHabilitacao, mapearCategoria]);
+
+  // Obter lista de vendedores únicos
+  const vendedoresUnicos = useMemo(() => {
+    const vendedores = new Set(vendasDoPeriodo.map(v => getNomeVendedor(v)).filter(Boolean));
+    return Array.from(vendedores).sort();
+  }, [vendasDoPeriodo, getNomeVendedor]);
+
+  // Obter lista de cidades únicas
+  const cidadesUnicas = useMemo(() => {
+    const cidades = new Set(vendasDoPeriodo.map(v => v.cidade).filter(Boolean));
+    return Array.from(cidades).sort();
+  }, [vendasDoPeriodo]);
+
+  // Obter lista de bairros únicos
+  const bairrosUnicos = useMemo(() => {
+    const bairros = new Set(vendasDoPeriodo.map(v => v.bairro).filter(Boolean));
+    return Array.from(bairros).sort();
+  }, [vendasDoPeriodo]);
+
+  // Obter lista de categorias únicas
+  const categoriasUnicas = useMemo(() => {
+    const categorias = new Set(vendasDoPeriodo.map(v => mapearCategoria(v)).filter(Boolean));
+    return Array.from(categorias).sort();
+  }, [vendasDoPeriodo, mapearCategoria]);
+
+  // Obter lista de produtos únicos
+  const produtosUnicos = useMemo(() => {
+    const produtos = new Set(vendasDoPeriodo.map(v => getProduto(v)).filter(Boolean));
+    return Array.from(produtos).sort();
+  }, [vendasDoPeriodo, getProduto]);
+
+  // Obter lista de formas de pagamento únicas
+  const formasPagamentoUnicas = useMemo(() => {
+    const formas = new Set(vendasDoPeriodo.map(v => getForma(v)).filter(Boolean));
+    return Array.from(formas).sort();
+  }, [vendasDoPeriodo, getForma]);
+
+  // Obter lista de datas de habilitação únicas (em formato DD/MM/YYYY)
+  const datasHabilitacaoUnicas = useMemo(() => {
+    const datas = new Set<string>();
+    vendasDoPeriodo.forEach(venda => {
+      const dataHab = getDataHabilitacao(venda);
+      if (dataHab) {
+        // Normalizar a data para YYYY-MM-DD para ordenação
+        const data = new Date(dataHab);
+        const dataFormatada = data.toISOString().split('T')[0];
+        datas.add(dataFormatada);
+      }
+    });
+    // Ordenar do mais antigo para o mais recente
+    return Array.from(datas).sort((a, b) => {
+      const dataA = new Date(a);
+      const dataB = new Date(b);
+      return dataA.getTime() - dataB.getTime();
+    });
+  }, [vendasDoPeriodo, getDataHabilitacao]);
+  
+  // Função para formatar data de YYYY-MM-DD para DD/MM/YYYY
+  const formatarDataParaExibicao = useCallback((dataISO: string): string => {
+    const [ano, mes, dia] = dataISO.split('-');
+    return `${dia}/${mes}/${ano}`;
+  }, []);
+
+  // Criar opções para os MultiSelect
+  const vendedorOptions = useMemo(() => vendedoresUnicos.map(vendedor => ({
+    label: vendedor,
+    value: vendedor
+  })), [vendedoresUnicos]);
+
+  const cidadeOptions = useMemo(() => cidadesUnicas.map(cidade => ({
+    label: cidade,
+    value: cidade
+  })), [cidadesUnicas]);
+
+  const bairroOptions = useMemo(() => bairrosUnicos.map(bairro => ({
+    label: bairro,
+    value: bairro
+  })), [bairrosUnicos]);
+
+  const categoriaOptions = useMemo(() => categoriasUnicas.map(categoria => ({
+    label: categoria,
+    value: categoria
+  })), [categoriasUnicas]);
+
+  const produtoOptions = useMemo(() => produtosUnicos.map(produto => ({
+    label: produto,
+    value: produto
+  })), [produtosUnicos]);
+
+  const formaPagamentoOptions = useMemo(() => formasPagamentoUnicas.map(forma => ({
+    label: forma,
+    value: forma
+  })), [formasPagamentoUnicas]);
+
+  const dataHabilitacaoOptions = useMemo(() => datasHabilitacaoUnicas.map(data => ({
+    label: formatarDataParaExibicao(data),
+    value: data
+  })), [datasHabilitacaoUnicas, formatarDataParaExibicao]);
+
+  // Função para limpar todos os filtros
+  const limparFiltros = useCallback(() => {
+    setTermoBusca("");
+    setFiltroVendedor([]);
+    setFiltroCidade([]);
+    setFiltroBairro([]);
+    setFiltroCategoria([]);
+    setFiltroProduto([]);
+    setFiltroFormaPagamento([]);
+    setFiltroDataHabilitacao([]);
+    setPaginaAtual(1);
+  }, []);
+
+  // Resetar página ao mudar filtros
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [termoBusca, filtroVendedor, filtroCidade, filtroBairro, filtroCategoria, 
+      filtroProduto, filtroFormaPagamento, filtroDataHabilitacao]);
+
+  // Calcular totalizadores
+  const totalizadores = useMemo(() => {
+    const totalVendas = vendasFiltradas.length;
+    const valorTotal = vendasFiltradas.reduce((sum, v) => sum + (v.valor || 0), 0);
+    
+    const porCategoria = vendasFiltradas.reduce((acc, venda) => {
+      const cat = mapearCategoria(venda);
+      acc[cat] = (acc[cat] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return { totalVendas, valorTotal, porCategoria };
+  }, [vendasFiltradas, mapearCategoria]);
+
+  // Exportar para Excel
+  const exportarParaExcel = useCallback(() => {
+    if (vendasFiltradas.length === 0) {
+      toast({
+        title: "Nenhum dado para exportar",
+        description: "Não há vendas para exportar com os filtros atuais.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Cabeçalhos do Excel
+    const headers = [
+      'Proposta',
+      'CPF/CNPJ',
+      'Nome Fantasia',
+      'Telefone',
+      'Cidade',
+      'Bairro',
+      'Categoria',
+      'Produto',
+      'Vendedor',
+      'Data Habilitação',
+      'Forma Pagamento',
+      'Valor'
+    ];
+
+    // Mapear dados para array
+    const excelData = vendasFiltradas.map(venda => {
+      const categoria = mapearCategoria(venda);
+      const nomeVendedor = getNomeVendedor(venda);
+      const dataHabilitacao = getDataHabilitacao(venda);
+      const produto = getProduto(venda);
+      const forma = getForma(venda);
+
+      return [
+        venda.numero_proposta || '',
+        venda.cpf || '',
+        venda.nome_fantasia || '',
+        venda.telefone_celular || '',
+        venda.cidade || '',
+        venda.bairro || '',
+        categoria || '',
+        produto || '',
+        nomeVendedor || '',
+        dataHabilitacao ? new Date(dataHabilitacao).toLocaleDateString('pt-BR') : '',
+        forma || '',
+        venda.valor || 0
+      ];
+    });
+
+    // Criar workbook Excel
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...excelData]);
+
+    // Configurar larguras das colunas
+    const columnWidths = [
+      { wch: 12 }, // Proposta
+      { wch: 15 }, // CPF/CNPJ
+      { wch: 30 }, // Nome Fantasia
+      { wch: 15 }, // Telefone
+      { wch: 20 }, // Cidade
+      { wch: 20 }, // Bairro
+      { wch: 10 }, // Categoria
+      { wch: 25 }, // Produto
+      { wch: 25 }, // Vendedor
+      { wch: 15 }, // Data Habilitação
+      { wch: 15 }, // Forma Pagamento
+      { wch: 15 }  // Valor
+    ];
+    worksheet['!cols'] = columnWidths;
+
+    // Adicionar planilha ao workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Vendas Metas');
+
+    // Baixar arquivo Excel
+    const mesNome = selectedMonth ? 
+      ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
+       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][selectedMonth - 1] : 
+      'Periodo';
+    const nomeArquivo = `vendas_metas_${mesNome}_${selectedYear}.xlsx`;
+    XLSX.writeFile(workbook, nomeArquivo);
+
+    // Feedback visual
+    toast({
+      title: "Exportação concluída!",
+      description: `${vendasFiltradas.length} registro(s) exportado(s) para ${nomeArquivo}`,
+    });
+  }, [vendasFiltradas, mapearCategoria, getNomeVendedor, getDataHabilitacao, getProduto, getForma, selectedMonth, selectedYear, toast]);
+
+  if (!selectedMonth || !selectedYear) {
+    return (
+      <Card>
+        <CardContent className="py-12">
+          <div className="text-center">
+            <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+              <List className="h-8 w-8 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              Selecione um Período
+            </h3>
+            <p className="text-sm text-gray-500">
+              Selecione um mês e ano nos filtros acima para visualizar o detalhamento das propostas.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Card de Filtros e Busca */}
+      <Card className="shadow-lg border-2 border-orange-100">
+        <CardHeader className="bg-gradient-to-r from-orange-50 to-amber-50 border-b pb-4">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Filter className="h-5 w-5 text-orange-600" />
+            Filtros e Busca
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="space-y-4">
+            {/* Busca */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Buscar por proposta, cliente, vendedor ou produto..."
+                  value={termoBusca}
+                  onChange={(e) => setTermoBusca(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              {termoBusca && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setTermoBusca("")}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+
+            {/* Filtros em Grid - Linha 1 */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Filtro de Vendedor */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                  <UserIcon className="h-3.5 w-3.5 text-orange-600" />
+                  Vendedor (múltiplo)
+                </Label>
+                <MultiSelect 
+                  options={vendedorOptions}
+                  selected={filtroVendedor}
+                  onChange={setFiltroVendedor}
+                  placeholder="Selecione vendedores"
+                  className="w-full text-xs"
+                />
+              </div>
+
+              {/* Filtro de Cidade */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5 text-orange-600" />
+                  Cidade (múltipla)
+                </Label>
+                <MultiSelect 
+                  options={cidadeOptions}
+                  selected={filtroCidade}
+                  onChange={setFiltroCidade}
+                  placeholder="Selecione cidades"
+                  className="w-full text-xs"
+                />
+              </div>
+
+              {/* Filtro de Bairro */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5 text-orange-600" />
+                  Bairro (múltiplo)
+                </Label>
+                <MultiSelect 
+                  options={bairroOptions}
+                  selected={filtroBairro}
+                  onChange={setFiltroBairro}
+                  placeholder="Selecione bairros"
+                  className="w-full text-xs"
+                />
+              </div>
+
+              {/* Filtro de Categoria */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                  <Filter className="h-3.5 w-3.5 text-orange-600" />
+                  Categoria (múltipla)
+                </Label>
+                <MultiSelect 
+                  options={categoriaOptions}
+                  selected={filtroCategoria}
+                  onChange={setFiltroCategoria}
+                  placeholder="Selecione categorias"
+                  className="w-full text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Filtros em Grid - Linha 2 */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Filtro de Produto */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                  <List className="h-3.5 w-3.5 text-orange-600" />
+                  Produto (múltiplo)
+                </Label>
+                <MultiSelect 
+                  options={produtoOptions}
+                  selected={filtroProduto}
+                  onChange={setFiltroProduto}
+                  placeholder="Selecione produtos"
+                  className="w-full text-xs"
+                />
+              </div>
+
+              {/* Filtro de Forma de Pagamento */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                  <CreditCard className="h-3.5 w-3.5 text-orange-600" />
+                  Forma de Pagamento (múltipla)
+                </Label>
+                <MultiSelect 
+                  options={formaPagamentoOptions}
+                  selected={filtroFormaPagamento}
+                  onChange={setFiltroFormaPagamento}
+                  placeholder="Selecione formas"
+                  className="w-full text-xs"
+                />
+              </div>
+
+              {/* Filtro de Data de Habilitação */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                  <CalendarIcon className="h-3.5 w-3.5 text-orange-600" />
+                  Data de Habilitação (múltipla)
+                </Label>
+                <MultiSelect 
+                  options={dataHabilitacaoOptions}
+                  selected={filtroDataHabilitacao}
+                  onChange={setFiltroDataHabilitacao}
+                  placeholder="Selecione datas"
+                  className="w-full text-xs"
+                />
+              </div>
+
+              {/* Botão de Limpar Filtros */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold">&nbsp;</Label>
+                <Button
+                  onClick={limparFiltros}
+                  variant="outline"
+                  className="w-full h-10 border-2 hover:bg-orange-50 hover:border-orange-300 transition-colors"
+                  disabled={!termoBusca && filtroVendedor.length === 0 && filtroCidade.length === 0 && 
+                           filtroBairro.length === 0 && filtroCategoria.length === 0 && filtroProduto.length === 0 && 
+                           filtroFormaPagamento.length === 0 && filtroDataHabilitacao.length === 0}
+                >
+                  <RefreshCcw className="h-4 w-4 mr-2" />
+                  Limpar Filtros
+                </Button>
+              </div>
+            </div>
+
+            {/* Badges de Filtros Ativos e Botão Exportar */}
+            {(termoBusca || filtroVendedor.length > 0 || filtroCidade.length > 0 || filtroBairro.length > 0 || 
+              filtroCategoria.length > 0 || filtroProduto.length > 0 || filtroFormaPagamento.length > 0 || 
+              filtroDataHabilitacao.length > 0) && (
+              <div className="flex flex-wrap items-center gap-2 pt-4 border-t border-gray-200">
+                <div className="flex flex-wrap gap-2 flex-1">
+                  {termoBusca && (
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 px-3 py-1.5 font-medium text-xs">
+                      <Search className="h-3 w-3 mr-1.5" />
+                      Busca: {termoBusca}
+                    </Badge>
+                  )}
+                  {filtroVendedor.map((vendedor) => (
+                    <Badge key={vendedor} variant="outline" className="bg-green-50 text-green-700 border-green-300 px-3 py-1.5 font-medium text-xs">
+                      <UserIcon className="h-3 w-3 mr-1.5" />
+                      {vendedor}
+                    </Badge>
+                  ))}
+                  {filtroCidade.map((cidade) => (
+                    <Badge key={cidade} variant="outline" className="bg-purple-50 text-purple-700 border-purple-300 px-3 py-1.5 font-medium text-xs">
+                      <MapPin className="h-3 w-3 mr-1.5" />
+                      {cidade}
+                    </Badge>
+                  ))}
+                  {filtroBairro.map((bairro) => (
+                    <Badge key={bairro} variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-300 px-3 py-1.5 font-medium text-xs">
+                      <MapPin className="h-3 w-3 mr-1.5" />
+                      {bairro}
+                    </Badge>
+                  ))}
+                  {filtroCategoria.map((categoria) => (
+                    <Badge key={categoria} variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 px-3 py-1.5 font-medium text-xs">
+                      <Filter className="h-3 w-3 mr-1.5" />
+                      {categoria}
+                    </Badge>
+                  ))}
+                  {filtroProduto.map((produto) => (
+                    <Badge key={produto} variant="outline" className="bg-teal-50 text-teal-700 border-teal-300 px-3 py-1.5 font-medium text-xs">
+                      <List className="h-3 w-3 mr-1.5" />
+                      {produto}
+                    </Badge>
+                  ))}
+                  {filtroFormaPagamento.map((forma) => (
+                    <Badge key={forma} variant="outline" className="bg-rose-50 text-rose-700 border-rose-300 px-3 py-1.5 font-medium text-xs">
+                      <CreditCard className="h-3 w-3 mr-1.5" />
+                      {forma}
+                    </Badge>
+                  ))}
+                  {filtroDataHabilitacao.map((data) => (
+                    <Badge key={data} variant="outline" className="bg-cyan-50 text-cyan-700 border-cyan-300 px-3 py-1.5 font-medium text-xs">
+                      <CalendarIcon className="h-3 w-3 mr-1.5" />
+                      {formatarDataParaExibicao(data)}
+                    </Badge>
+                  ))}
+                </div>
+                <Button
+                  onClick={exportarParaExcel}
+                  variant="outline"
+                  size="sm"
+                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-2 border-emerald-300 font-semibold shadow-sm hover:shadow transition-all"
+                  disabled={vendasFiltradas.length === 0}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Exportar Excel
+                </Button>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabela de Propostas */}
+      <Card className="shadow-lg border-2">
+        <CardHeader className="bg-gradient-to-r from-slate-50 to-gray-50 border-b">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <List className="h-5 w-5 text-gray-600" />
+              Propostas do Período
+            </CardTitle>
+            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 font-semibold">
+              {vendasFiltradas.length} registro(s)
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {vendasFiltradas.length === 0 ? (
+            <div className="py-12 text-center text-gray-500">
+              <List className="h-12 w-12 mx-auto mb-4 opacity-30" />
+              <p>Nenhuma venda encontrada para os filtros selecionados.</p>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gradient-to-r from-slate-100 to-gray-100 border-b-2 border-slate-200">
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider sticky left-0 bg-slate-100 z-10">Proposta</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">CPF/CNPJ</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Nome Fantasia</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Telefone</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Cidade</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Bairro</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider text-center">Categoria</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Produto</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Vendedor</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Data Habilitação</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Forma</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider text-right">Valor</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider text-center">Ação</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {vendasFiltradas
+                      .slice((paginaAtual - 1) * itensPorPagina, paginaAtual * itensPorPagina)
+                      .map((venda, index) => {
+                        const categoria = mapearCategoria(venda);
+                        const corCategoria = 
+                          categoria === 'POS' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                          categoria === 'FLEX' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+                          categoria === 'PAY TV' ? 'bg-green-100 text-green-800 border-green-300' :
+                          categoria === 'OUT' ? 'bg-purple-100 text-purple-800 border-purple-300' :
+                          categoria === 'SEG' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                          'bg-gray-100 text-gray-800 border-gray-300';
+
+                        const nomeVendedor = getNomeVendedor(venda);
+                        const dataHabilitacao = getDataHabilitacao(venda);
+                        const produto = getProduto(venda);
+                        const forma = getForma(venda);
+                        const nomeFantasia = venda.nome_fantasia || 'Cliente';
+                        const telefone = venda.telefone_celular || '';
+                        const linkWhatsApp = gerarLinkWhatsApp(telefone, nomeFantasia, produto);
+
+                        return (
+                          <TableRow 
+                            key={`${venda.numero_proposta}-${index}`} 
+                            className={`hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-200 border-b border-gray-200 ${
+                              index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
+                            }`}
+                          >
+                            <TableCell className="text-xs p-3 font-bold text-indigo-700 sticky left-0 bg-inherit z-10">
+                              {venda.numero_proposta || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-700 font-mono">
+                              {venda.cpf || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-900 font-medium" title={venda.nome_fantasia || '-'}>
+                              {venda.nome_fantasia || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-700 font-mono">
+                              {venda.telefone_celular || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-700">
+                              {venda.cidade || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-700">
+                              {venda.bairro || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-center">
+                              <Badge className={`${corCategoria} font-bold text-xs px-3 py-1.5 border-2 rounded-full shadow-sm`}>
+                                {categoria}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-900 font-medium" title={produto || '-'}>
+                              {produto || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-700">
+                              {nomeVendedor || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-700">
+                              {dataHabilitacao ? 
+                                new Date(dataHabilitacao).toLocaleDateString('pt-BR') : 
+                                '-'
+                              }
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-700">
+                              {forma || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-right font-bold text-emerald-700">
+                              {venda.valor ? 
+                                venda.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 
+                                '-'
+                              }
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-center">
+                              {linkWhatsApp ? (
+                                <a
+                                  href={linkWhatsApp}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center justify-center w-8 h-8 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-full shadow-md hover:shadow-lg transform hover:scale-110 transition-all duration-200"
+                                  title="Enviar mensagem de boas-vindas via WhatsApp"
+                                >
+                                  <MessageCircle className="h-4 w-4" />
+                                </a>
+                              ) : (
+                                <span className="text-gray-400 text-xs">-</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                  </TableBody>
+                  <TableFooter>
+                    <TableRow className="bg-gradient-to-r from-slate-100 to-slate-200 border-t-2 border-slate-300">
+                      <TableCell colSpan={11} className="text-xs p-3 font-bold text-slate-900 sticky left-0 bg-slate-100 z-10">
+                        Total ({vendasFiltradas.length} vendas)
+                      </TableCell>
+                      <TableCell className="text-xs p-3 text-right font-bold text-emerald-700 text-sm">
+                        {totalizadores.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </TableCell>
+                      <TableCell className="text-xs p-3"></TableCell>
+                    </TableRow>
+                  </TableFooter>
+                </Table>
+              </div>
+
+              {/* Paginação */}
+              {vendasFiltradas.length > itensPorPagina && (
+                <div className="flex items-center justify-between p-4 border-t bg-gray-50">
+                  <div className="text-sm text-gray-600">
+                    Mostrando {Math.min(vendasFiltradas.length, (paginaAtual - 1) * itensPorPagina + 1)}-
+                    {Math.min(vendasFiltradas.length, paginaAtual * itensPorPagina)} de {vendasFiltradas.length}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
+                      disabled={paginaAtual === 1}
+                    >
+                      Anterior
+                    </Button>
+                    {Array.from({ length: Math.min(5, Math.ceil(vendasFiltradas.length / itensPorPagina)) }, (_, i) => {
+                      const totalPaginas = Math.ceil(vendasFiltradas.length / itensPorPagina);
+                      let numeroPagina;
+
+                      if (totalPaginas <= 5) {
+                        numeroPagina = i + 1;
+                      } else if (paginaAtual <= 3) {
+                        numeroPagina = i + 1;
+                      } else if (paginaAtual >= totalPaginas - 2) {
+                        numeroPagina = totalPaginas - 4 + i;
+                      } else {
+                        numeroPagina = paginaAtual - 2 + i;
+                      }
+
+                      return (
+                        <Button
+                          key={numeroPagina}
+                          variant={paginaAtual === numeroPagina ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setPaginaAtual(numeroPagina)}
+                        >
+                          {numeroPagina}
+                        </Button>
+                      );
+                    })}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPaginaAtual(p => Math.min(Math.ceil(vendasFiltradas.length / itensPorPagina), p + 1))}
+                      disabled={paginaAtual === Math.ceil(vendasFiltradas.length / itensPorPagina)}
+                    >
+                      Próxima
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -9293,11 +10189,16 @@ function ImportData() {
         const valorRaw = row["Valor"];
         const dataHabilitacaoRaw = row["Data da Habilitação"];
         const idVendedorRaw = row["ID/Código do vendedor"];
+        const nomeProprietarioRaw = row["Nome completo do proprietário"] || row["Nome do Proprietário"] || row["Nome do proprietário"] || row["NOME DO PROPRIETÁRIO"];
         const agrupamentoProdutoRaw = row["Agrupamento do Produto"];
         const produtoPrincipalRaw = row["Produto principal"];
         const produtosSecundariosRaw = row["ProdutosSecundarios"];
         const cidadeRaw = row["Cidade"];
         const formaPagamentoRaw = row["FormaPagamento"];
+        const cpfRaw = row["CPF"] || row["CNPJ"] || row["CPF/CNPJ"];
+        const nomeFantasiaRaw = row["Nome Fantasia"] || row["Nome fantasia"] || row["NOME FANTASIA"];
+        const telefoneRaw = row["Telefone"] || row["Telefone Celular"] || row["TELEFONE"];
+        const bairroRaw = row["Bairro"] || row["BAIRRO"];
         // MODIFICAÇÃO: Adicionar suporte ao campo "Subtotal Adesão" mencionado no problema
         const subtotalAdesaoRaw = row["Subtotal Adesão"] || row["Subtotal Adesao"];
         
@@ -9393,12 +10294,17 @@ function ImportData() {
           numero_proposta: isNP ? npDefaults!.numero_proposta : String(numeroPropostaRaw),
           valor: valor,
           data_venda: dataHabilitacao,
-          vendedor: String(idVendedorRaw),
+          vendedor: String(idVendedorRaw), // ID do vendedor
+          nome_proprietario: nomeProprietarioRaw ? String(nomeProprietarioRaw) : String(idVendedorRaw), // Nome do vendedor (igual Permanência)
           categoria: String(agrupamentoProdutoRaw || ''),
           produto: isNP ? npDefaults!.produto_principal : String(produtoPrincipalRaw || ''),
           produtos_secundarios: String(produtosSecundariosRaw || ''),
           cidade: String(cidadeRaw || ''),
           forma_pagamento: String(formaPagamentoRaw || ''),
+          cpf: cpfRaw ? String(cpfRaw) : undefined,
+          nome_fantasia: nomeFantasiaRaw ? String(nomeFantasiaRaw) : undefined,
+          telefone_celular: telefoneRaw ? String(telefoneRaw) : undefined,
+          bairro: bairroRaw ? String(bairroRaw) : undefined,
           mes: mes,
           ano: ano
                 };
