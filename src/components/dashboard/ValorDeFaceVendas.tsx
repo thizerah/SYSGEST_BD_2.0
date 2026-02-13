@@ -1,6 +1,7 @@
 import { BarChart2, Calculator } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import useData from "@/context/useData";
+import { addMonthsForPermanencia } from "@/context/DataUtils";
 import { useMemo, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Venda } from "@/types";
@@ -156,11 +157,10 @@ export function ValorDeFaceVendas({ vendasFiltradas }: ValorDeFaceVendasProps) {
     // Isso significa vendas de Fevereiro (junho - 4 meses)
     // Então, se temos vendas filtradas, calculamos qual mês de permanência elas representam
     const mesPermanciaCalculado = vendas.length > 0 && vendas[0].data_habilitacao ? (() => {
-      const dataHabilitacao = new Date(vendas[0].data_habilitacao);
-      dataHabilitacao.setMonth(dataHabilitacao.getMonth() + 4); // Adiciona 4 meses para calcular permanência
+      const { month, year } = addMonthsForPermanencia(vendas[0].data_habilitacao, 4);
       return {
-        mes: dataHabilitacao.getMonth() + 1,
-        ano: dataHabilitacao.getFullYear()
+        mes: month + 1,
+        ano: year
       };
     })() : null;
     

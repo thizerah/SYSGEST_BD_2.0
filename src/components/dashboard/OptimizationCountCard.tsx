@@ -66,8 +66,9 @@ export function OptimizationCountCard({ serviceOrders }: OptimizationCountCardPr
     
     const deduplicatedOrders = Array.from(uniqueOrders.values());
 
-    // Filtrar apenas OSs aplicáveis para otimização (mesma lógica do card)
+    // Filtrar apenas OSs aplicáveis para otimização (excluir Cancelada: só finalizadas entram no indicador)
     const osAplicaveis = deduplicatedOrders.filter(order => {
+      if (order.status === "Cancelada") return false;
       return (
         (order.tipo_servico === "Ponto Principal" && order.motivo === "Individual") ||
         (order.tipo_servico === "Instalação" && order.motivo === "Individual") ||

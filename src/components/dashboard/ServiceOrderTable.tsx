@@ -14,7 +14,8 @@ import {
   ChevronDown,
   MessageCircle,
   Eye,
-  Download
+  Download,
+  Pencil
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useToast } from "@/hooks/use-toast";
@@ -37,8 +38,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { ServiceOrder } from "@/types";
-import { normalizeCityName, normalizeNeighborhoodName } from '@/context/DataUtils';
+import { normalizeCityName, normalizeNeighborhoodName, getDisplayStatus, isBacklogStatus } from '@/context/DataUtils';
 import { MaterialViewer } from "./MaterialViewer";
+import { EditServiceOrderModal } from "./EditServiceOrderModal";
 
 interface ServiceOrderTableProps {
   filteredOrders?: ServiceOrder[];
@@ -56,11 +58,13 @@ interface ServiceOrderTableProps {
 }
 
 export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOrderTableProps) {
-  const { serviceOrders } = useData();
+  const { serviceOrders, updateServiceOrder } = useData();
   const { toast } = useToast();
   
   const [selectedOrder, setSelectedOrder] = useState<ServiceOrder | null>(null);
   const [isMaterialViewerOpen, setIsMaterialViewerOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [orderToEdit, setOrderToEdit] = useState<ServiceOrder | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<{
@@ -94,6 +98,11 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     }
   };
   
+  const getDateKeyForFilter = (order: ServiceOrder) => {
+    const dateStr = isBacklogStatus(order.status) ? order.data_criacao : order.data_finalizacao;
+    return getFinalizationDateKey(dateStr);
+  };
+
   // Função para obter data de finalização no formato dd/mm/yyyy
   const getFinalizationDateKey = (dateString: string) => {
     if (!dateString) return "";
@@ -114,7 +123,8 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
       // Verifica cada filtro individualmente
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
+      const matchesStatus = !filter.status || filter.status === "all" || 
+        (filter.status === "Backlog" ? isBacklogStatus(order.status) : order.status === filter.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
@@ -122,7 +132,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
       const matchesFinalizationDate = selectedDates.length === 0 || 
-        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
+        selectedDates.includes(getDateKeyForFilter(order));
       
       return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
@@ -134,7 +144,8 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     // Cria uma lista de ordens filtradas pelos outros filtros (exceto o filtro de técnico)
     const relevantOrders = baseOrders.filter(order => {
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
+      const matchesStatus = !filter.status || filter.status === "all" || 
+        (filter.status === "Backlog" ? isBacklogStatus(order.status) : order.status === filter.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
@@ -142,7 +153,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
       const matchesFinalizationDate = selectedDates.length === 0 || 
-        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
+        selectedDates.includes(getDateKeyForFilter(order));
       
       return matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
@@ -154,7 +165,8 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
   const serviceTypes = useMemo(() => {
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
-      const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
+      const matchesStatus = !filter.status || filter.status === "all" || 
+        (filter.status === "Backlog" ? isBacklogStatus(order.status) : order.status === filter.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
@@ -162,7 +174,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
       const matchesFinalizationDate = selectedDates.length === 0 || 
-        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
+        selectedDates.includes(getDateKeyForFilter(order));
       
       return matchesTechnician && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
@@ -181,12 +193,15 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
       const matchesFinalizationDate = selectedDates.length === 0 || 
-        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
+        selectedDates.includes(getDateKeyForFilter(order));
       
       return matchesTechnician && matchesServiceType && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
     
-    return Array.from(new Set(relevantOrders.map(o => o.status))).filter(Boolean);
+    const rawStatuses = Array.from(new Set(relevantOrders.map(o => o.status))).filter(Boolean);
+    const hasBacklog = rawStatuses.some(isBacklogStatus);
+    const otherStatuses = rawStatuses.filter(s => !isBacklogStatus(s));
+    return hasBacklog ? [...otherStatuses, "Backlog"] : otherStatuses;
   }, [baseOrders, filter.technician, selectedServiceTypes, filter.city, filter.neighborhood, selectedMotivos, filter.meta, selectedDates]);
   
   const cities = useMemo(() => {
@@ -263,7 +278,8 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
+      const matchesStatus = !filter.status || filter.status === "all" || 
+        (filter.status === "Backlog" ? isBacklogStatus(order.status) : order.status === filter.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
@@ -275,7 +291,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     });
     
     const dates = relevantOrders
-      .map(order => getFinalizationDateKey(order.data_finalizacao))
+      .map(order => getDateKeyForFilter(order))
       .filter(Boolean);
     
     // Retornar datas únicas ordenadas (mais antigas primeiro)
@@ -320,7 +336,8 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
       
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
+      const matchesStatus = !filter.status || filter.status === "all" || 
+        (filter.status === "Backlog" ? isBacklogStatus(order.status) : order.status === filter.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
@@ -328,7 +345,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
       const matchesFinalizationDate = selectedDates.length === 0 || 
-        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
+        selectedDates.includes(getDateKeyForFilter(order));
       
       return matchesSearch && matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
@@ -690,6 +707,29 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     setIsMaterialViewerOpen(true);
   };
 
+  // Função para abrir o modal de edição
+  const handleEditOrder = (order: ServiceOrder) => {
+    setOrderToEdit(order);
+    setIsEditModalOpen(true);
+  };
+
+  // Função para salvar a OS editada
+  const handleSaveOrder = async (updatedOrder: ServiceOrder) => {
+    try {
+      await updateServiceOrder(updatedOrder);
+      toast({
+        title: "✅ OS Atualizada",
+        description: `OS ${updatedOrder.codigo_os} foi atualizada com sucesso.`,
+      });
+    } catch (error) {
+      toast({
+        title: "❌ Erro ao Atualizar",
+        description: "Não foi possível atualizar a OS. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Função para determinar a cor do ícone do olho baseada na otimização
   const getEyeIconColor = (order: ServiceOrder) => {
     const tipoServico = order.tipo_servico;
@@ -938,7 +978,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
                 <SelectContent>
                   <SelectItem value="all">Todos os status</SelectItem>
                   {statuses.map(status => (
-                    <SelectItem key={status} value={status}>{status}</SelectItem>
+                    <SelectItem key={status} value={status}>{getDisplayStatus(status)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1099,7 +1139,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
               ))}
               {filter.status && (
                 <div className="bg-muted text-xs rounded-full px-3 py-1 inline-flex items-center">
-                  Status: {filter.status}
+                  Status: {getDisplayStatus(filter.status)}
                   <X 
                     className="ml-1 h-3 w-3 cursor-pointer" 
                     onClick={() => handleFilterChange('status', "")}
@@ -1267,6 +1307,16 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
                             >
                               <Eye className={`h-3.5 w-3.5 ${getEyeIconColor(order)}`} />
                             </Button>
+                            
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-7 w-7 hover:bg-amber-50 transition-colors"
+                              onClick={() => handleEditOrder(order)}
+                              title="Editar ordem de serviço"
+                            >
+                              <Pencil className="h-3.5 w-3.5 text-amber-600" />
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1353,6 +1403,14 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
           }}
         />
       )}
+      
+      {/* Modal de edição de OS */}
+      <EditServiceOrderModal
+        order={orderToEdit}
+        open={isEditModalOpen}
+        onOpenChange={setIsEditModalOpen}
+        onSave={handleSaveOrder}
+      />
     </Card>
   );
 }

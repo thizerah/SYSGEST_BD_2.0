@@ -53,8 +53,9 @@ export function useOptimizationCounts(serviceOrders: ServiceOrder[]) {
     
     const deduplicatedOrders = Array.from(uniqueOrders.values());
     
-    // Filtrar OS que atendem aos critérios de otimização
+    // Filtrar OS que atendem aos critérios de otimização (excluir Cancelada: só finalizadas entram no indicador)
     const ordersForOptimization = deduplicatedOrders.filter(order => {
+      if (order.status === "Cancelada") return false;
       const tipoServico = order.tipo_servico;
       const motivo = order.motivo;
       const isPontoPrincipalIndividual = (tipoServico === "Ponto Principal" || tipoServico === "Instalação") && motivo === "Individual";

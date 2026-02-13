@@ -2,12 +2,14 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { 
   ServiceOrder, User, SERVICE_TIME_GOALS, VALID_STATUS, ReopeningPair,
   Venda, PrimeiroPagamento, PermanenciaMetrics, VendedorMetrics,
-  Meta, VendaMeta, MetaMetrics, MetaCategoria, BaseData
+  Meta, VendaMeta, MetaMetrics, MetaCategoria, BaseData, LastImportInfo
 } from '../types';
 import { 
   VALID_SUBTYPES, 
   ALL_VALID_SUBTYPES,
   EXCLUDED_REASONS,
+  BACKLOG_STATUS,
+  getDisplayTypeForImport,
   CITY_NAME_MAP,
   NEIGHBORHOOD_NAME_MAP,
   normalizeCityName,
@@ -40,29 +42,49 @@ interface ImportResult {
   newRecords: number;
   updatedRecords: number;
   duplicatesIgnored: number;
+  newByType?: Record<string, number>;
+  updatedByType?: Record<string, number>;
+  backlogByType?: Record<string, number>;
   // Novos campos para pagamentos
   dateOnlyUpdates?: number;
   statusChanges?: number;
   stepChanges?: number;
+  // Vendas meta: atualizações só data de importação vs mudança de status
+  updatedRecordsOnlyDate?: number;
+  updatedRecordsStatusChange?: number;
+  statusChangesDetails?: { proposta: string; de: string; para: string }[];
+}
+
+export interface LastServiceOrderImportSummary {
+  totalPlanilha: number;
+  totalAceito: number;
+  osNaoAceitas: { codigo_os: string; codigo_item?: string; reason: string; motivo?: string; order: ServiceOrder }[];
 }
 
 interface DataContextType {
   serviceOrders: ServiceOrder[];
+  lastServiceOrderImportSummary: LastServiceOrderImportSummary | null;
+  addRejectedOrdersToPlatform: (orders: ServiceOrder[]) => { added: number; alreadyPresent: number };
   vendas: Venda[];
   primeirosPagamentos: PrimeiroPagamento[];
   metas: Meta[];
   vendasMeta: VendaMeta[];
   baseData: BaseData[];
+  lastImportInfo: LastImportInfo | null;
   importServiceOrders: (orders: ServiceOrder[], append?: boolean) => ImportResult;
+  updateServiceOrder: (updatedOrder: ServiceOrder) => Promise<void>;
   importVendas: (vendas: Venda[], append?: boolean) => ImportResult;
   importPrimeirosPagamentos: (pagamentos: PrimeiroPagamento[], append?: boolean) => ImportResult;
   importMetas: (metas: Meta[], append?: boolean) => ImportResult;
   importVendasMeta: (vendasMeta: VendaMeta[], append?: boolean) => ImportResult;
   importBaseData: (baseData: BaseData[], append?: boolean) => ImportResult;
+  setLastImportInfo: (info: LastImportInfo | null) => void;
   clearData: () => void;
   loading: boolean;
   isLoadingFromSupabase: boolean;
   loadFromSupabaseIfEmpty: () => Promise<void>;
+  refreshBaseData: () => Promise<void>;
+  refreshMetas: () => Promise<void>;
   clearLocalStorageAfterMigration: () => void;
   isSupabaseOnlyMode: () => boolean;
   enableSupabaseOnlyMode: () => void;
@@ -70,11 +92,13 @@ interface DataContextType {
   calculateTimeMetrics: (filteredOrders?: ServiceOrder[]) => {
     ordersWithinGoal: number;
     ordersOutsideGoal: number;
+    backlogCount: number;
     percentWithinGoal: number;
     averageTime: number;
     servicesByType: Record<string, {
       totalOrders: number;
       withinGoal: number;
+      backlogCount: number;
       percentWithinGoal: number;
       averageTime: number;
     }>;
@@ -92,6 +116,7 @@ interface DataContextType {
     reopeningsByOriginalType: Record<string, { 
       reopenings: number; 
       totalOriginals: number; 
+      backlogCount: number;
       reopeningRate: number 
     }>;
     reopeningsByReason: Record<string, {
@@ -120,7 +145,9 @@ const STORAGE_KEYS = {
   VENDAS_META: 'sysgest_vendas_meta',
   BASE_DATA: 'sysgest_base_data',
   // Chave para controlar o modo de operação
-  SUPABASE_ONLY_MODE: 'sysgest_supabase_only_mode'
+  SUPABASE_ONLY_MODE: 'sysgest_supabase_only_mode',
+  // Chave para informações da última importação
+  LAST_IMPORT_INFO: 'sysgest_last_import_info'
 } as const;
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -132,9 +159,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [baseData, setBaseData] = useState<BaseData[]>([]);
   const [loading, setLoading] = useState(false);
   const [isLoadingFromSupabase, setIsLoadingFromSupabase] = useState(false);
-  
-  // Hook de autenticação
-  const { user } = useAuth();
+  const [lastServiceOrderImportSummary, setLastServiceOrderImportSummary] = useState<LastServiceOrderImportSummary | null>(null);
+  const [lastImportInfo, setLastImportInfoState] = useState<LastImportInfo | null>(null);
+
+  const { user, authExtras } = useAuth();
+  const donoUserId = authExtras?.donoUserId ?? user?.id ?? null;
 
   // Funções para gerenciar modo de operação
   const isSupabaseOnlyMode = (): boolean => {
@@ -186,6 +215,40 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return [];
   };
+
+  // Funções para gerenciar informações da última importação
+  const saveLastImportInfo = useCallback((info: LastImportInfo | null) => {
+    try {
+      if (info) {
+        localStorage.setItem(STORAGE_KEYS.LAST_IMPORT_INFO, JSON.stringify(info));
+        infoLog('[ÚLTIMA IMPORTAÇÃO] Informações salvas no localStorage');
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.LAST_IMPORT_INFO);
+        infoLog('[ÚLTIMA IMPORTAÇÃO] Informações removidas do localStorage');
+      }
+    } catch (error) {
+      console.error('[ÚLTIMA IMPORTAÇÃO] Erro ao salvar informações:', error);
+    }
+  }, []);
+
+  const loadLastImportInfo = useCallback((): LastImportInfo | null => {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.LAST_IMPORT_INFO);
+      if (data) {
+        const parsed = JSON.parse(data) as LastImportInfo;
+        infoLog('[ÚLTIMA IMPORTAÇÃO] Informações carregadas do localStorage');
+        return parsed;
+      }
+    } catch (error) {
+      console.error('[ÚLTIMA IMPORTAÇÃO] Erro ao carregar informações:', error);
+    }
+    return null;
+  }, []);
+
+  const setLastImportInfo = useCallback((info: LastImportInfo | null) => {
+    setLastImportInfoState(info);
+    saveLastImportInfo(info);
+  }, [saveLastImportInfo]);
 
   // Função para reconstruir array materiais a partir das colunas do Supabase
   const reconstructMaterialsFromColumns = useCallback((order: ServiceOrder): ServiceOrder => {
@@ -270,12 +333,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Função auxiliar para paginação automática
   const loadAllDataWithPagination = useCallback(async <T,>(
-    tableName: string, 
+    tableName: string,
     pageSize: number = 1000
   ): Promise<T[]> => {
-    if (!user) {
-      throw new Error('Usuário não autenticado');
-    }
+    const uid = donoUserId ?? user?.id;
+    if (!uid) throw new Error('Usuário não autenticado');
 
     let allData: T[] = [];
     let currentPage = 0;
@@ -292,8 +354,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { data, error } = await supabase
         .from(tableName)
         .select('*')
-        .eq('user_id', user.id)
-        .order('id', { ascending: true }) // Garantir ordem consistente para evitar duplicatas na paginação
+        .eq('user_id', uid)
+        .order('id', { ascending: true })
         .range(startRange, endRange);
 
       if (error) {
@@ -313,11 +375,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     infoLog(`[PAGINAÇÃO] ${tableName}: Carregamento concluído. Total de registros: ${allData.length}`);
     return allData as T[];
-  }, [user]);
+  }, [donoUserId, user?.id]);
 
   // Função para carregar dados do Supabase
   const loadFromSupabaseIfEmpty = useCallback(async () => {
-    if (!user) {
+    if (!donoUserId && !user?.id) {
       infoLog('[SUPABASE] Usuário não autenticado, pulando carregamento');
       return;
     }
@@ -433,6 +495,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user, loadAllDataWithPagination, saveToLocalStorage]);
 
+  const refreshBaseData = useCallback(async () => {
+    if (!donoUserId && !user?.id) return;
+    try {
+      const loaded = await loadAllDataWithPagination<BaseData>('base_data');
+      setBaseData(loaded);
+      if (!isSupabaseOnlyMode() && loaded.length > 0) {
+        saveToLocalStorage(STORAGE_KEYS.BASE_DATA, loaded);
+      }
+    } catch (error) {
+      console.error('[DataContext] Erro ao recarregar BASE:', error);
+    }
+  }, [donoUserId, user?.id, loadAllDataWithPagination, saveToLocalStorage, isSupabaseOnlyMode]);
+
+  const refreshMetas = useCallback(async () => {
+    if (!donoUserId && !user?.id) return;
+    try {
+      const loaded = await loadAllDataWithPagination<Meta>('metas');
+      setMetas(loaded);
+      if (!isSupabaseOnlyMode() && loaded.length > 0) {
+        saveToLocalStorage(STORAGE_KEYS.METAS, loaded);
+      }
+    } catch (error) {
+      console.error('[DataContext] Erro ao recarregar metas:', error);
+    }
+  }, [donoUserId, user?.id, loadAllDataWithPagination, saveToLocalStorage, isSupabaseOnlyMode]);
+
   // Função para limpar localStorage após migração bem-sucedida
   const clearLocalStorageAfterMigration = useCallback(() => {
     infoLog('[MIGRAÇÃO] Limpando dados do localStorage após migração...');
@@ -520,12 +608,52 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         infoLog('[PERSISTÊNCIA] localStorage vazio, carregando do Supabase...');
         await loadFromSupabaseIfEmpty();
       }
+
+      // Carregar informações da última importação (sempre, independente de ter dados ou não)
+      const loadedLastImportInfo = loadLastImportInfo();
+      if (loadedLastImportInfo) {
+        setLastImportInfoState(loadedLastImportInfo);
+      }
     };
 
     initializeData();
-  }, [loadFromSupabaseIfEmpty]); // Adicionado 'loadFromSupabaseIfEmpty'
+  }, [loadFromSupabaseIfEmpty, loadLastImportInfo]); // Adicionado 'loadLastImportInfo'
 
 
+
+  const getOrderKey = (o: ServiceOrder) => `${o.codigo_os}-${o.codigo_item ?? "default"}`;
+
+  const addRejectedOrdersToPlatform = useCallback((orders: ServiceOrder[]) => {
+    if (orders.length === 0) return { added: 0, alreadyPresent: 0 };
+    const existingKeys = new Set(serviceOrders.map(o => getOrderKey(o)));
+    const toAdd = orders
+      .filter(o => !existingKeys.has(getOrderKey(o)))
+      .map(o => ({ ...o, include_in_metrics: false }));
+    const alreadyPresent = orders.length - toAdd.length;
+    if (toAdd.length === 0) return { added: 0, alreadyPresent };
+    const newOrders = [...serviceOrders, ...toAdd];
+    setServiceOrders(newOrders);
+    saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, newOrders, true);
+    infoLog(`[OS rejeitadas] ${toAdd.length} incluídas na plataforma (${alreadyPresent} já existentes)`);
+    return { added: toAdd.length, alreadyPresent };
+  }, [serviceOrders, saveToLocalStorage]);
+
+  const orderHasChanges = (existing: ServiceOrder, incoming: ServiceOrder): boolean => {
+    const fieldsToCompare: (keyof ServiceOrder)[] = [
+      'status', 'data_finalizacao', 'data_criacao', 'acao_tomada', 'motivo',
+      'nome_tecnico', 'id_tecnico', 'sigla_tecnico', 'tipo_servico', 'subtipo_servico',
+      'codigo_cliente', 'nome_cliente', 'cidade', 'bairro'
+    ];
+    for (const field of fieldsToCompare) {
+      const a = (existing[field] ?? '').toString().trim();
+      const b = (incoming[field] ?? '').toString().trim();
+      if (a !== b) return true;
+    }
+    const matA = JSON.stringify(existing.materiais ?? []);
+    const matB = JSON.stringify(incoming.materiais ?? []);
+    if (matA !== matB) return true;
+    return false;
+  };
 
   const importServiceOrders = (orders: ServiceOrder[], append: boolean = false): ImportResult => {
     setLoading(true);
@@ -537,47 +665,68 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Isso será feito na inicialização, então aqui vamos apenas processar com os dados disponíveis
     }
     
-    // Pré-processamento para casos cancelados: usar data de criação como finalização se necessário
+    // Pré-processamento para casos cancelados: usar data de criação como finalização (todas as canceladas, para registro)
     const preparedOrders = orders.map(order => {
-              // Verificar se é um caso cancelado sem data de finalização
-        if (order.status === "Cancelada" && 
-            (order.subtipo_servico === "Corretiva" || order.subtipo_servico === "Corretiva BL") && 
-            (!order.data_finalizacao || order.data_finalizacao.trim() === "") && 
-            order.data_criacao) {
-          debugLog(`[OS CANCELADA] ${order.codigo_os} (${order.subtipo_servico}): Usando data de criação como finalização`);
-          // Usar a data de criação como data de finalização para ordens canceladas
-          return {
-            ...order,
-            data_finalizacao: order.data_criacao
-          };
-        }
+      if (order.status === "Cancelada" &&
+          (!order.data_finalizacao || order.data_finalizacao.trim() === "") &&
+          order.data_criacao) {
+        debugLog(`[OS CANCELADA] ${order.codigo_os} (${order.subtipo_servico}): Usando data de criação como finalização`);
+        return { ...order, data_finalizacao: order.data_criacao };
+      }
       return order;
     });
-    
-    const filteredOrders = preparedOrders.filter(order => {
-      // Para ordens canceladas, verificar se é Corretiva ou Corretiva BL
+
+    // Helper para saber se aceita e por quê (log temporário de importação)
+    const getAcceptReason = (order: ServiceOrder): { accept: boolean; reason?: string } => {
       if (order.status === "Cancelada") {
-        return (order.subtipo_servico === "Corretiva" || order.subtipo_servico === "Corretiva BL") && order.data_criacao;
+        return order.data_criacao
+          ? { accept: true }
+          : { accept: false, reason: "Cancelada sem data de criação" };
       }
-      
-      // Para outros status, usar a lógica original
-      if (!order.data_finalizacao) return false;
-      
-      const hasValidSubtype = ALL_VALID_SUBTYPES.some(
-        subtype => order.subtipo_servico?.includes(subtype)
-      );
-      
-      const hasValidStatus = VALID_STATUS.some(
-        status => order.status?.includes(status)
-      );
-      
-      const hasValidReason = !EXCLUDED_REASONS.some(
-        reason => order.motivo?.includes(reason)
-      );
-      
-      return hasValidSubtype && hasValidStatus && hasValidReason;
+      const isBacklog = BACKLOG_STATUS.some(s => (order.status || "").toUpperCase().includes(s.toUpperCase()));
+      if (isBacklog) {
+        const hasValidSubtype = ALL_VALID_SUBTYPES.some(subtype => order.subtipo_servico?.includes(subtype));
+        const hasValidReason = !EXCLUDED_REASONS.some(reason => order.motivo?.includes(reason));
+        if (!order.data_criacao) return { accept: false, reason: "Backlog sem data de criação" };
+        if (!hasValidSubtype) return { accept: false, reason: `Subtipo não permitido: ${order.subtipo_servico}` };
+        if (!hasValidReason) return { accept: false, reason: `Motivo excluído (Ant Governo/Nova Parabólica): ${order.motivo}` };
+        return { accept: true };
+      }
+      if (!order.data_finalizacao) return { accept: false, reason: "Sem data de finalização" };
+      const hasValidSubtype = ALL_VALID_SUBTYPES.some(subtype => order.subtipo_servico?.includes(subtype));
+      const hasValidReason = !EXCLUDED_REASONS.some(reason => order.motivo?.includes(reason));
+      if (!hasValidSubtype) return { accept: false, reason: `Subtipo não permitido: ${order.subtipo_servico}` };
+      // Validação de status removida - sistema agora aceita qualquer status para permitir updates
+      if (!hasValidReason) return { accept: false, reason: `Motivo excluído: ${order.motivo}` };
+      return { accept: true };
+    };
+
+    const filteredOrders: ServiceOrder[] = [];
+    const discarded: { codigo_os: string; codigo_item?: string; reason: string; motivo?: string; order: ServiceOrder }[] = [];
+    preparedOrders.forEach(order => {
+      const { accept, reason } = getAcceptReason(order);
+      if (accept) filteredOrders.push(order);
+      else discarded.push({
+        codigo_os: order.codigo_os,
+        codigo_item: order.codigo_item,
+        reason: reason || "Não aceito",
+        motivo: order.motivo,
+        order
+      });
     });
-    
+
+    // Log temporário: total planilha x aceito x não aceitos e porquê
+    console.log("[Importação Serviços] Total da planilha:", orders.length, "| Total aceito:", filteredOrders.length, "| OS não aceitas:", discarded.length);
+    if (discarded.length > 0) {
+      discarded.forEach(({ codigo_os, reason }) => console.log("[Importação Serviços] OS não aceita:", codigo_os, "— Porque:", reason));
+    }
+
+    setLastServiceOrderImportSummary({
+      totalPlanilha: orders.length,
+      totalAceito: filteredOrders.length,
+      osNaoAceitas: [...discarded]
+    });
+
     const processedOrders = filteredOrders.map(order => {
       // Se for uma ordem cancelada, não incluir nas métricas de tempo
       if (order.status === "Cancelada") {
@@ -587,6 +736,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tempo_atendimento: null,
           atingiu_meta: false,
           include_in_metrics: false  // Não incluir nas métricas de tempo
+        };
+      }
+      
+      // Se for Backlog (Aguard. Atendimento): incluir no total mas sem métricas de tempo
+      const isBacklogOrder = BACKLOG_STATUS.some(s => 
+        (order.status || '').toUpperCase().includes(s.toUpperCase())
+      );
+      if (isBacklogOrder) {
+        debugLog(`[OS BACKLOG] ${order.codigo_os} incluída para acompanhamento e reaberturas`);
+        return {
+          ...order,
+          data_finalizacao: order.data_finalizacao || '', // Pode estar vazio
+          tempo_atendimento: null,
+          atingiu_meta: false,
+          include_in_metrics: false  // Não incluir em métricas de tempo (é backlog)
         };
       }
       
@@ -652,70 +816,263 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     
     let newRecords = 0;
+    let updatedRecords = 0;
     let duplicatesIgnored = 0;
     
     if (append) {
-      // Se append for true, verificar duplicidades antes de adicionar
-      // Usar chave composta: codigo_os + codigo_item para identificar unicamente cada item
-      console.log(`[DataContext] Verificando duplicatas. Total atual: ${serviceOrders.length}, Novos: ${processedOrders.length}`);
+      const getOrderKey = (o: ServiceOrder) => `${o.codigo_os}-${o.codigo_item || 'default'}`;
+      const existingMap = new Map(serviceOrders.map(o => [getOrderKey(o), o]));
+      const existingOrderKeys = new Set(existingMap.keys());
       
-      const existingOrderKeys = new Set(serviceOrders.map(order => 
-        `${order.codigo_os}-${order.codigo_item || 'default'}`
-      ));
+      const newOrders = processedOrders.filter(o => !existingOrderKeys.has(getOrderKey(o)));
+      const potentialUpdates = processedOrders.filter(o => existingOrderKeys.has(getOrderKey(o)));
       
-      console.log("Chaves existentes:", Array.from(existingOrderKeys).slice(0, 5));
-      
-      const newOrdersFiltered = processedOrders.filter(order => {
-        const key = `${order.codigo_os}-${order.codigo_item || 'default'}`;
-        const isNew = !existingOrderKeys.has(key);
-        if (!isNew) {
-          console.log(`[DataContext] Duplicata ignorada: ${key}`);
-        }
-        return isNew;
+      const ordersToUpdate = potentialUpdates.filter(incoming => {
+        const existing = existingMap.get(getOrderKey(incoming));
+        return existing ? orderHasChanges(existing, incoming) : false;
       });
       
-      console.log(`[DataContext] Após filtro: ${newOrdersFiltered.length} novos registros`);
-      duplicatesIgnored = processedOrders.length - newOrdersFiltered.length;
+      const updateMap = new Map(ordersToUpdate.map(o => [getOrderKey(o), o]));
       
-      if (newOrdersFiltered.length > 0) {
-        const finalOrders = [...serviceOrders, ...newOrdersFiltered];
+      const updatedExisting = serviceOrders.map(order => {
+        const key = getOrderKey(order);
+        const updated = updateMap.get(key);
+        return updated ?? order;
+      });
+      
+      const finalOrders = [...updatedExisting, ...newOrders];
+      
+      newRecords = newOrders.length;
+      updatedRecords = ordersToUpdate.length;
+      duplicatesIgnored = 0;
+
+      const newByType: Record<string, number> = {};
+      newOrders.forEach(o => {
+        const tipo = getDisplayTypeForImport(o.subtipo_servico || '');
+        newByType[tipo] = (newByType[tipo] || 0) + 1;
+      });
+
+      const updatedByType: Record<string, number> = {};
+      ordersToUpdate.forEach(o => {
+        const tipo = getDisplayTypeForImport(o.subtipo_servico || '');
+        updatedByType[tipo] = (updatedByType[tipo] || 0) + 1;
+      });
+
+      const backlogOrders = [...newOrders, ...ordersToUpdate].filter(o =>
+        BACKLOG_STATUS.some(s => (o.status || '').toUpperCase().includes(s.toUpperCase()))
+      );
+      const backlogByType: Record<string, number> = {};
+      backlogOrders.forEach(o => {
+        const tipo = getDisplayTypeForImport(o.subtipo_servico || '');
+        backlogByType[tipo] = (backlogByType[tipo] || 0) + 1;
+      });
+      
+      if (newRecords > 0 || updatedRecords > 0) {
         setServiceOrders(finalOrders);
-        newRecords = newOrdersFiltered.length;
-        infoLog(`Adicionadas ${newOrdersFiltered.length} novas ordens de serviço (${duplicatesIgnored} duplicadas ignoradas)`);
+        infoLog(`Serviços: ${newRecords} novos, ${updatedRecords} atualizados`);
         
-        // No modo Supabase-only, salvar apenas os novos registros no localStorage para revisão
         if (isSupabaseOnlyMode()) {
-          // Carregar dados existentes do localStorage (se houver) para manter histórico de importações
           const existingLocalData = loadFromLocalStorage<ServiceOrder>(STORAGE_KEYS.SERVICE_ORDERS);
-          const combinedLocalData = [...existingLocalData, ...newOrdersFiltered];
+          const keysToUpdate = new Set(ordersToUpdate.map(o => getOrderKey(o)));
+          const filteredExisting = existingLocalData.filter(o => !keysToUpdate.has(getOrderKey(o)));
+          const combinedLocalData = [...filteredExisting, ...ordersToUpdate, ...newOrders];
           saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, combinedLocalData, true);
-          infoLog(`[MODO SUPABASE-ONLY] Salvos ${newOrdersFiltered.length} novos registros no localStorage para revisão (total local: ${combinedLocalData.length})`);
         } else {
           saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, finalOrders, true);
         }
-      } else {
-        newRecords = 0;
-        infoLog(`Nenhuma nova ordem de serviço para adicionar (${duplicatesIgnored} duplicadas ignoradas)`);
       }
+
+      setLoading(false);
+      return {
+        totalProcessed: orders.length,
+        newRecords,
+        updatedRecords,
+        duplicatesIgnored,
+        newByType,
+        updatedByType,
+        backlogByType
+      };
     } else {
-      // Substituir completamente
       setServiceOrders(processedOrders);
       newRecords = processedOrders.length;
       duplicatesIgnored = 0;
       infoLog(`Importadas ${processedOrders.length} ordens de serviço válidas de um total de ${orders.length}`);
-      
-      // Salvar no localStorage (forçar salvamento para importações)
       saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, processedOrders, true);
     }
     
+    const newByType: Record<string, number> = {};
+    const backlogByType: Record<string, number> = {};
+    if (!append && processedOrders.length > 0) {
+      processedOrders.forEach(o => {
+        const tipo = getDisplayTypeForImport(o.subtipo_servico || '');
+        newByType[tipo] = (newByType[tipo] || 0) + 1;
+        if (BACKLOG_STATUS.some(s => (o.status || '').toUpperCase().includes(s.toUpperCase()))) {
+          backlogByType[tipo] = (backlogByType[tipo] || 0) + 1;
+        }
+      });
+    }
+    
     setLoading(false);
-
     return {
       totalProcessed: orders.length,
       newRecords,
-      updatedRecords: 0,
-      duplicatesIgnored
+      updatedRecords,
+      duplicatesIgnored,
+      newByType: Object.keys(newByType).length > 0 ? newByType : undefined,
+      updatedByType: undefined,
+      backlogByType: Object.keys(backlogByType).length > 0 ? backlogByType : undefined
     };
+  };
+
+  // Função para atualizar uma ordem de serviço existente
+  const updateServiceOrder = async (updatedOrder: ServiceOrder): Promise<void> => {
+    try {
+      setLoading(true);
+      infoLog(`[UPDATE OS] Atualizando OS ${updatedOrder.codigo_os}${updatedOrder.codigo_item ? `-${updatedOrder.codigo_item}` : ''}`);
+
+      // Calcular campos automaticamente (tempo, meta, include_in_metrics)
+      const orderWithCalculations = calculateServiceOrderFields(updatedOrder);
+
+      // Modo Supabase-only: atualizar direto no Supabase
+      if (isSupabaseOnlyMode()) {
+        infoLog('[UPDATE OS] Modo Supabase-only: Atualizando no Supabase...');
+        
+        const uid = donoUserId ?? user?.id;
+        if (!uid) throw new Error('Usuário não autenticado');
+        
+        // Fazer update direto no Supabase
+        const { error: updateError } = await supabase
+          .from('service_orders')
+          .update({
+            status: orderWithCalculations.status,
+            id_tecnico: orderWithCalculations.id_tecnico,
+            nome_tecnico: orderWithCalculations.nome_tecnico,
+            sigla_tecnico: orderWithCalculations.sigla_tecnico,
+            subtipo_servico: orderWithCalculations.subtipo_servico,
+            motivo: orderWithCalculations.motivo,
+            acao_tomada: orderWithCalculations.acao_tomada || null,
+            codigo_cliente: orderWithCalculations.codigo_cliente,
+            nome_cliente: orderWithCalculations.nome_cliente,
+            telefone_celular: orderWithCalculations.telefone_celular || null,
+            cidade: orderWithCalculations.cidade,
+            bairro: orderWithCalculations.bairro,
+            data_criacao: orderWithCalculations.data_criacao,
+            data_finalizacao: orderWithCalculations.data_finalizacao,
+            tempo_atendimento: orderWithCalculations.tempo_atendimento || null,
+            atingiu_meta: orderWithCalculations.atingiu_meta || false,
+            include_in_metrics: orderWithCalculations.include_in_metrics || false,
+            imported_at: new Date().toISOString()
+          })
+          .eq('user_id', uid)
+          .eq('codigo_os', updatedOrder.codigo_os)
+          .eq('codigo_item', updatedOrder.codigo_item || null);
+        
+        if (updateError) {
+          console.error('[UPDATE OS] Erro ao atualizar no Supabase:', updateError);
+          throw updateError;
+        }
+        
+        // Recarregar dados do Supabase
+        await loadFromSupabaseIfEmpty();
+        
+        infoLog('[UPDATE OS] OS atualizada com sucesso no Supabase');
+      } else {
+        // Modo híbrido: atualizar localStorage
+        infoLog('[UPDATE OS] Modo híbrido: Atualizando no localStorage...');
+        
+        // Atualizar no state local
+        setServiceOrders(prevOrders => {
+          const orderIndex = prevOrders.findIndex(o => 
+            o.codigo_os === updatedOrder.codigo_os && 
+            (o.codigo_item || '') === (updatedOrder.codigo_item || '')
+          );
+          
+          if (orderIndex === -1) {
+            console.error('[UPDATE OS] OS não encontrada no state local');
+            return prevOrders;
+          }
+          
+          const newOrders = [...prevOrders];
+          newOrders[orderIndex] = orderWithCalculations;
+          
+          // Salvar no localStorage
+          saveToLocalStorage(STORAGE_KEYS.SERVICE_ORDERS, newOrders, true);
+          
+          return newOrders;
+        });
+        
+        infoLog('[UPDATE OS] OS atualizada com sucesso no localStorage');
+      }
+    } catch (error) {
+      console.error('[UPDATE OS] Erro ao atualizar OS:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Helper para calcular campos automáticos da OS
+  const calculateServiceOrderFields = (order: ServiceOrder): ServiceOrder => {
+    // Calcular tempo de atendimento (se ambas as datas existirem)
+    let tempo_atendimento: number | null = null;
+    let atingiu_meta = false;
+    
+    if (order.data_criacao && order.data_finalizacao) {
+      const dataCriacao = new Date(order.data_criacao);
+      const dataFinalizacao = new Date(order.data_finalizacao);
+      const diffMs = dataFinalizacao.getTime() - dataCriacao.getTime();
+      tempo_atendimento = Math.max(0, Math.round(diffMs / (1000 * 60 * 60))); // em horas
+      
+      // Verificar se atingiu a meta
+      const goal = SERVICE_TIME_GOALS[order.subtipo_servico];
+      if (goal && tempo_atendimento <= goal) {
+        atingiu_meta = true;
+      }
+    }
+    
+    // Determinar se deve ser incluído nas métricas
+    const include_in_metrics = shouldIncludeInMetrics(order);
+    
+    return {
+      ...order,
+      tempo_atendimento,
+      atingiu_meta,
+      include_in_metrics
+    };
+  };
+
+  // Helper para determinar se OS deve ser incluída nas métricas
+  const shouldIncludeInMetrics = (order: ServiceOrder): boolean => {
+    // Lógica baseada nas validações da importação
+    if (order.status === "Cancelada") {
+      // Apenas Corretiva e Corretiva BL canceladas são incluídas
+      return order.subtipo_servico === "Corretiva" || order.subtipo_servico === "Corretiva BL";
+    }
+    
+    // Backlog não entra nas métricas de tempo
+    const isBacklog = BACKLOG_STATUS.some(s => (order.status || "").toUpperCase().includes(s.toUpperCase()));
+    if (isBacklog) {
+      return false;
+    }
+    
+    // Verificar se tem subtipo válido
+    const hasValidSubtype = ALL_VALID_SUBTYPES.some(subtype => order.subtipo_servico?.includes(subtype));
+    if (!hasValidSubtype) {
+      return false;
+    }
+    
+    // Verificar se tem motivo válido (não excluído)
+    const hasValidReason = !EXCLUDED_REASONS.some(reason => order.motivo?.includes(reason));
+    if (!hasValidReason) {
+      return false;
+    }
+    
+    // Precisa ter data de finalização
+    if (!order.data_finalizacao) {
+      return false;
+    }
+    
+    return true;
   };
 
   const importVendas = (novasVendas: Venda[], append: boolean = false): ImportResult => {
@@ -1000,49 +1357,61 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       let finalVendasMeta: VendaMeta[];
       let newRecords = 0;
+      let updatedRecords = 0;
+      let updatedRecordsOnlyDate = 0;
+      let updatedRecordsStatusChange = 0;
+      const statusChangesDetails: { proposta: string; de: string; para: string }[] = [];
       let duplicatesIgnored = 0;
       
       if (append) {
-        // Se append for true, verificar duplicidades antes de adicionar
-        const existingVendasKeys = new Set(vendasMeta.map(v => v.numero_proposta));
-        const newVendasFiltered = novasVendasMeta.filter(v => !existingVendasKeys.has(v.numero_proposta));
-        
-        if (newVendasFiltered.length > 0) {
-          finalVendasMeta = [...vendasMeta, ...newVendasFiltered];
-          setVendasMeta(finalVendasMeta);
-          newRecords = newVendasFiltered.length;
-          duplicatesIgnored = novasVendasMeta.length - newVendasFiltered.length;
-          infoLog(`Adicionadas ${newVendasFiltered.length} novas vendas de meta (${duplicatesIgnored} duplicadas ignoradas)`);
-        } else {
-          finalVendasMeta = vendasMeta;
-          newRecords = 0;
-          duplicatesIgnored = novasVendasMeta.length;
-                      infoLog("Nenhuma nova venda de meta para adicionar (todas já existem)");
-        }
+        // Upsert: por numero_proposta, atualizar existente ou inserir novo (importação sempre sobrescreve)
+        const mapByProposta = new Map<string, VendaMeta>();
+        vendasMeta.forEach((v) => mapByProposta.set(v.numero_proposta, v));
+        novasVendasMeta.forEach((v) => {
+          const existing = mapByProposta.get(v.numero_proposta);
+          const normalized = { ...v };
+          if (existing) {
+            mapByProposta.set(v.numero_proposta, normalized);
+            const statusAntigo = existing.status_proposta ?? '';
+            const statusNovo = normalized.status_proposta ?? '';
+            if (statusAntigo !== statusNovo) {
+              updatedRecordsStatusChange++;
+              statusChangesDetails.push({
+                proposta: v.numero_proposta,
+                de: statusAntigo || '(vazio)',
+                para: statusNovo || '(vazio)'
+              });
+            } else {
+              updatedRecordsOnlyDate++;
+            }
+            updatedRecords++;
+          } else {
+            mapByProposta.set(v.numero_proposta, normalized);
+            newRecords++;
+          }
+        });
+        finalVendasMeta = Array.from(mapByProposta.values());
+        setVendasMeta(finalVendasMeta);
+        infoLog(`Vendas meta: ${newRecords} novas, ${updatedRecords} atualizadas (${updatedRecordsOnlyDate} só data, ${updatedRecordsStatusChange} com mudança de status)`);
       } else {
-        finalVendasMeta = novasVendasMeta;
+        finalVendasMeta = [...novasVendasMeta];
         setVendasMeta(finalVendasMeta);
         newRecords = novasVendasMeta.length;
-        duplicatesIgnored = 0;
         infoLog(`Importadas ${novasVendasMeta.length} vendas de meta`);
       }
       
-      // No modo Supabase-only, salvar apenas os novos registros no localStorage para revisão
-      if (isSupabaseOnlyMode() && append && newRecords > 0) {
-        const existingLocalData = loadFromLocalStorage<VendaMeta>(STORAGE_KEYS.VENDAS_META);
-        const newVendasFiltered = finalVendasMeta.filter(v => !vendasMeta.some(existing => existing.numero_proposta === v.numero_proposta));
-        const combinedLocalData = [...existingLocalData, ...newVendasFiltered];
-        saveToLocalStorage(STORAGE_KEYS.VENDAS_META, combinedLocalData, true);
-        infoLog(`[MODO SUPABASE-ONLY] Salvos ${newVendasFiltered.length} novos registros no localStorage para revisão (total local: ${combinedLocalData.length})`);
-      } else {
-        saveToLocalStorage(STORAGE_KEYS.VENDAS_META, finalVendasMeta, true);
-      }
+      saveToLocalStorage(STORAGE_KEYS.VENDAS_META, finalVendasMeta, true);
       
       return {
         totalProcessed: novasVendasMeta.length,
         newRecords,
-        updatedRecords: 0,
-        duplicatesIgnored
+        updatedRecords,
+        duplicatesIgnored,
+        ...(append && (updatedRecordsOnlyDate > 0 || updatedRecordsStatusChange > 0) ? {
+          updatedRecordsOnlyDate,
+          updatedRecordsStatusChange,
+          ...(statusChangesDetails.length > 0 ? { statusChangesDetails } : {})
+        } : {})
       };
     } catch (error) {
       console.error('Erro ao importar vendas de meta:', error);
@@ -1147,81 +1516,80 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const calculateTimeMetrics = (filteredOrders?: ServiceOrder[]) => {
-    // Filtrar apenas serviços que devem ser incluídos nas métricas de tempo
-    const metricsOrders = (filteredOrders || serviceOrders).filter(order => order.include_in_metrics);
+    const allOrders = filteredOrders || serviceOrders;
+    const metricsOrders = allOrders.filter(order => order.include_in_metrics);
+    const backlogOrders = allOrders.filter(order => 
+      BACKLOG_STATUS.some(s => (order.status || '').toUpperCase().includes(s.toUpperCase())) &&
+      VALID_SUBTYPES.some(t => order.subtipo_servico?.includes(t))
+    );
     
-    // Log otimizado - apenas em modo verbose
-    debugLog(`[MÉTRICAS TEMPO] Analisando ${metricsOrders.length} ordens`);
+    debugLog(`[MÉTRICAS TEMPO] Analisando ${metricsOrders.length} finalizadas + ${backlogOrders.length} backlog`);
     
-    if (metricsOrders.length === 0) {
-      return {
-        ordersWithinGoal: 0,
-        ordersOutsideGoal: 0,
-        percentWithinGoal: 0,
-        averageTime: 0,
-        servicesByType: {}
-      };
-    }
-
     const ordersWithinGoal = metricsOrders.filter(order => order.atingiu_meta).length;
-    const totalOrders = metricsOrders.length;
-    const percentWithinGoal = (ordersWithinGoal / totalOrders) * 100;
+    const totalWithBacklog = metricsOrders.length + backlogOrders.length;
+    const percentWithinGoal = totalWithBacklog > 0 
+      ? (ordersWithinGoal / totalWithBacklog) * 100 
+      : 0;
     
     const totalTime = metricsOrders.reduce((sum, order) => sum + (order.tempo_atendimento || 0), 0);
-    const averageTime = totalTime / totalOrders;
-    
-    // Log resumido da performance
-    debugLog(`[MÉTRICAS TEMPO] Resultado: ${ordersWithinGoal}/${totalOrders} (${percentWithinGoal.toFixed(1)}%) dentro da meta`);
+    const averageTime = metricsOrders.length > 0 ? totalTime / metricsOrders.length : 0;
 
     const servicesByType: Record<string, {
       totalOrders: number;
       withinGoal: number;
+      backlogCount: number;
       percentWithinGoal: number;
       averageTime: number;
     }> = {};
 
     metricsOrders.forEach(order => {
-      // Usar a função de padronização de categoria
       const standardType = standardizeServiceCategory(order.subtipo_servico, order.motivo);
-      
-      // Ignorar ordens que não se encaixam nas categorias especificadas
-      if (standardType === "Não classificado" || standardType === "Categoria não identificada") {
-        return;
-      }
+      if (standardType === "Não classificado" || standardType === "Categoria não identificada") return;
       
       if (!servicesByType[standardType]) {
         servicesByType[standardType] = {
           totalOrders: 0,
           withinGoal: 0,
+          backlogCount: 0,
           percentWithinGoal: 0,
           averageTime: 0
         };
       }
       
       servicesByType[standardType].totalOrders++;
-      if (order.atingiu_meta) {
-        servicesByType[standardType].withinGoal++;
-      }
-      
+      if (order.atingiu_meta) servicesByType[standardType].withinGoal++;
       servicesByType[standardType].averageTime = (
         (servicesByType[standardType].averageTime * (servicesByType[standardType].totalOrders - 1)) + 
         (order.tempo_atendimento || 0)
       ) / servicesByType[standardType].totalOrders;
     });
 
-    // Log detalhado apenas em modo super verboso
-    if (isVerboseDebug && Object.keys(servicesByType).length > 0) {
-      debugLog('[MÉTRICAS DETALHADAS]', servicesByType);
-    }
+    backlogOrders.forEach(order => {
+      const standardType = standardizeServiceCategory(order.subtipo_servico, order.motivo);
+      if (standardType === "Não classificado" || standardType === "Categoria não identificada") return;
+      
+      if (!servicesByType[standardType]) {
+        servicesByType[standardType] = {
+          totalOrders: 0,
+          withinGoal: 0,
+          backlogCount: 0,
+          percentWithinGoal: 0,
+          averageTime: 0
+        };
+      }
+      servicesByType[standardType].totalOrders++;
+      servicesByType[standardType].backlogCount++;
+    });
 
     Object.keys(servicesByType).forEach(type => {
       const { totalOrders, withinGoal } = servicesByType[type];
-      servicesByType[type].percentWithinGoal = (withinGoal / totalOrders) * 100;
+      servicesByType[type].percentWithinGoal = totalOrders > 0 ? (withinGoal / totalOrders) * 100 : 0;
     });
 
     return {
       ordersWithinGoal,
-      ordersOutsideGoal: totalOrders - ordersWithinGoal,
+      ordersOutsideGoal: metricsOrders.length - ordersWithinGoal,
+      backlogCount: backlogOrders.length,
       percentWithinGoal: parseFloat(percentWithinGoal.toFixed(2)),
       averageTime: parseFloat(averageTime.toFixed(2)),
       servicesByType
@@ -1324,6 +1692,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const reopeningsByOriginalType: Record<string, { 
       reopenings: number; 
       totalOriginals: number; 
+      backlogCount: number;
       reopeningRate: number 
     }> = {};
     
@@ -1333,23 +1702,30 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       total: number;
     }> = {};
     
-    // Contador para ordens originais por tipo
     const originalOrdersByType: Record<string, number> = {};
+    const backlogByOriginalType: Record<string, number> = {};
     
-          // Ordens para análise (excluindo canceladas)
-      const metricsOrders = (filteredOrders || serviceOrders).filter(order => 
-        order.include_in_metrics && !order.status.includes("Cancelada")
-      );
-      
-      // Adicionalmente, para o cálculo da taxa, consideramos apenas os tipos de serviço que podem gerar reaberturas
-      const metricsOrdersForRate = metricsOrders.filter(order => 
-        VALID_SUBTYPES.some(type => order.subtipo_servico?.includes(type))
-      );
+    const allOrdersForReopening = filteredOrders || serviceOrders;
+    const metricsOrders = allOrdersForReopening.filter(order => 
+      order.include_in_metrics && !order.status.includes("Cancelada")
+    );
+    const backlogOrdersForRate = allOrdersForReopening.filter(order =>
+      BACKLOG_STATUS.some(s => (order.status || '').toUpperCase().includes(s.toUpperCase())) &&
+      VALID_SUBTYPES.some(t => order.subtipo_servico?.includes(t))
+    );
     
-    // Contar ordens originais por tipo para análise de taxa
+    const metricsOrdersForRate = metricsOrders.filter(order => 
+      VALID_SUBTYPES.some(type => order.subtipo_servico?.includes(type))
+    );
+    
     metricsOrdersForRate.forEach(order => {
       const type = order.subtipo_servico || "Desconhecido";
       originalOrdersByType[type] = (originalOrdersByType[type] || 0) + 1;
+    });
+    
+    backlogOrdersForRate.forEach(order => {
+      const type = order.subtipo_servico || "Desconhecido";
+      backlogByOriginalType[type] = (backlogByOriginalType[type] || 0) + 1;
     });
     
     // Processar pares de reabertura
@@ -1382,9 +1758,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const originalType = pair.originalOrder.subtipo_servico || "Desconhecido";
       
       if (!reopeningsByOriginalType[originalType]) {
+        const totalOrig = (originalOrdersByType[originalType] || 0) + (backlogByOriginalType[originalType] || 0);
         reopeningsByOriginalType[originalType] = {
           reopenings: 0,
-          totalOriginals: originalOrdersByType[originalType] || 1,
+          totalOriginals: totalOrig || 1,
+          backlogCount: backlogByOriginalType[originalType] || 0,
           reopeningRate: 0
         };
       }
@@ -1409,17 +1787,38 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       reopeningsByReason[reason].byOriginalType[originalType]++;
     });
     
-    // Calcular taxas de reabertura por tipo
+    Object.keys(originalOrdersByType).forEach(type => {
+      if (!reopeningsByOriginalType[type]) {
+        reopeningsByOriginalType[type] = {
+          reopenings: 0,
+          totalOriginals: (originalOrdersByType[type] || 0) + (backlogByOriginalType[type] || 0),
+          backlogCount: backlogByOriginalType[type] || 0,
+          reopeningRate: 0
+        };
+      }
+    });
+    Object.keys(backlogByOriginalType).forEach(type => {
+      if (!reopeningsByOriginalType[type]) {
+        reopeningsByOriginalType[type] = {
+          reopenings: 0,
+          totalOriginals: (originalOrdersByType[type] || 0) + (backlogByOriginalType[type] || 0),
+          backlogCount: backlogByOriginalType[type] || 0,
+          reopeningRate: 0
+        };
+      }
+    });
+    
     Object.keys(reopeningsByOriginalType).forEach(type => {
       const { reopenings, totalOriginals } = reopeningsByOriginalType[type];
       reopeningsByOriginalType[type].reopeningRate = totalOriginals > 0 
         ? (reopenings / totalOriginals) * 100 
         : 0;
+      reopeningsByOriginalType[type].backlogCount = backlogByOriginalType[type] || 0;
     });
     
-    // Calcular taxa geral de reabertura
-    const reopeningRate = metricsOrdersForRate.length > 0 
-      ? parseFloat(((reopenedOrders / metricsOrdersForRate.length) * 100).toFixed(2)) 
+    const totalOriginalsWithBacklog = metricsOrdersForRate.length + backlogOrdersForRate.length;
+    const reopeningRate = totalOriginalsWithBacklog > 0 
+      ? parseFloat(((reopenedOrders / totalOriginalsWithBacklog) * 100).toFixed(2)) 
       : 0;
     
     const averageTimeBetween = reopenedOrders > 0
@@ -1442,12 +1841,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const getReopeningPairs = (filteredOrders?: ServiceOrder[]): ReopeningPair[] => {
-    // Incluir também ordens canceladas na análise (filtragem especial para reabertura)
-    const ordersForReopeningAnalysis = (filteredOrders || serviceOrders).filter(order => 
-      order.include_in_metrics || (order.status === "Cancelada" && 
-                                 (order.subtipo_servico === "Corretiva" || 
-                                  order.subtipo_servico === "Corretiva BL"))
-    );
+    // Incluir: finalizadas, canceladas (Corretiva), e backlog (Aguard. Atendimento) para reaberturas
+    const ordersForReopeningAnalysis = (filteredOrders || serviceOrders).filter(order => {
+      if (order.include_in_metrics) return true;
+      if (order.status === "Cancelada" && 
+          (order.subtipo_servico === "Corretiva" || order.subtipo_servico === "Corretiva BL")) return true;
+      // Backlog: OS em Aguard. Atendimento conta como reabertura mesmo sem estar finalizada
+      const isBacklog = BACKLOG_STATUS.some(s => (order.status || '').toUpperCase().includes(s.toUpperCase()));
+      if (isBacklog && VALID_SUBTYPES.some(t => order.subtipo_servico?.includes(t))) return true;
+      return false;
+    });
     
     const ordersByClient: Record<string, ServiceOrder[]> = {};
     const reopeningPairs: ReopeningPair[] = [];
@@ -1541,9 +1944,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           for (let j = 0; j < i; j++) {
             const prevOrder = filteredOrders[j];
             
-            // Para ordens canceladas, usar uma lógica especial para verificar finalização
-            const isPrevOrderFinalized = prevOrder.status === "Cancelada" || 
-                                     VALID_STATUS.some(status => prevOrder.status?.includes(status));
+            // Original deve estar finalizada (Finalizada/Cancelada). Backlog NÃO conta como original.
+            const isPrevOrderBacklog = BACKLOG_STATUS.some(s => 
+              (prevOrder.status || '').toUpperCase().includes(s.toUpperCase())
+            );
+            const isPrevOrderFinalized = !isPrevOrderBacklog && (
+              prevOrder.status === "Cancelada" || 
+              VALID_STATUS.some(status => prevOrder.status?.includes(status))
+            );
             
             const isPrevOrderOriginal = ["Ponto Principal", "Ponto Principal BL", "Corretiva", "Corretiva BL"].some(
               type => prevOrder.subtipo_servico?.includes(type)
@@ -1965,9 +2373,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return 'nova_parabolica';
       case 'DGO':
         return 'sky_mais';
+      case 'MOVEL':
+      case 'CELULAR':
+      case 'PLANO MOVEL':
+        return 'movel';
       default:
         // Fallback para casos onde a sigla não está exata
         if (agrupamento.includes('POS')) return 'pos_pago';
+        if (agrupamento.includes('MOVEL') || agrupamento.includes('CELULAR')) return 'movel';
         if (agrupamento.includes('PRE')) return 'flex_conforto';
         if (agrupamento.includes('BL-DGO')) {
           if (temFaturaProtegida) {
@@ -1978,9 +2391,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         if (agrupamento.includes('NP')) return 'nova_parabolica';
         if (agrupamento.includes('DGO')) return 'sky_mais';
+        if (agrupamento.includes('MOVEL') || agrupamento.includes('CELULAR')) return 'movel';
         
         return 'outros';
     }
+  };
+
+  // Considerar apenas status Finalizada para métricas (sem status = incluir por compatibilidade)
+  const isStatusFinalizadaMeta = (status: string | undefined): boolean => {
+    const s = (status == null ? '' : String(status)).trim().toUpperCase();
+    if (s === '') return true;
+    if (s.includes('AGUARDANDO') || s.includes('PENDENTE') || s.includes('CANCELAD')) return false;
+    return s === 'FINALIZADA' || s.includes('FINALIZADA') || s === 'HABILITADO' || s.includes('HABILITADO') || s === 'FINALIZADO' || s.includes('FINALIZADO');
   };
 
   // Função para calcular métricas de metas
@@ -2001,17 +2423,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return null;
     }
     
-    // Filtrar vendas do mês atual (combinar vendas normais e vendas de meta)
+    // Filtrar vendas do mês atual (apenas status finalizada), combinar vendas normais e vendas de meta
     const vendasNormaisDoMes = vendas.filter(venda => {
+      if (!isStatusFinalizadaMeta(venda.status_proposta)) return false;
       if (!venda.data_habilitacao) return false;
       const dataVenda = new Date(venda.data_habilitacao);
       const mesVenda = dataVenda.getMonth() + 1;
       const anoVenda = dataVenda.getFullYear();
       
-      // Verificar se é do mês/ano correto
       if (mesVenda !== mesAtual || anoVenda !== anoAtual) return false;
       
-      // Se há data limite, verificar se a venda está dentro do período
       if (dataLimite) {
         const dataLimiteNormalizada = new Date(dataLimite);
         dataLimiteNormalizada.setHours(23, 59, 59, 999);
@@ -2022,9 +2443,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     
     const vendasMetaDoMes = vendasMeta.filter(venda => {
+      if (!isStatusFinalizadaMeta(venda.status_proposta)) return false;
       if (venda.mes !== mesAtual || venda.ano !== anoAtual) return false;
       
-      // Se há data limite, verificar se a venda está dentro do período
       if (dataLimite && venda.data_venda) {
         const dataVenda = new Date(venda.data_venda);
         const dataLimiteNormalizada = new Date(dataLimite);
@@ -2070,6 +2491,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       seguros_pos: 0,
       seguros_fibra: 0,
       sky_mais: 0,
+      movel: 0,
       outros: 0
     };
     
@@ -2160,6 +2582,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         meta_definida: metaDoMes.sky_mais,
         vendas_realizadas: vendasPorCategoria.sky_mais,
         percentual_atingido: metaDoMes.sky_mais > 0 ? (vendasPorCategoria.sky_mais / metaDoMes.sky_mais) * 100 : 0
+      },
+      {
+        categoria: 'MÓVEL',
+        meta_definida: metaDoMes.movel ?? 0,
+        vendas_realizadas: vendasPorCategoria.movel,
+        percentual_atingido: (metaDoMes.movel ?? 0) > 0 ? (vendasPorCategoria.movel / (metaDoMes.movel ?? 0)) * 100 : 0
       }
     ];
     
@@ -2267,22 +2695,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <DataContext.Provider value={{ 
-      serviceOrders, 
+      serviceOrders,
+      lastServiceOrderImportSummary,
+      addRejectedOrdersToPlatform,
       vendas,
       primeirosPagamentos,
       metas,
       vendasMeta,
       baseData,
-      importServiceOrders, 
+      lastImportInfo,
+      importServiceOrders,
+      updateServiceOrder,
       importVendas,
       importPrimeirosPagamentos,
       importMetas,
       importVendasMeta,
       importBaseData,
+      setLastImportInfo,
       clearData, 
       loading,
       isLoadingFromSupabase,
       loadFromSupabaseIfEmpty,
+      refreshBaseData,
+      refreshMetas,
       clearLocalStorageAfterMigration,
       isSupabaseOnlyMode,
       enableSupabaseOnlyMode,

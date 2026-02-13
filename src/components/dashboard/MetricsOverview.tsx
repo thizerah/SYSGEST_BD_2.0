@@ -45,7 +45,11 @@ import {
   Mail,
   Columns,
   Settings,
-  Eye
+  Eye,
+  CloudDownload,
+  Info,
+  Shield,
+  ShieldCheck
 } from "lucide-react";
 import { 
   ChartContainer, 
@@ -170,6 +174,12 @@ function consolidateMaterials(orders: ServiceOrder[]): ServiceOrder[] {
         
         consolidatedOrders.push(osPrimariaConsolidada);
         consolidatedOrders.push(osSecundariaZerada);
+        // Manter quaisquer outras OSs do grupo (ex.: 3ª linha com mesmo codigo_os e outro subtipo)
+        const outras = group.filter(o => o !== osPrimaria && o !== osSecundaria);
+        if (outras.length > 0) {
+          console.log(`[MaterialConsolidation] Mantendo mais ${outras.length} OS(s) do mesmo código:`, outras.map(o => o.subtipo_servico));
+          consolidatedOrders.push(...outras);
+        }
       } else {
         // Se não encontrar Ponto Principal e Sistema Opcional, manter todas como estão
         console.log(`[MaterialConsolidation] ⚠️ Não encontrou Ponto Principal/Sistema Opcional para OS ${group[0].codigo_os}`);
@@ -184,7 +194,7 @@ function consolidateMaterials(orders: ServiceOrder[]): ServiceOrder[] {
   console.log(`[MaterialConsolidation] Total: ${orders.length} → ${consolidatedOrders.length} OSs`);
   return consolidatedOrders;
 }
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -207,6 +217,14 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ServiceOrderTable } from "@/components/dashboard/ServiceOrderTable";
 import { OptimizationCountCard } from "@/components/dashboard/OptimizationCountCard";
 import { Badge } from "@/components/ui/badge";
+import { RoteiroMain } from "@/components/roteiro/RoteiroMain";
+import { CadastroTecnicos } from "@/components/cadastro/CadastroTecnicos";
+import { GestaoSubusuarios } from "@/components/equipe/GestaoSubusuarios";
+import { BasePage } from "@/components/base/BasePage";
+import { MetasEmpresaPage } from "@/components/metas/MetasEmpresaPage";
+import { MailingPage } from "@/components/mailing/MailingPage";
+import { DataMigrationPanel } from "@/components/dashboard/DataMigrationPanel";
+import { DashboardHome } from "@/components/dashboard/DashboardHome";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -232,7 +250,7 @@ import { PermanenciaTrendTable } from "@/components/dashboard/PermanenciaTrendTa
 import { TicketMedioTrendTable } from "@/components/dashboard/TicketMedioTrendTable";
 import { DesempenhoCategoriaTrendTable } from "@/components/dashboard/DesempenhoCategoriaTrendTable";
 import { VendedorPermanenciaTrendTable } from "@/components/dashboard/VendedorPermanenciaTrendTable";
-import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName } from "@/context/DataUtils";
+import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName, addMonthsForPermanencia } from "@/context/DataUtils";
 import { useSystemSettings } from "@/hooks/useSystemSettings";
 import { getReopeningColorByServiceType, getTimeAttendanceColorByServiceType, getTimeAttendanceBackgroundColorByServiceType, getTimeAttendanceIndicatorColorByServiceType } from "@/utils/colorUtils";
 import { BaseMetricsSection } from "@/components/dashboard/BaseMetricsSection";
@@ -253,22 +271,45 @@ function MetasTabContent() {
   // console.log('[DEBUG MetasTabContent] SelectedMonth:', selectedMonth);
   // console.log('[DEBUG MetasTabContent] SelectedYear:', selectedYear);
 
-  // Função auxiliar para buscar vendas da fonte correta baseada no período
+  // Considerar apenas propostas com status Finalizada nos quadros (sem status = trata como finalizada por compatibilidade)
+  const isStatusFinalizada = (status: string | undefined): boolean => {
+    const s = (status == null ? '' : String(status)).trim().toUpperCase();
+    if (s === '') return true; // sem status = legado ou coluna ausente, incluir
+    if (s.includes('AGUARDANDO') || s.includes('PENDENTE') || s.includes('CANCELAD')) return false;
+    return s === 'FINALIZADA' || s.includes('FINALIZADA') || s === 'HABILITADO' || s.includes('HABILITADO') || s === 'FINALIZADO' || s.includes('FINALIZADO');
+  };
+
+  // Função auxiliar para buscar vendas da fonte correta baseada no período (apenas status finalizada) — usada nos quadros
   const buscarVendasDoPeriodo = (mes: number, ano: number) => {
     const hoje = new Date();
     const isCurrentMonth = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
     
     if (isCurrentMonth) {
-      // Mês atual: buscar da aba "vendas meta"
-      return vendasMeta.filter(venda => venda.mes === mes && venda.ano === ano);
+      return vendasMeta.filter(
+        venda => venda.mes === mes && venda.ano === ano && isStatusFinalizada(venda.status_proposta)
+      );
     } else {
-      // Meses anteriores: buscar da aba "vendas permanencia"
       return vendas.filter(venda => {
         if (!venda.data_habilitacao) return false;
+        if (!isStatusFinalizada(venda.status_proposta)) return false;
         const dataVenda = new Date(venda.data_habilitacao);
         return dataVenda.getMonth() + 1 === mes && dataVenda.getFullYear() === ano;
       });
     }
+  };
+
+  // Buscar todas as vendas do período (sem filtro de status) — usada no detalhamento de propostas
+  const buscarTodasVendasDoPeriodo = (mes: number, ano: number) => {
+    const hoje = new Date();
+    const isCurrentMonth = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
+    if (isCurrentMonth) {
+      return vendasMeta.filter(venda => venda.mes === mes && venda.ano === ano);
+    }
+    return vendas.filter(venda => {
+      if (!venda.data_habilitacao) return false;
+      const dataVenda = new Date(venda.data_habilitacao);
+      return dataVenda.getMonth() + 1 === mes && dataVenda.getFullYear() === ano;
+    });
   };
 
   // Função auxiliar para calcular dias úteis (sem domingos) de um mês
@@ -536,7 +577,10 @@ function MetasTabContent() {
               Acompanhamento de Metas
             </CardTitle>
             </div>
-            <VendasMetaCleaner />
+            <div className="flex items-center gap-2">
+              <LastImportInfoPopover />
+              <VendasMetaCleaner />
+            </div>
           </div>
           <CardDescription className="text-sm mt-2 text-gray-600">
             Acompanhe o desempenho das vendas em relação às metas mensais definidas
@@ -713,10 +757,44 @@ function MetasTabContent() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-6">
-          {/* Grid com Tendência de Meta e Dias Totais do Mês lado a lado */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Card de Tendência de Meta - Modernizado com Tabela */}
+        <div className="space-y-4">
+          {/* Barra horizontal: Dias do mês - Progresso (uma linha) */}
+          {(() => {
+            const { diasDecorridos, diasRestantes, diasTotais } = calcularDiasUteisMes(selectedMonth || 0, selectedYear || 0);
+            const percentualDecorrido = diasTotais > 0 ? (diasDecorridos / diasTotais) * 100 : 0;
+            return (
+              <Card className="shadow border-2 border-indigo-100 bg-gradient-to-r from-indigo-50/80 to-purple-50/80">
+                <CardContent className="py-3 px-4">
+                  <div className="flex flex-wrap items-center gap-6">
+                    <div className="flex items-center gap-2">
+                      <CalendarDays className="h-5 w-5 text-indigo-600" />
+                      <span className="font-semibold text-gray-800">Dias do mês – Progresso</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Trabalhados</span>
+                      <span className="text-xl font-bold text-blue-600">{diasDecorridos}</span>
+                      <span className="text-sm text-gray-500">({percentualDecorrido.toFixed(0)}%)</span>
+                      <div className="w-20 h-2 bg-blue-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-600 rounded-full" style={{ width: `${Math.min(percentualDecorrido, 100)}%` }} />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Restantes</span>
+                      <span className="text-xl font-bold text-orange-600">{diasRestantes}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Total</span>
+                      <span className="text-xl font-bold text-gray-700">{diasTotais}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* Grid 2 colunas: Tendência de Meta | Vendas por status (fontes maiores) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Card de Tendência de Meta */}
           {(() => {
             const tendencia = calcularTendenciaMeta();
             if (!tendencia) return null;
@@ -755,10 +833,10 @@ function MetasTabContent() {
               );
                               
                               return (
-                <Card className="lg:col-span-2 shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
-                  <CardHeader className="pb-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <TrendingUp className="h-5 w-5" />
+                <Card className="shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30 min-w-0">
+                  <CardHeader className="pb-3 pt-4 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
+                    <CardTitle className="text-xl flex items-center gap-2">
+                      <TrendingUp className="h-6 w-6" />
                       Tendência de Meta
                     </CardTitle>
                     <CardDescription className="text-blue-100 text-sm">
@@ -767,25 +845,22 @@ function MetasTabContent() {
                   </CardHeader>
                   <CardContent className="p-0">
                     <div className="overflow-x-auto">
-                      <table className="w-full">
+                      <table className="w-full min-w-[320px]">
                         <thead>
                           <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
-                            <th className="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                            <th className="text-left py-3 px-3 text-sm font-semibold text-gray-700 uppercase tracking-wider">
                               Produto
                             </th>
-                            <th className="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                              Categoria
-                            </th>
-                            <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                            <th className="text-center py-3 px-3 text-sm font-semibold text-gray-700 uppercase tracking-wider">
                               {new Date(0, tendencia.mesAnterior.mes - 1).toLocaleDateString('pt-BR', { month: 'short' })}/{tendencia.mesAnterior.ano}
                             </th>
-                            <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                              Tendência
+                            <th className="text-center py-3 px-3 text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                              Tend.
                             </th>
-                            <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                            <th className="text-center py-3 px-3 text-sm font-semibold text-gray-700 uppercase tracking-wider">
                               {new Date(0, tendencia.mesAtual.mes - 1).toLocaleDateString('pt-BR', { month: 'short' })}/{tendencia.mesAtual.ano}
                             </th>
-                            <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                            <th className="text-center py-3 px-3 text-sm font-semibold text-gray-700 uppercase tracking-wider">
                               Meta
                             </th>
                           </tr>
@@ -796,27 +871,18 @@ function MetasTabContent() {
                               key={`${row.categoria}-${row.produto}`}
                               className="hover:bg-blue-50/50 transition-colors duration-150"
                             >
-                              <td className="py-3 px-4">
-                                <span className="font-semibold text-sm text-gray-900">{row.produto}</span>
+                              <td className="py-2.5 px-3 max-w-[200px] truncate" title={row.produto}>
+                                <span className="font-semibold text-base text-gray-900">{row.produto}</span>
                               </td>
-                              <td className="py-3 px-4">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                  {row.categoria}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 text-center">
+                              <td className="py-2.5 px-3 text-center">
                                 <div className="flex flex-col items-center">
-                                  <span className="text-sm font-bold text-gray-700">
-                                    {row.mesAnterior.percentual.toFixed(1)}%
-                                  </span>
-                                  <span className="text-xs text-gray-500 mt-0.5">
-                                    Meta {row.mesAnterior.meta} / Produzido {row.mesAnterior.vendas}
-                                    </span>
-                                  </div>
+                                  <span className="text-base font-bold text-gray-700">{row.mesAnterior.percentual.toFixed(1)}%</span>
+                                  <span className="text-xs text-gray-500">Meta {row.mesAnterior.meta} / Produzido {row.mesAnterior.vendas}</span>
+                                </div>
                               </td>
-                              <td className="py-3 px-4 text-center">
-                                <div className="flex flex-col items-center gap-1">
-                                  <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                              <td className="py-2.5 px-3 text-center">
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-sm font-semibold ${
                                     row.crescimento 
                                           ? 'bg-green-100 text-green-800' 
                                       : row.diferenca === 0
@@ -824,35 +890,29 @@ function MetasTabContent() {
                                             : 'bg-red-100 text-red-800'
                                       }`}>
                                     {row.crescimento ? (
-                                      <TrendingUp className="h-3.5 w-3.5" />
+                                      <TrendingUp className="h-4 w-4" />
                                     ) : row.diferenca === 0 ? (
-                                      <span className="h-3.5 w-3.5 text-center flex items-center justify-center">—</span>
+                                      <span className="h-4 w-4 text-center flex items-center justify-center">—</span>
                                         ) : (
-                                      <TrendingDown className="h-3.5 w-3.5" />
+                                      <TrendingDown className="h-4 w-4" />
                                         )}
                                     <span>
                                       {row.diferenca === 0 ? '0pp' : `${row.diferenca > 0 ? '+' : ''}${row.diferenca.toFixed(1)}pp`}
                                     </span>
-                                      </div>
-                                  <span className="text-[10px] text-gray-500">
-                                    {row.diferenca === 0 ? 'estável' : `${row.percentualCrescimento.toFixed(1)}% ${row.crescimento ? 'crescimento' : 'queda'}`}
+                                  </div>
+                                  <span className="text-xs text-gray-500">
+                                    {row.diferenca === 0 ? 'estável' : `${row.percentualCrescimento.toFixed(0)}%`}
                                   </span>
-                                      </div>
+                                </div>
                               </td>
-                              <td className="py-3 px-4 text-center">
+                              <td className="py-2.5 px-3 text-center">
                                 <div className="flex flex-col items-center">
-                                  <span className="text-sm font-bold text-blue-600">
-                                    {row.mesAtual.percentual.toFixed(1)}%
-                                  </span>
-                                  <span className="text-xs text-gray-500 mt-0.5">
-                                    Meta {row.mesAtual.meta} / Produzido {row.mesAtual.vendas}
-                                  </span>
-                                    </div>
+                                  <span className="text-base font-bold text-blue-600">{row.mesAtual.percentual.toFixed(1)}%</span>
+                                  <span className="text-xs text-gray-500">Meta {row.mesAtual.meta} / Produzido {row.mesAtual.vendas}</span>
+                                </div>
                               </td>
-                              <td className="py-3 px-4 text-center">
-                                <span className="text-sm font-semibold text-gray-700">
-                                  {row.mesAtual.meta}
-                                </span>
+                              <td className="py-2.5 px-3 text-center">
+                                <span className="text-base font-semibold text-gray-700">{row.mesAtual.meta}</span>
                               </td>
                             </tr>
                           ))}
@@ -864,63 +924,167 @@ function MetasTabContent() {
             );
           })()}
 
-            {/* Card Dias Totais do Mês - Modernizado */}
-                  {(() => {
-                    const { diasDecorridos, diasRestantes, diasTotais } = calcularDiasUteisMes(selectedMonth || 0, selectedYear || 0);
-              const percentualDecorrido = diasTotais > 0 ? (diasDecorridos / diasTotais) * 100 : 0;
-                    
-                    return (
-                <Card className="shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30">
-                  <CardHeader className="pb-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-t-lg">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <CalendarDays className="h-5 w-5" />
-                      Dias Totais do Mês
-                    </CardTitle>
-                    <CardDescription className="text-indigo-100 text-sm">
-                      Progresso do mês atual
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-6">
-                    <div className="space-y-5">
-                      {/* Dias Trabalhados */}
-                      <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-gray-700">Dias Trabalhados</span>
-                          <span className="text-2xl font-bold text-blue-600">{diasDecorridos}</span>
-                        </div>
-                        <div className="w-full bg-blue-200 rounded-full h-2">
-                          <div 
-                            className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500"
-                            style={{ width: `${Math.min(percentualDecorrido, 100)}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-xs text-gray-500 mt-1 block">{percentualDecorrido.toFixed(1)}% do mês</span>
-                        </div>
-
-                      {/* Dias Restantes */}
-                      <div className="bg-gradient-to-r from-orange-50 to-orange-100 rounded-xl p-4 border border-orange-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-gray-700">Dias Restantes</span>
-                          <span className="text-2xl font-bold text-orange-600">{diasRestantes}</span>
-                            </div>
-                        <div className="w-full bg-orange-200 rounded-full h-2">
-                          <div 
-                            className="bg-gradient-to-r from-orange-500 to-orange-600 h-2 rounded-full transition-all duration-500"
-                            style={{ width: `${diasTotais > 0 ? ((diasRestantes / diasTotais) * 100) : 0}%` }}
-                          ></div>
-                          </div>
+            {/* Card Vendas por status (exc. finalizadas) */}
+            {(() => {
+              if (!selectedMonth || !selectedYear) return null;
+              const vendasDoPeriodo = buscarTodasVendasDoPeriodo(parseInt(selectedMonth, 10), parseInt(selectedYear, 10));
+              const vendasNaoFinalizadas = vendasDoPeriodo.filter(v => !isStatusFinalizada(v.status_proposta));
+              const normalizarStatus = (s: string | undefined): string => {
+                const t = (s == null ? '' : String(s)).trim().toUpperCase();
+                if (!t) return 'NÃO INFORMADO';
+                return t;
+              };
+              // Mesma métrica do quadro Tendência: agrupar por categoria (POS, PRE, NP, SKY+, FIBRA, OUTROS)
+              const mapearCategoriaStatus = (categoria: string): string => {
+                if (categoria.includes('PÓS-PAGO') || categoria.includes('POS')) return 'POS';
+                if (categoria.includes('PRÉ-PAGO') || categoria.includes('PRE') || categoria.includes('FLEX') || categoria.includes('CONFORTO')) return 'PRE';
+                if (categoria.includes('NOVA PARABÓLICA') || categoria.includes('NP')) return 'NP';
+                if (categoria.includes('FIBRA') || categoria.includes('BL-DGO')) return 'FIBRA';
+                if (categoria.includes('SKY MAIS') || categoria.includes('DGO')) return 'SKY+';
+                return 'OUTROS';
+              };
+              const categoriaParaLabel: Record<string, string> = {
+                POS: 'PÓS-PAGO',
+                PRE: 'FLEX/CONFORTO',
+                NP: 'NOVA PARABÓLICA',
+                'SKY+': 'SKY MAIS',
+                FIBRA: 'FIBRA',
+                OUTROS: 'OUTROS'
+              };
+              const ordemCategorias = ['POS', 'PRE', 'NP', 'SKY+', 'FIBRA', 'OUTROS'];
+              // Primeira letra maiúscula, resto minúscula
+              const primeiraMaiuscula = (str: string): string =>
+                str.length === 0 ? str : str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+              // Nome completo do status (para exibição em linhas), normalizado
+              const statusLabelCompleto = (s: string): string => {
+                const u = s.toUpperCase();
+                let label: string;
+                if (u.includes('AGUARDANDO') && u.includes('HABILITA')) label = 'Aguardando habilitação';
+                else if (u.includes('AGUARDANDO') && u.includes('PAGAMENTO')) label = 'Aguardando pagamento';
+                else if (u.includes('CANCELAD')) label = 'Cancelada';
+                else if (u.includes('NEGAD')) label = 'Negada';
+                else if (u.includes('PENDENTE') && (u.includes('CONFIRM') || u.includes('CLIENTE'))) label = 'Pendente confirmação cliente';
+                else if (u.includes('PAGAMENTO') && (u.includes('PEND') || u.includes('ANÁLISE'))) label = 'Pagamento pendente / em análise';
+                else if (s === 'NÃO INFORMADO') label = 'Não informado';
+                else label = s.toLowerCase();
+                return primeiraMaiuscula(label);
+              };
+              type DadosStatus = { total: number; porStatus: Record<string, number> };
+              const dadosPorProdutoStatus = vendasNaoFinalizadas.reduce((acc, venda) => {
+                const categoria = ('categoria' in venda ? venda.categoria : venda.agrupamento_produto) || '';
+                const catKey = mapearCategoriaStatus(categoria);
+                const statusKey = normalizarStatus(venda.status_proposta);
+                if (!acc[catKey]) acc[catKey] = { total: 0, porStatus: {} as Record<string, number> };
+                acc[catKey].total += 1;
+                acc[catKey].porStatus[statusKey] = (acc[catKey].porStatus[statusKey] || 0) + 1;
+                return acc;
+              }, {} as Record<string, DadosStatus>);
+              const produtosOrdenados = ordemCategorias.filter(cat => dadosPorProdutoStatus[cat]).map(cat => [cat, dadosPorProdutoStatus[cat]] as const);
+              const todosStatus = Array.from(new Set(vendasNaoFinalizadas.map(v => normalizarStatus(v.status_proposta)))).sort();
+              const ITENS_POR_BLOCO = 6;
+              const produtoBlocos: typeof produtosOrdenados[] = [];
+              for (let i = 0; i < produtosOrdenados.length; i += ITENS_POR_BLOCO) {
+                produtoBlocos.push(produtosOrdenados.slice(i, i + ITENS_POR_BLOCO));
+              }
+              const totalGeral = vendasNaoFinalizadas.length;
+              if (totalGeral === 0) {
+                return (
+                  <Card className="shadow-lg border-2 border-amber-100 bg-gradient-to-br from-white via-amber-50/20 to-orange-50/20">
+                    <CardHeader className="pb-3 pt-4 px-4 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-t-lg">
+                      <CardTitle className="text-xl flex items-center gap-2">
+                        <BarChart2 className="h-5 w-5" />
+                        Vendas por status (exc. finalizadas)
+                      </CardTitle>
+                      <CardDescription className="text-amber-100 text-sm">
+                        Nenhuma venda com outro status no período
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="py-6 px-4 text-base text-gray-500 text-center">
+                      Não há vendas aguardando, pendentes ou com outro status no mês/ano selecionado.
+                    </CardContent>
+                  </Card>
+                );
+              }
+              return (
+                <Card className="shadow-lg border-2 border-amber-100 bg-gradient-to-br from-white via-amber-50/20 to-orange-50/20 min-w-0">
+                  <CardHeader className="pb-3 pt-4 px-4 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-t-lg">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-xl flex items-center gap-2">
+                          <BarChart2 className="h-5 w-5" />
+                          Vendas por status (exc. finalizadas)
+                        </CardTitle>
+                        <CardDescription className="text-amber-100 text-sm">
+                          Por produto e status no período
+                        </CardDescription>
                       </div>
-                      
-                      {/* Total */}
-                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-700">Total de Dias</span>
-                          <span className="text-2xl font-bold text-gray-700">{diasTotais}</span>
-                          </div>
-                        </div>
+                      <LastImportInfoPopover />
                     </div>
-              </CardContent>
-            </Card>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto overflow-y-auto max-h-[340px]">
+                      <table className="w-full border-collapse">
+                        <thead className="sticky top-0 z-20">
+                          <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200 shadow-sm">
+                            <th className="text-left py-3 px-3 text-sm font-semibold text-gray-700 uppercase tracking-wider sticky left-0 bg-gray-50 z-10 min-w-[180px]">Status</th>
+                            <th className="text-center py-3 px-3 text-sm font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">QTD</th>
+                            {produtoBlocos.flatMap((bloco, idxBloco) =>
+                              bloco.map(([catKey], idxProd) => (
+                                <th
+                                  key={`${idxBloco}-${catKey}`}
+                                  className={`text-center py-3 px-2 text-sm font-semibold text-gray-700 tracking-wide min-w-[100px] ${idxBloco > 0 && idxProd === 0 ? 'border-l-2 border-amber-200' : 'border-l border-gray-200'}`}
+                                >
+                                  <span className="block font-medium text-gray-800">{categoriaParaLabel[catKey] ?? catKey}</span>
+                                </th>
+                              ))
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {todosStatus.map(status => {
+                            const qtdStatus = vendasNaoFinalizadas.filter(v => normalizarStatus(v.status_proposta) === status).length;
+                            return (
+                              <tr key={status} className="hover:bg-amber-50/50 transition-colors duration-150">
+                                <td className="py-2.5 px-3 sticky left-0 bg-white z-10">
+                                  <span className="font-medium text-sm text-gray-900">{statusLabelCompleto(status)}</span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span className="text-sm font-bold text-amber-600">{qtdStatus}</span>
+                                </td>
+                                {produtoBlocos.flatMap((bloco, idxBloco) =>
+                                  bloco.map(([catKey, dados], idxProd) => (
+                                    <td
+                                      key={`${idxBloco}-${catKey}`}
+                                      className={`py-2.5 px-2 text-center ${idxBloco > 0 && idxProd === 0 ? 'border-l-2 border-amber-200' : 'border-l border-gray-100'}`}
+                                    >
+                                      <span className="text-sm font-medium text-gray-700">{dados.porStatus[status] ?? '-'}</span>
+                                    </td>
+                                  ))
+                                )}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot className="sticky bottom-0 z-20 bg-gradient-to-r from-amber-50 to-orange-50 border-t-2 border-amber-200 shadow-sm">
+                          <tr>
+                            <td className="py-3 px-3 sticky left-0 bg-amber-50 z-10 font-semibold text-sm text-gray-900">TOTAL</td>
+                            <td className="py-3 px-3 text-center font-bold text-sm text-amber-700">{totalGeral}</td>
+                            {produtoBlocos.flatMap((bloco, idxBloco) =>
+                              bloco.map(([catKey, dados], idxProd) => (
+                                <td
+                                  key={`${idxBloco}-${catKey}`}
+                                  className={`py-3 px-2 text-center font-semibold text-sm text-gray-800 ${idxBloco > 0 && idxProd === 0 ? 'border-l-2 border-amber-200' : 'border-l border-amber-200/50'}`}
+                                >
+                                  {dados.total}
+                                </td>
+                              ))
+                            )}
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
               );
             })()}
           </div>
@@ -948,8 +1112,8 @@ function MetasTabContent() {
                   const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
                   
                 // Função para normalizar forma de pagamento
-                const normalizarFormaPagamento = (forma: string): string => {
-                  const formaUpper = forma.toUpperCase();
+                const normalizarFormaPagamento = (forma: string | undefined): string => {
+                  const formaUpper = (forma ?? '').toUpperCase();
                   
                   if (formaUpper.includes('CARTÃO DE CRÉDITO') || formaUpper.includes('CARTAO DE CREDITO') || formaUpper.includes('CREDITO')) {
                     return 'CARTÃO';
@@ -963,10 +1127,10 @@ function MetasTabContent() {
                     return 'SEM COBRANÇA';
                   } else if (formaUpper.includes('DINHEIRO') || formaUpper.includes('ESPÉCIE')) {
                     return 'DINHEIRO';
-                  } else if (!forma || formaUpper.includes('NÃO INFORMADO') || formaUpper.includes('NULL') || formaUpper.trim() === '') {
+                  } else if (!formaUpper || formaUpper.includes('NÃO INFORMADO') || formaUpper.includes('NULL') || formaUpper.trim() === '') {
                     return 'NÃO INFORMADO';
                   }
-                  return forma.toUpperCase();
+                  return formaUpper;
                 };
 
                 // Mapear categorias para valor dos produtos
@@ -1518,7 +1682,7 @@ function MetasTabContent() {
           <MetasDetalhamentoContent 
             selectedMonth={selectedMonth}
             selectedYear={selectedYear}
-            buscarVendasDoPeriodo={buscarVendasDoPeriodo}
+            buscarVendasDoPeriodo={buscarTodasVendasDoPeriodo}
           />
         </TabsContent>
       </Tabs>
@@ -1551,8 +1715,10 @@ function MetasDetalhamentoContent({
   const [filtroProduto, setFiltroProduto] = useState<string[]>([]);
   const [filtroFormaPagamento, setFiltroFormaPagamento] = useState<string[]>([]);
   const [filtroDataHabilitacao, setFiltroDataHabilitacao] = useState<string[]>([]);
+  const [filtroStatus, setFiltroStatus] = useState<string[]>([]);
+  const [filtroSeguro, setFiltroSeguro] = useState<'todos' | 'com_seguro' | 'sem_seguro'>('todos');
 
-  // Buscar vendas do período selecionado
+  // Buscar vendas do período selecionado (todas, sem filtrar por status)
   const vendasDoPeriodo = useMemo(() => {
     if (!selectedMonth || !selectedYear) return [];
     return buscarVendasDoPeriodo(selectedMonth, selectedYear);
@@ -1639,6 +1805,21 @@ function MetasDetalhamentoContent({
     return venda.forma_pagamento || '';
   }, []);
 
+  // Função para obter o status da proposta
+  const getStatus = useCallback((venda: any): string => {
+    const s = venda.status_proposta;
+    return s != null && String(s).trim() !== '' ? String(s).trim() : '—';
+  }, []);
+
+  // Função para verificar se a venda tem seguro (Fatura Protegida)
+  const temSeguro = useCallback((venda: any): boolean => {
+    const produtosSecundarios = (venda.produtos_secundarios || '').toUpperCase();
+    return produtosSecundarios.includes('FATURA PROTEGIDA') || 
+           produtosSecundarios.includes('SEGURO') ||
+           produtosSecundarios.includes('PROTEGIDA') ||
+           produtosSecundarios.includes('PROTEÇÃO');
+  }, []);
+
   // Aplicar filtros e busca (seguindo a mesma lógica da tabela de Permanência)
   const vendasFiltradas = useMemo(() => {
     let resultado = [...vendasDoPeriodo];
@@ -1704,10 +1885,22 @@ function MetasDetalhamentoContent({
       });
     }
 
+    // Filtro de status da proposta (múltiplo)
+    if (filtroStatus.length > 0) {
+      resultado = resultado.filter(venda => filtroStatus.includes(getStatus(venda)));
+    }
+
+    // Filtro de seguro (Fatura Protegida)
+    if (filtroSeguro === 'com_seguro') {
+      resultado = resultado.filter(venda => temSeguro(venda));
+    } else if (filtroSeguro === 'sem_seguro') {
+      resultado = resultado.filter(venda => !temSeguro(venda));
+    }
+
     return resultado;
   }, [vendasDoPeriodo, termoBusca, filtroVendedor, filtroCidade, filtroBairro, filtroCategoria, 
-      filtroProduto, filtroFormaPagamento, filtroDataHabilitacao, getNomeVendedor, getProduto, 
-      getForma, getDataHabilitacao, mapearCategoria]);
+      filtroProduto, filtroFormaPagamento, filtroDataHabilitacao, filtroStatus, filtroSeguro, getNomeVendedor, getProduto, 
+      getForma, getDataHabilitacao, getStatus, mapearCategoria, temSeguro]);
 
   // Obter lista de vendedores únicos
   const vendedoresUnicos = useMemo(() => {
@@ -1744,6 +1937,12 @@ function MetasDetalhamentoContent({
     const formas = new Set(vendasDoPeriodo.map(v => getForma(v)).filter(Boolean));
     return Array.from(formas).sort();
   }, [vendasDoPeriodo, getForma]);
+
+  // Obter lista de status únicos
+  const statusUnicos = useMemo(() => {
+    const status = new Set(vendasDoPeriodo.map(v => getStatus(v)).filter(Boolean));
+    return Array.from(status).sort((a, b) => a.localeCompare(b));
+  }, [vendasDoPeriodo, getStatus]);
 
   // Obter lista de datas de habilitação únicas (em formato DD/MM/YYYY)
   const datasHabilitacaoUnicas = useMemo(() => {
@@ -1807,6 +2006,11 @@ function MetasDetalhamentoContent({
     value: data
   })), [datasHabilitacaoUnicas, formatarDataParaExibicao]);
 
+  const statusOptions = useMemo(() => statusUnicos.map(s => ({
+    label: s,
+    value: s
+  })), [statusUnicos]);
+
   // Função para limpar todos os filtros
   const limparFiltros = useCallback(() => {
     setTermoBusca("");
@@ -1817,6 +2021,8 @@ function MetasDetalhamentoContent({
     setFiltroProduto([]);
     setFiltroFormaPagamento([]);
     setFiltroDataHabilitacao([]);
+    setFiltroStatus([]);
+    setFiltroSeguro('todos');
     setPaginaAtual(1);
   }, []);
 
@@ -1824,7 +2030,7 @@ function MetasDetalhamentoContent({
   useEffect(() => {
     setPaginaAtual(1);
   }, [termoBusca, filtroVendedor, filtroCidade, filtroBairro, filtroCategoria, 
-      filtroProduto, filtroFormaPagamento, filtroDataHabilitacao]);
+      filtroProduto, filtroFormaPagamento, filtroDataHabilitacao, filtroStatus]);
 
   // Calcular totalizadores
   const totalizadores = useMemo(() => {
@@ -1862,6 +2068,7 @@ function MetasDetalhamentoContent({
       'Categoria',
       'Produto',
       'Vendedor',
+      'Status',
       'Data Habilitação',
       'Forma Pagamento',
       'Valor'
@@ -1874,6 +2081,7 @@ function MetasDetalhamentoContent({
       const dataHabilitacao = getDataHabilitacao(venda);
       const produto = getProduto(venda);
       const forma = getForma(venda);
+      const status = getStatus(venda);
 
       return [
         venda.numero_proposta || '',
@@ -1885,6 +2093,7 @@ function MetasDetalhamentoContent({
         categoria || '',
         produto || '',
         nomeVendedor || '',
+        status || '',
         dataHabilitacao ? new Date(dataHabilitacao).toLocaleDateString('pt-BR') : '',
         forma || '',
         venda.valor || 0
@@ -2094,6 +2303,55 @@ function MetasDetalhamentoContent({
                 />
               </div>
 
+              {/* Filtro de Status da Proposta */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                  <Filter className="h-3.5 w-3.5 text-orange-600" />
+                  Status (múltiplo)
+                </Label>
+                <MultiSelect 
+                  options={statusOptions}
+                  selected={filtroStatus}
+                  onChange={setFiltroStatus}
+                  placeholder="Selecione status"
+                  className="w-full text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Filtros em Grid - Linha 3 */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Filtro de Seguro (Fatura Protegida) */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                  <ShieldCheck className="h-3.5 w-3.5 text-green-600" />
+                  Seguro / Fatura Protegida
+                </Label>
+                <Select value={filtroSeguro} onValueChange={(value: 'todos' | 'com_seguro' | 'sem_seguro') => setFiltroSeguro(value)}>
+                  <SelectTrigger className="w-full text-xs">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    <SelectItem value="com_seguro">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 text-green-600" />
+                        <span>Com Seguro</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="sem_seguro">
+                      <div className="flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-gray-400" />
+                        <span>Sem Seguro</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2"></div>
+              <div className="space-y-2"></div>
+
               {/* Botão de Limpar Filtros */}
               <div className="space-y-2">
                 <Label className="text-xs font-semibold">&nbsp;</Label>
@@ -2103,7 +2361,7 @@ function MetasDetalhamentoContent({
                   className="w-full h-10 border-2 hover:bg-orange-50 hover:border-orange-300 transition-colors"
                   disabled={!termoBusca && filtroVendedor.length === 0 && filtroCidade.length === 0 && 
                            filtroBairro.length === 0 && filtroCategoria.length === 0 && filtroProduto.length === 0 && 
-                           filtroFormaPagamento.length === 0 && filtroDataHabilitacao.length === 0}
+                           filtroFormaPagamento.length === 0 && filtroDataHabilitacao.length === 0 && filtroStatus.length === 0 && filtroSeguro === 'todos'}
                 >
                   <RefreshCcw className="h-4 w-4 mr-2" />
                   Limpar Filtros
@@ -2114,7 +2372,7 @@ function MetasDetalhamentoContent({
             {/* Badges de Filtros Ativos e Botão Exportar */}
             {(termoBusca || filtroVendedor.length > 0 || filtroCidade.length > 0 || filtroBairro.length > 0 || 
               filtroCategoria.length > 0 || filtroProduto.length > 0 || filtroFormaPagamento.length > 0 || 
-              filtroDataHabilitacao.length > 0) && (
+              filtroDataHabilitacao.length > 0 || filtroStatus.length > 0 || filtroSeguro !== 'todos') && (
               <div className="flex flex-wrap items-center gap-2 pt-4 border-t border-gray-200">
                 <div className="flex flex-wrap gap-2 flex-1">
                   {termoBusca && (
@@ -2165,6 +2423,24 @@ function MetasDetalhamentoContent({
                       {formatarDataParaExibicao(data)}
                     </Badge>
                   ))}
+                  {filtroStatus.map((status) => (
+                    <Badge key={status} variant="outline" className="bg-slate-100 text-slate-700 border-slate-300 px-3 py-1.5 font-medium text-xs">
+                      <Filter className="h-3 w-3 mr-1.5" />
+                      Status: {status}
+                    </Badge>
+                  ))}
+                  {filtroSeguro === 'com_seguro' && (
+                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 px-3 py-1.5 font-medium text-xs">
+                      <ShieldCheck className="h-3 w-3 mr-1.5" />
+                      Com Seguro
+                    </Badge>
+                  )}
+                  {filtroSeguro === 'sem_seguro' && (
+                    <Badge variant="outline" className="bg-gray-100 text-gray-700 border-gray-300 px-3 py-1.5 font-medium text-xs">
+                      <Shield className="h-3 w-3 mr-1.5" />
+                      Sem Seguro
+                    </Badge>
+                  )}
                 </div>
                 <Button
                   onClick={exportarParaExcel}
@@ -2216,9 +2492,11 @@ function MetasDetalhamentoContent({
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider text-center">Categoria</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Produto</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Vendedor</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Status</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Data Habilitação</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Forma</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider text-right">Valor</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider text-center">Seguro</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider text-center">Ação</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -2279,6 +2557,9 @@ function MetasDetalhamentoContent({
                             <TableCell className="text-xs p-3 text-gray-700">
                               {nomeVendedor || '-'}
                             </TableCell>
+                            <TableCell className="text-xs p-3">
+                              <span className="font-medium text-slate-700">{getStatus(venda)}</span>
+                            </TableCell>
                             <TableCell className="text-xs p-3 text-gray-700">
                               {dataHabilitacao ? 
                                 new Date(dataHabilitacao).toLocaleDateString('pt-BR') : 
@@ -2293,6 +2574,17 @@ function MetasDetalhamentoContent({
                                 venda.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 
                                 '-'
                               }
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-center">
+                              {temSeguro(venda) ? (
+                                <div className="inline-flex items-center justify-center" title="Fatura Protegida / Seguro">
+                                  <ShieldCheck className="h-5 w-5 text-green-600 fill-green-100" />
+                                </div>
+                              ) : (
+                                <div className="inline-flex items-center justify-center" title="Sem Seguro">
+                                  <Shield className="h-5 w-5 text-gray-300" />
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell className="text-xs p-3 text-center">
                               {linkWhatsApp ? (
@@ -2315,12 +2607,13 @@ function MetasDetalhamentoContent({
                   </TableBody>
                   <TableFooter>
                     <TableRow className="bg-gradient-to-r from-slate-100 to-slate-200 border-t-2 border-slate-300">
-                      <TableCell colSpan={11} className="text-xs p-3 font-bold text-slate-900 sticky left-0 bg-slate-100 z-10">
+                      <TableCell colSpan={12} className="text-xs p-3 font-bold text-slate-900 sticky left-0 bg-slate-100 z-10">
                         Total ({vendasFiltradas.length} vendas)
                       </TableCell>
                       <TableCell className="text-xs p-3 text-right font-bold text-emerald-700 text-sm">
                         {totalizadores.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </TableCell>
+                      <TableCell className="text-xs p-3"></TableCell>
                       <TableCell className="text-xs p-3"></TableCell>
                     </TableRow>
                   </TableFooter>
@@ -2387,7 +2680,13 @@ function MetasDetalhamentoContent({
   );
 }
 
-export function MetricsOverview() {
+interface MetricsOverviewProps {
+  activePage: string;
+  onPageChange?: (page: string) => void;
+  tabId?: string; // ID único da aba para salvar/restaurar estado
+}
+
+export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOverviewProps) {
   const data = useData();
   const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs, vendas, vendasMeta, baseData, calculateThreeMonthAverage } = data;
   const { user } = useAuth();
@@ -2417,11 +2716,74 @@ export function MetricsOverview() {
   const [activeTab, setActiveTab] = useState("time");
   
   // Estados para os filtros de mês e ano
-  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const [selectedYear, setSelectedYear] = useState<string | null>(null);
-  const [showData, setShowData] = useState(false);
+  // Tentar restaurar do localStorage se tabId estiver disponível
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(() => {
+    if (tabId) {
+      try {
+        const saved = localStorage.getItem(`tab-state-${tabId}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return parsed.selectedMonth || null;
+        }
+      } catch (e) {
+        // Ignorar erros de parse
+      }
+    }
+    return null;
+  });
+  
+  const [selectedYear, setSelectedYear] = useState<string | null>(() => {
+    if (tabId) {
+      try {
+        const saved = localStorage.getItem(`tab-state-${tabId}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return parsed.selectedYear || null;
+        }
+      } catch (e) {
+        // Ignorar erros de parse
+      }
+    }
+    return null;
+  });
+  
+  const [showData, setShowData] = useState(() => {
+    if (tabId) {
+      try {
+        const saved = localStorage.getItem(`tab-state-${tabId}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return parsed.showData || false;
+        }
+      } catch (e) {
+        // Ignorar erros de parse
+      }
+    }
+    return false;
+  });
+  
   const [isFiltering, setIsFiltering] = useState(false);
   const [filteringTimeout, setFilteringTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  // Salvar estado no localStorage quando mudar (para restauração ao voltar para a aba)
+  useEffect(() => {
+    if (tabId && (selectedMonth || selectedYear)) {
+      try {
+        const stateToSave = {
+          selectedMonth,
+          selectedYear,
+          showData,
+          lastUpdated: Date.now(),
+        };
+        localStorage.setItem(`tab-state-${tabId}`, JSON.stringify(stateToSave));
+      } catch (e) {
+        console.error("Erro ao salvar estado da aba:", e);
+      }
+    }
+  }, [tabId, selectedMonth, selectedYear, showData]);
+
+  // NÃO resetar filtros quando mudar de aba - agora cada aba é uma instância separada
+  // O estado é preservado pelo próprio React (montagem/desmontagem) e pelo localStorage
   // Novo estado para filtro de tipo de serviço original
   const [originalServiceTypeFilter, setOriginalServiceTypeFilter] = useState<string>("");
   // Estado para o filtro de data de habilitação (usado nos componentes de permanência)
@@ -2495,27 +2857,25 @@ export function MetricsOverview() {
 
   // Função para calcular o mês de permanência (data de habilitação + 4 meses)
   const calcularMesPermanencia = useCallback((dataHabilitacao: string): string => {
-    const dataAtual = new Date(dataHabilitacao);
-    dataAtual.setMonth(dataAtual.getMonth() + 4); // Adiciona 4 meses
+    const { month } = addMonthsForPermanencia(dataHabilitacao, 4);
     const meses = [
       'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
     ];
-    return meses[dataAtual.getMonth()];
+    return meses[month];
   }, []);
 
   // Função para calcular o ano de permanência (data de habilitação + 4 meses)
   const calcularAnoPermanencia = useCallback((dataHabilitacao: string): number => {
-    const dataAtual = new Date(dataHabilitacao);
-    dataAtual.setMonth(dataAtual.getMonth() + 4); // Adiciona 4 meses
-    return dataAtual.getFullYear();
+    const { year } = addMonthsForPermanencia(dataHabilitacao, 4);
+    return year;
   }, []);
 
   // Filtrar vendas para permanência na aba indicadores (lógica inversa da aba permanência)
   // Aqui: filtro de mês/ano (junho 2025) → busca vendas que geram permanência naquele período (vendas de fevereiro 2025)
   const vendasFiltradasPermanenciaIndicadores = useMemo(() => {
     // Só aplicar filtro na aba indicadores
-    if (activeTab !== "indicadores" || !selectedMonth || !selectedYear) {
+    if (activePage !== "indicadores" || !selectedMonth || !selectedYear) {
       return vendas; // Sem filtros ou em outra aba, retorna todas as vendas
     }
 
@@ -2536,12 +2896,21 @@ export function MetricsOverview() {
       // Verificar se a permanência calculada corresponde ao período selecionado no filtro
       return mesPermanencia === mesNomeSelecionado && anoPermanencia.toString() === selectedYear;
     });
-  }, [vendas, selectedMonth, selectedYear, activeTab, calcularMesPermanencia, calcularAnoPermanencia]);
+  }, [vendas, selectedMonth, selectedYear, activePage, calcularMesPermanencia, calcularAnoPermanencia]);
+
+  // Considerar apenas propostas com status Finalizada (usado no quadro Bonificações POS)
+  // Status vazio não é tratado como finalizada: exige valor explícito para evitar incluir todas as importadas
+  const isStatusFinalizadaBonificacoes = useCallback((status: string | undefined): boolean => {
+    const s = (status == null ? '' : String(status)).trim().toUpperCase();
+    if (s === '') return false; // sem status = não considerar como finalizada (só finalizadas explícitas)
+    if (s.includes('AGUARDANDO') || s.includes('PENDENTE') || s.includes('CANCELAD')) return false;
+    return s === 'FINALIZADA' || s.includes('FINALIZADA') || s === 'HABILITADO' || s.includes('HABILITADO') || s === 'HABILITADA' || s.includes('HABILITADA') || s === 'FINALIZADO' || s.includes('FINALIZADO');
+  }, []);
   
   // Função para buscar vendas do período selecionado por data_habilitacao (igual à guia Metas)
   // Usada para o cálculo de bonificações que deve considerar o mês de habilitação, não o mês de permanência
   const buscarVendasDoPeriodoBonificacoes = useMemo(() => {
-    if (!selectedMonth || !selectedYear || activeTab !== "indicadores") {
+    if (!selectedMonth || !selectedYear || activePage !== "indicadores") {
       return [];
     }
     
@@ -2551,13 +2920,15 @@ export function MetricsOverview() {
     const isCurrentMonth = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
     
     // Sempre retornar vendas da aba "vendas permanencia" pela data_habilitacao do mês selecionado
+    // Apenas status finalizada para o cálculo de bonificações POS (valor base e derivados)
     // O componente BonificacoesVendas já trata a lógica de usar vendasMeta quando necessário
     return vendas.filter(venda => {
       if (!venda.data_habilitacao) return false;
+      if (!isStatusFinalizadaBonificacoes(venda.status_proposta)) return false;
       const dataVenda = new Date(venda.data_habilitacao);
       return dataVenda.getMonth() + 1 === mes && dataVenda.getFullYear() === ano;
     });
-  }, [selectedMonth, selectedYear, activeTab, vendas]);
+  }, [selectedMonth, selectedYear, activePage, vendas, isStatusFinalizadaBonificacoes]);
   
   // Verificar se o período selecionado é o mês atual
   const isPeriodoMesAtual = useMemo(() => {
@@ -2811,53 +3182,51 @@ export function MetricsOverview() {
     });
   }, [getReopeningPairs, selectedMonth, selectedYear, showData, originalServiceTypeFilter]);
   
-  // Filtrar ordens de serviço apenas pela data de finalização (para métricas de tempo)
+  // Helper: verificar se ordem é backlog (Aguard. Atendimento)
+  const isOrderBacklog = (order: ServiceOrder) =>
+    (order.status || '').toUpperCase().includes('AGUARD') && (order.status || '').toUpperCase().includes('ATENDIMENTO');
+
+  // Helper: extrair mês/ano de uma data (criação ou finalização)
+  const getMonthYearFromDate = (dateStr: string): { month: string; year: string } | null => {
+    if (!dateStr || !dateStr.trim()) return null;
+    try {
+      let day: number, month: number, year: number;
+      if (dateStr.includes('/')) {
+        const dateParts = dateStr.split(' ')[0].split('/');
+        day = parseInt(dateParts[0], 10);
+        month = parseInt(dateParts[1], 10);
+        year = parseInt(dateParts[2], 10);
+      } else if (dateStr.includes('-')) {
+        const dateParts = dateStr.split('T')[0].split('-');
+        year = parseInt(dateParts[0], 10);
+        month = parseInt(dateParts[1], 10);
+        day = parseInt(dateParts[2], 10);
+      } else {
+        const date = new Date(dateStr);
+        day = date.getDate();
+        month = date.getMonth() + 1;
+        year = date.getFullYear();
+      }
+      if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+      return { month: month.toString().padStart(2, '0'), year: year.toString() };
+    } catch {
+      return null;
+    }
+  };
+
+  // Filtrar ordens: finalizadas pela data_finalizacao, backlog pela data_criacao (conta como mês de criação)
   const filteredServiceOrdersByFinalization = useMemo(() => {
     if (!selectedMonth || !selectedYear) return [];
     
     return serviceOrders.filter(order => {
-      if (!order.data_finalizacao) return false;
+      const isBacklog = isOrderBacklog(order);
+      const dateToUse = isBacklog ? order.data_criacao : order.data_finalizacao;
+      if (!dateToUse || !dateToUse.trim()) return false;
       
-      try {
-        // Extrair os componentes da data do formato original da string
-        // Formato esperado: DD/MM/YYYY HH:mm ou YYYY-MM-DDTHH:mm:ss.sssZ
-        let day, month, year;
-        
-        if (order.data_finalizacao.includes('/')) {
-          // Formato DD/MM/YYYY
-          const dateParts = order.data_finalizacao.split(' ')[0].split('/');
-          day = parseInt(dateParts[0], 10);
-          month = parseInt(dateParts[1], 10);
-          year = parseInt(dateParts[2], 10);
-        } else if (order.data_finalizacao.includes('-')) {
-          // Formato ISO YYYY-MM-DD
-          const dateParts = order.data_finalizacao.split('T')[0].split('-');
-          year = parseInt(dateParts[0], 10);
-          month = parseInt(dateParts[1], 10);
-          day = parseInt(dateParts[2], 10);
-        } else {
-          // Formato não reconhecido, tentar com o construtor Date
-          const date = new Date(order.data_finalizacao);
-          day = date.getDate();
-          month = date.getMonth() + 1; // JavaScript meses são 0-indexed
-          year = date.getFullYear();
-        }
-        
-        // Verificar se a extração foi bem-sucedida
-        if (isNaN(day) || isNaN(month) || isNaN(year)) {
-          console.error(`Data inválida: ${order.data_finalizacao}`);
-          return false;
-        }
-        
-        // Converter para o formato esperado pelo filtro
-        const orderMonth = month.toString().padStart(2, '0');
-        const orderYear = year.toString();
-        
-        return orderMonth === selectedMonth && orderYear === selectedYear;
-      } catch (error) {
-        console.error(`Erro ao processar data: ${order.data_finalizacao}`, error);
-        return false;
-      }
+      const parsed = getMonthYearFromDate(dateToUse);
+      if (!parsed) return false;
+      
+      return parsed.month === selectedMonth && parsed.year === selectedYear;
     });
   }, [serviceOrders, selectedMonth, selectedYear]);
   
@@ -2880,7 +3249,8 @@ export function MetricsOverview() {
       
       const matchesTechnician = !tableFilters.technician || tableFilters.technician === "all" || order.nome_tecnico === tableFilters.technician;
       const matchesServiceType = tableFilters.serviceTypes.length === 0 || tableFilters.serviceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !tableFilters.status || tableFilters.status === "all" || order.status === tableFilters.status;
+      const matchesStatus = !tableFilters.status || tableFilters.status === "all" || 
+        (tableFilters.status === "Backlog" ? isOrderBacklog(order) : order.status === tableFilters.status);
       const matchesCity = !tableFilters.city || tableFilters.city === "all" || normalizeCityName(order.cidade) === tableFilters.city;
       const matchesNeighborhood = !tableFilters.neighborhood || tableFilters.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === tableFilters.neighborhood;
       const matchesMotivo = tableFilters.motivos.length === 0 || tableFilters.motivos.includes(order.motivo);
@@ -2899,8 +3269,9 @@ export function MetricsOverview() {
         }
       };
       
+      const dateForFilter = (isOrderBacklog(order) ? order.data_criacao : order.data_finalizacao) || "";
       const matchesFinalizationDate = tableFilters.dates.length === 0 ||
-        tableFilters.dates.includes(formatDateForFilter(order.data_finalizacao));
+        tableFilters.dates.includes(formatDateForFilter(dateForFilter));
       
       return matchesSearch && matchesTechnician && matchesServiceType && matchesStatus && 
              matchesCity && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
@@ -2962,7 +3333,8 @@ export function MetricsOverview() {
 
     const matchesTechnician = !f.technician || f.technician === "all" || order.nome_tecnico === f.technician;
     const matchesServiceType = !f.serviceTypes?.length || f.serviceTypes.includes(order.subtipo_servico);
-    const matchesStatus = !f.status || f.status === "all" || order.status === f.status;
+    const matchesStatus = !f.status || f.status === "all" || 
+      (f.status === "Backlog" ? isOrderBacklog(order) : order.status === f.status);
     const matchesCity = !f.city || f.city === "all" || normalizeCityName(order.cidade) === f.city;
     const matchesNeighborhood = !f.neighborhood || f.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === f.neighborhood;
     const matchesMotivo = !f.motivos?.length || f.motivos.includes(order.motivo);
@@ -2981,6 +3353,7 @@ export function MetricsOverview() {
       return {
         ordersWithinGoal: 0,
         ordersOutsideGoal: 0,
+        backlogCount: 0,
         percentWithinGoal: 0,
         averageTime: 0,
         servicesByType: {}
@@ -3251,10 +3624,10 @@ export function MetricsOverview() {
         reopeningsByCity: {},
         reopeningsByNeighborhood: {},
         reopeningsByOriginalType: {
-          "Corretiva": { reopenings: 0, totalOriginals: 0, reopeningRate: 0 },
-          "Corretiva BL": { reopenings: 0, totalOriginals: 0, reopeningRate: 0 },
-          "Ponto Principal": { reopenings: 0, totalOriginals: 0, reopeningRate: 0 },
-          "Ponto Principal BL": { reopenings: 0, totalOriginals: 0, reopeningRate: 0 }
+          "Corretiva": { reopenings: 0, totalOriginals: 0, backlogCount: 0, reopeningRate: 0 },
+          "Corretiva BL": { reopenings: 0, totalOriginals: 0, backlogCount: 0, reopeningRate: 0 },
+          "Ponto Principal": { reopenings: 0, totalOriginals: 0, backlogCount: 0, reopeningRate: 0 },
+          "Ponto Principal BL": { reopenings: 0, totalOriginals: 0, backlogCount: 0, reopeningRate: 0 }
         },
         reopeningsByReason: {}
       };
@@ -3362,28 +3735,48 @@ export function MetricsOverview() {
       }
     });
     
-    // Reaberturas por tipo original
+    const backlogByType: Record<string, number> = {};
+    filteredServiceOrders.forEach(order => {
+      const isBacklog = (order.status || '').toUpperCase().includes('AGUARD') && (order.status || '').toUpperCase().includes('ATENDIMENTO');
+      if (!isBacklog || !order.subtipo_servico) return;
+      let matched = false;
+      requiredTypes.forEach(requiredType => {
+        if (order.subtipo_servico === requiredType) {
+          backlogByType[requiredType] = (backlogByType[requiredType] || 0) + 1;
+          matched = true;
+        }
+      });
+      if (!matched) {
+        requiredTypes.forEach(requiredType => {
+          if (order.subtipo_servico?.includes(requiredType)) {
+            backlogByType[requiredType] = (backlogByType[requiredType] || 0) + 1;
+          }
+        });
+      }
+    });
+    
     const reopeningsByOriginalType: Record<string, { 
       reopenings: number; 
       totalOriginals: number; 
+      backlogCount: number;
       reopeningRate: number 
     }> = {};
     
-    // Inicializar TODOS os tipos (obrigatórios e outros encontrados)
     allServiceTypes.forEach(type => {
       reopeningsByOriginalType[type] = {
         reopenings: 0,
         totalOriginals: originalOrdersByType[type] || 0,
+        backlogCount: backlogByType[type] || 0,
         reopeningRate: 0
       };
     });
     
-    // Garantir que os tipos obrigatórios sempre estejam presentes, mesmo com contagem zero
     requiredTypes.forEach(type => {
       if (!reopeningsByOriginalType[type]) {
         reopeningsByOriginalType[type] = {
           reopenings: 0,
           totalOriginals: originalOrdersByType[type] || 0,
+          backlogCount: backlogByType[type] || 0,
           reopeningRate: 0
         };
       }
@@ -3398,6 +3791,7 @@ export function MetricsOverview() {
           reopeningsByOriginalType[originalType] = {
             reopenings: 0,
             totalOriginals: originalOrdersByType[originalType] || 1,
+            backlogCount: backlogByType[originalType] || 0,
             reopeningRate: 0
           };
         }
@@ -3938,22 +4332,20 @@ export function MetricsOverview() {
       }
     });
     
-    // Converter o Set para array, remover "Ponto Principal BL" e ordenar alfabeticamente
-    return Array.from(uniqueTypes)
-      .filter(type => type !== 'Ponto Principal BL')
-      .sort();
-  }, [getReopeningPairs, showData]);
-  
-  // Resetar o estado de exibição quando o usuário troca de aba
-  useEffect(() => {
-    // Limpar o estado e os filtros quando o usuário muda de aba
-    setShowData(false);
-    setIsFiltering(false);
+    // Converter o Set para array e aplicar filtros
+    let filteredTypes = Array.from(uniqueTypes)
+      .filter(type => type !== 'Ponto Principal BL'); // Sempre remover Ponto Principal BL
     
-    // Limpar os filtros imediatamente ao trocar de aba
-    setSelectedMonth(null);
-    setSelectedYear(null);
-  }, [activeTab]);
+    // Remover "Corretiva BL" (que mapeia para "Assistência Técnica FIBRA") se ano >= 2026
+    if (selectedYear && selectedYear >= 2026) {
+      filteredTypes = filteredTypes.filter(type => type !== 'Corretiva BL');
+    }
+    
+    return filteredTypes.sort();
+  }, [getReopeningPairs, showData, selectedYear]);
+  
+  // REMOVIDO: useEffect que resetava filtros ao mudar activeTab interno
+  // Agora cada aba é uma instância separada e o estado é preservado no localStorage
   
   // Verificar se podemos exibir os dados quando os filtros são alterados
   useEffect(() => {
@@ -4137,54 +4529,15 @@ export function MetricsOverview() {
   
   return (
     <>
-      <Tabs defaultValue="time" className="space-y-4 w-full" onValueChange={setActiveTab}>
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-        <h2 className="text-xl sm:text-2xl font-bold">Indicadores de Desempenho</h2>
-        <div className="overflow-x-auto">
-          <TabsList className="flex flex-nowrap min-w-max">
-            <TabsTrigger value="time" className="flex items-center whitespace-nowrap">
-              <Clock className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Tempos e Otimização</span>
-            </TabsTrigger>
-            <TabsTrigger value="reopening" className="flex items-center whitespace-nowrap">
-              <Repeat className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Reaberturas</span>
-            </TabsTrigger>
-            <TabsTrigger value="permanencia" className="flex items-center whitespace-nowrap">
-              <AlertTriangle className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Permanência</span>
-            </TabsTrigger>
-            <TabsTrigger value="metas" className="flex items-center whitespace-nowrap">
-              <BarChart2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Metas</span>
-            </TabsTrigger>
-            <TabsTrigger value="technicians" className="flex items-center whitespace-nowrap">
-              <Users className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Técnicos</span>
-            </TabsTrigger>
-            <TabsTrigger value="vendedor" className="flex items-center whitespace-nowrap">
-              <BarChart2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Vendedor</span>
-            </TabsTrigger>
-            <TabsTrigger value="indicadores" className="flex items-center whitespace-nowrap">
-              <BarChart2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Indicadores</span>
-            </TabsTrigger>
-            <TabsTrigger value="users" className="flex items-center whitespace-nowrap">
-              <UserCog className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Usuários</span>
-            </TabsTrigger>
-            <TabsTrigger value="payments" className="flex items-center whitespace-nowrap">
-              <CreditCard className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Pagamentos</span>
-            </TabsTrigger>
-            <TabsTrigger value="import" className="flex items-center whitespace-nowrap">
-              <FileUp className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-xs sm:text-sm">Importação</span>
-            </TabsTrigger>
-          </TabsList>
-        </div>
+      <Tabs value={activePage} className="space-y-4 w-full" onValueChange={setActiveTab}>
+      <div className="hidden">
+        {/* Tabs triggers removidos - navegação agora é via Sidebar */}
       </div>
+      
+      {/* Home Tab - Tela de Boas-Vindas */}
+      <TabsContent value="home" className="space-y-4">
+        <DashboardHome onPageChange={onPageChange} />
+      </TabsContent>
       
       {/* Time Metrics Tab */}
       <TabsContent value="time" className="space-y-4">
@@ -4248,6 +4601,7 @@ export function MetricsOverview() {
                           const metrics = timeMetrics.servicesByType[type] as {
                             totalOrders: number;
                             withinGoal: number;
+                            backlogCount?: number;
                             percentWithinGoal: number;
                             averageTime: number;
                           };
@@ -4267,9 +4621,16 @@ export function MetricsOverview() {
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-center px-3 py-3">
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold">
-                                  {metrics.totalOrders}
-                                </Badge>
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold">
+                                    {metrics.totalOrders}
+                                  </Badge>
+                                  {(metrics.backlogCount ?? 0) > 0 && (
+                                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-xs font-medium">
+                                      📦 {metrics.backlogCount}
+                                    </Badge>
+                                  )}
+                                </div>
                               </TableCell>
                               <TableCell className="text-center px-3 py-3">
                                 <span className={`text-base font-bold ${colorClass}`}>
@@ -4822,9 +5183,16 @@ export function MetricsOverview() {
                           >
                             <TableCell className="font-semibold text-sm px-3 py-3">{displayName}</TableCell>
                             <TableCell className="text-center px-3 py-3">
-                              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold text-xs">
-                                {data.totalOriginals}
-                              </Badge>
+                              <div className="flex items-center justify-center gap-1.5">
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold text-xs">
+                                  {data.totalOriginals}
+                                </Badge>
+                                {(data as { backlogCount?: number }).backlogCount > 0 && (
+                                  <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-xs font-medium">
+                                    📦 {(data as { backlogCount?: number }).backlogCount}
+                                  </Badge>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell className="text-center px-3 py-3">
                               <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 font-semibold text-xs">
@@ -5451,11 +5819,6 @@ export function MetricsOverview() {
         {!showData ? (
           <NoDataMessage />
         ) : (
-          <ProtectedCard 
-            title="Desempenho e Bonificações - Serviços" 
-            storageKey="indicadores_desempenho_bonificacoes_unificado"
-            className="w-full"
-          >
           <>
             {/* Card Unificado: Desempenho e Bonificações - Serviços */}
             <Card className="w-full shadow-lg border-2">
@@ -6005,7 +6368,6 @@ export function MetricsOverview() {
               />
             </div>
           </>
-          </ProtectedCard>
         )}
       </TabsContent>
       
@@ -7786,10 +8148,42 @@ export function MetricsOverview() {
       <TabsContent value="import" className="space-y-4">
         <ImportData />
     </TabsContent>
+
+    {/* Roteiro */}
+    <TabsContent value="roteiro" className="space-y-4">
+      <RoteiroMain />
+    </TabsContent>
+
+    {/* Cadastro de Usuários */}
+    <TabsContent value="cadastro_tecnicos" className="space-y-4">
+      <CadastroTecnicos
+        onNavigateToCadastroAcesso={onPageChange ? () => onPageChange('subusuarios') : undefined}
+      />
+    </TabsContent>
+
+    {/* Cadastro de Acesso */}
+    <TabsContent value="subusuarios" className="space-y-4">
+      <GestaoSubusuarios />
+    </TabsContent>
+
+    {/* Base (TV, Fibra, Aliança) */}
+    <TabsContent value="base" className="space-y-4">
+      <BasePage />
+    </TabsContent>
+
+    {/* Meta de Vendas Empresa */}
+    <TabsContent value="metas_empresa" className="space-y-4">
+      <MetasEmpresaPage />
+    </TabsContent>
+
+    {/* Mailing */}
+    <TabsContent value="mailing" className="space-y-4">
+      <MailingPage />
+    </TabsContent>
   </Tabs>
     
-    {/* Mostrar a tabela de ordens de serviço apenas para as guias principais quando um filtro está aplicado */}
-    {activeTab !== "users" && activeTab !== "import" && activeTab !== "reopening" && activeTab !== "technicians" && activeTab !== "vendedor" && activeTab !== "permanencia" && activeTab !== "indicadores" && showData && (
+    {/* Mostrar a tabela de ordens de serviço apenas na guia "Tempos e Otimização" quando um filtro está aplicado */}
+    {activePage === "time" && showData && (
       <div className="mt-6">
         <ServiceOrderTable 
           filteredOrders={filteredServiceOrders} 
@@ -8814,9 +9208,152 @@ function PaymentsManagement() {
   );
 }
 
+// LastImportInfoPopover component
+function LastImportInfoPopover() {
+  const { lastImportInfo } = useData();
+  const [isOpen, setIsOpen] = useState(false);
+
+  if (!lastImportInfo) {
+    return null;
+  }
+
+  // Verificar se a importação foi recente (últimas 2 horas)
+  const isRecent = () => {
+    const importDate = new Date(lastImportInfo.data);
+    const now = new Date();
+    const diffInHours = (now.getTime() - importDate.getTime()) / (1000 * 60 * 60);
+    return diffInHours < 2;
+  };
+
+  // Formatar data/hora
+  const formatDateTime = (isoString: string) => {
+    const date = new Date(isoString);
+    return date.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  return (
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className={`p-1.5 rounded-lg transition-all hover:bg-amber-100 ${
+            isRecent() ? 'animate-pulse bg-amber-50' : 'bg-gray-50'
+          }`}
+          title="Ver informações da última importação"
+        >
+          <Info className={`h-4 w-4 ${isRecent() ? 'text-amber-600' : 'text-gray-500'}`} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[450px] p-0 border-2 border-gray-200 shadow-xl" align="end">
+        <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white p-4 rounded-t-lg">
+          <div className="flex items-center gap-2 mb-1">
+            <Target className="h-5 w-5" />
+            <h3 className="font-bold text-lg">Última Importação Comercial</h3>
+          </div>
+          <p className="text-emerald-100 text-sm">
+            {formatDateTime(lastImportInfo.data)}
+          </p>
+        </div>
+
+        <div className="p-4 space-y-3 max-h-[500px] overflow-y-auto">
+          {lastImportInfo.novasVendasPermanencia > 0 && (
+            <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-green-800">🟢 Novas vendas de permanência</span>
+                <span className="font-bold text-green-700 text-base">{lastImportInfo.novasVendasPermanencia.toLocaleString('pt-BR')}</span>
+              </div>
+              {lastImportInfo.vendasPermanenciaAgrupadas && lastImportInfo.vendasPermanenciaAgrupadas.length > 0 && (
+                <div className="mt-2 space-y-1 pl-2 border-l-2 border-green-300">
+                  {lastImportInfo.vendasPermanenciaAgrupadas.map((grupo, idx) => (
+                    <div key={idx} className="text-xs text-green-700">
+                      <span className="font-semibold">{grupo.count}x</span> {grupo.produto}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {lastImportInfo.novasVendasMeta > 0 && (
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-blue-800">🔵 Produtos novos</span>
+                <span className="font-bold text-blue-700 text-base">{lastImportInfo.novasVendasMeta.toLocaleString('pt-BR')}</span>
+              </div>
+              {lastImportInfo.vendasMetaAgrupadas && lastImportInfo.vendasMetaAgrupadas.length > 0 && (
+                <div className="mt-2 space-y-1 pl-2 border-l-2 border-blue-300">
+                  {lastImportInfo.vendasMetaAgrupadas.map((grupo, idx) => (
+                    <div key={idx} className="text-xs text-blue-700">
+                      <span className="font-semibold">{grupo.count}x</span> {grupo.produto}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {lastImportInfo.vendasMetaAtualizadasSoData > 0 && (
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-slate-700">📅 Produtos atualizados (somente data)</span>
+                <span className="font-bold text-slate-700 text-base">{lastImportInfo.vendasMetaAtualizadasSoData.toLocaleString('pt-BR')}</span>
+              </div>
+            </div>
+          )}
+
+          {lastImportInfo.vendasMetaComMudancaStatus > 0 && (
+            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-amber-800">🔄 Produtos com mudança de status</span>
+                <span className="font-bold text-amber-700 text-base">{lastImportInfo.vendasMetaComMudancaStatus.toLocaleString('pt-BR')}</span>
+              </div>
+              {lastImportInfo.statusChangesDetails.length > 0 && (
+                <div className="mt-2 space-y-1 pl-2 border-l-2 border-amber-300 max-h-32 overflow-y-auto">
+                  {lastImportInfo.statusChangesDetails.map((item, idx) => (
+                    <div key={idx} className="text-xs text-amber-800">
+                      <span className="font-medium">Proposta {item.proposta}:</span> {item.de} → {item.para}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {lastImportInfo.novasMetas > 0 && (
+            <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-purple-800">🟣 Novas metas</span>
+                <span className="font-bold text-purple-700 text-base">{lastImportInfo.novasMetas.toLocaleString('pt-BR')}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="pt-3 border-t-2 border-gray-200 mt-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700">Total processado</span>
+              <span className="font-bold text-gray-900 text-lg">{lastImportInfo.totalProcessado.toLocaleString('pt-BR')}</span>
+            </div>
+          </div>
+
+          {lastImportInfo.totalProcessado === 0 && (
+            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-center">
+              <p className="text-sm text-gray-600">Nenhum novo registro foi adicionado nesta importação.</p>
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ImportData component
 function ImportData() {
-  const { importServiceOrders, importVendas, importPrimeirosPagamentos, importMetas, importVendasMeta, importBaseData } = useData();
+  const { importServiceOrders, importVendas, importPrimeirosPagamentos, importMetas, importVendasMeta, importBaseData, setLastImportInfo } = useData();
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -8907,27 +9444,53 @@ function ImportData() {
           // Para importação de metas, processar as 3 planilhas separadas
           if (importType === 'metas') {
             const sheetNames = workbook.SheetNames;
-            // Log otimizado - só durante desenvolvimento
-      if (process.env.NODE_ENV === 'development') {
-        console.log("Planilhas encontradas:", sheetNames);
-      }
-            
-            // Verificar se as 3 planilhas necessárias existem
-            const requiredSheets = ['VENDAS PERMANENCIA', 'VENDAS META', 'METAS'];
-            const missingSheets = requiredSheets.filter(sheet => !sheetNames.includes(sheet));
-            
-            if (missingSheets.length > 0) {
-              throw new Error(`Planilhas obrigatórias não encontradas: ${missingSheets.join(', ')}. As planilhas devem se chamar: ${requiredSheets.join(', ')}`);
+            if (process.env.NODE_ENV === 'development') {
+              console.log("Planilhas encontradas:", sheetNames);
             }
-            
-            // Processar as 3 planilhas
+
+            // Detectar aba de vendas por estrutura (cabeçalhos) ou por nome
+            const REQUIRED_VENDAS_HEADERS = ['Número da proposta', 'ID/Código do vendedor'];
+            let vendasMetaData: Record<string, unknown>[] = [];
+            let vendasPermanenciaData: Record<string, unknown>[] = [];
+
+            const findSheetByVendasStructure = (): string | null => {
+              for (const name of sheetNames) {
+                const sheet = workbook.Sheets[name];
+                if (!sheet) continue;
+                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as unknown[][];
+                if (rows.length === 0) continue;
+                const headers = (rows[0] as unknown[]).map((h) => String(h ?? '').trim());
+                const hasProposta = headers.some((h) => h === 'Número da proposta' || h === 'Numero da proposta');
+                const hasVendedor = headers.some((h) => h === 'ID/Código do vendedor');
+                if (hasProposta && hasVendedor) return name;
+              }
+              return null;
+            };
+
+            const vendasSheetByStructure = findSheetByVendasStructure();
+            if (vendasSheetByStructure) {
+              vendasMetaData = XLSX.utils.sheet_to_json(workbook.Sheets[vendasSheetByStructure]) as Record<string, unknown>[];
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`Aba de vendas detectada por estrutura: "${vendasSheetByStructure}" (${vendasMetaData.length} linhas)`);
+              }
+            }
+
+            // Fallback: abas por nome (compatibilidade)
             const vendasPermanenciaSheet = workbook.Sheets['VENDAS PERMANENCIA'];
             const vendasMetaSheet = workbook.Sheets['VENDAS META'];
             const metasSheet = workbook.Sheets['METAS'];
-            
-            const vendasPermanenciaData = XLSX.utils.sheet_to_json(vendasPermanenciaSheet);
-            const vendasMetaData = XLSX.utils.sheet_to_json(vendasMetaSheet);
-            const metasData = XLSX.utils.sheet_to_json(metasSheet);
+
+            if (vendasMetaData.length === 0 && vendasMetaSheet) {
+              vendasMetaData = XLSX.utils.sheet_to_json(vendasMetaSheet) as Record<string, unknown>[];
+            }
+            if (vendasPermanenciaSheet) {
+              vendasPermanenciaData = XLSX.utils.sheet_to_json(vendasPermanenciaSheet) as Record<string, unknown>[];
+            }
+            const metasData = metasSheet ? XLSX.utils.sheet_to_json(metasSheet) as Record<string, unknown>[] : [];
+
+            if (vendasMetaData.length === 0 && vendasPermanenciaData.length === 0) {
+              throw new Error('Nenhuma planilha de vendas encontrada. Use uma aba com as colunas "Número da proposta" e "ID/Código do vendedor", ou nomeie a aba como VENDAS META ou VENDAS PERMANENCIA.');
+            }
             
             // Log otimizado
           if (process.env.NODE_ENV === 'development') {
@@ -8945,6 +9508,10 @@ function ImportData() {
             try {
               let novasVendasPermanencia = 0;
               let novasVendasMeta = 0;
+              let atualizadasVendasMeta = 0;
+              let vendasMetaOnlyDate = 0;
+              let vendasMetaStatusChange = 0;
+              let vendasMetaStatusChangesDetails: { proposta: string; de: string; para: string }[] = [];
               let novasMetas = 0;
               let vendasPermanenciaImportadas: Venda[] = [];
               let vendasMetaImportadas: VendaMeta[] = [];
@@ -8962,16 +9529,19 @@ function ImportData() {
             }
               }
               
-              // Processar vendas de meta
+              // Processar vendas de meta (upsert: novas + atualizadas)
               if (vendasMetaData.length > 0) {
                 const processedVendasMeta = processVendasMeta(vendasMetaData as Record<string, unknown>[]);
                 const result = importVendasMeta(processedVendasMeta, true);
                 novasVendasMeta = result.newRecords;
-                // Capturar apenas as novas vendas importadas
+                atualizadasVendasMeta = result.updatedRecords ?? 0;
+                vendasMetaOnlyDate = result.updatedRecordsOnlyDate ?? 0;
+                vendasMetaStatusChange = result.updatedRecordsStatusChange ?? 0;
+                vendasMetaStatusChangesDetails = result.statusChangesDetails ?? [];
                 vendasMetaImportadas = processedVendasMeta.slice(-result.newRecords);
                 if (process.env.NODE_ENV === 'development') {
-              console.log(`Importadas ${result.newRecords} novas vendas de meta`);
-            }
+                  console.log(`Vendas meta: ${result.newRecords} novas, ${atualizadasVendasMeta} atualizadas (${vendasMetaOnlyDate} só data, ${vendasMetaStatusChange} com mudança de status)`);
+                }
               }
               
               // Processar metas
@@ -8991,14 +9561,17 @@ function ImportData() {
               if (novasVendasPermanencia > 0) {
                 detalhes.push(`${novasVendasPermanencia} Novas vendas de permanência`);
               }
-              if (novasVendasMeta > 0) {
-                detalhes.push(`${novasVendasMeta} Novas vendas de meta`);
+              if (novasVendasMeta > 0 || atualizadasVendasMeta > 0) {
+                const parts = [];
+                if (novasVendasMeta > 0) parts.push(`${novasVendasMeta} nova${novasVendasMeta > 1 ? 's' : ''}`);
+                if (atualizadasVendasMeta > 0) parts.push(`${atualizadasVendasMeta} atualizada${atualizadasVendasMeta > 1 ? 's' : ''}`);
+                detalhes.push(`Vendas de meta: ${parts.join(', ')}`);
               }
               if (novasMetas > 0) {
                 detalhes.push(`${novasMetas} Nova${novasMetas > 1 ? 's' : ''} meta${novasMetas > 1 ? 's' : ''}`);
               }
               
-              const totalNovos = novasVendasPermanencia + novasVendasMeta + novasMetas;
+              const totalNovos = novasVendasPermanencia + novasVendasMeta + novasMetas + atualizadasVendasMeta;
               
               // Agrupar vendas por produto
               const vendasPermanenciaAgrupadas = novasVendasPermanencia > 0 ? agruparVendasPorProduto(vendasPermanenciaImportadas) : [];
@@ -9035,7 +9608,7 @@ function ImportData() {
                     {novasVendasMeta > 0 && (
                       <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-semibold text-blue-800">🔵 Novas vendas de meta</span>
+                          <span className="text-sm font-semibold text-blue-800">🔵 Produtos novos</span>
                           <span className="font-bold text-blue-700 text-base">{novasVendasMeta.toLocaleString('pt-BR')}</span>
                         </div>
                         {vendasMetaAgrupadas.length > 0 && (
@@ -9043,6 +9616,31 @@ function ImportData() {
                             {vendasMetaAgrupadas.map((grupo, idx) => (
                               <div key={idx} className="text-xs text-blue-700">
                                 <span className="font-semibold">{grupo.count}x</span> {grupo.produto}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {vendasMetaOnlyDate > 0 && (
+                      <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-slate-700">📅 Produtos atualizados (somente data de importação)</span>
+                          <span className="font-bold text-slate-700 text-base">{vendasMetaOnlyDate.toLocaleString('pt-BR')}</span>
+                        </div>
+                      </div>
+                    )}
+                    {vendasMetaStatusChange > 0 && (
+                      <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-semibold text-amber-800">🔄 Produtos com mudança de status</span>
+                          <span className="font-bold text-amber-700 text-base">{vendasMetaStatusChange.toLocaleString('pt-BR')}</span>
+                        </div>
+                        {vendasMetaStatusChangesDetails.length > 0 && (
+                          <div className="mt-2 space-y-1 pl-2 border-l-2 border-amber-300">
+                            {vendasMetaStatusChangesDetails.map((item, idx) => (
+                              <div key={idx} className="text-xs text-amber-800">
+                                <span className="font-medium">Proposta {item.proposta}:</span> {item.de} → {item.para}
                               </div>
                             ))}
                           </div>
@@ -9070,6 +9668,21 @@ function ImportData() {
                   </div>
                 ),
                 className: "border-2 border-green-200 bg-white"
+              });
+              
+              // Salvar informações da última importação
+              setLastImportInfo({
+                data: new Date().toISOString(),
+                tipo: 'comercial',
+                novasVendasPermanencia,
+                novasVendasMeta,
+                vendasMetaAtualizadasSoData: vendasMetaOnlyDate,
+                vendasMetaComMudancaStatus: vendasMetaStatusChange,
+                statusChangesDetails: vendasMetaStatusChangesDetails,
+                novasMetas,
+                totalProcessado: totalNovos,
+                vendasPermanenciaAgrupadas,
+                vendasMetaAgrupadas
               });
               
               setProgress(100);
@@ -9130,13 +9743,16 @@ function ImportData() {
             }
             
             let processedServiceOrders = 0;
+            let processedServiceUpdated = 0;
             let processedBaseData = 0;
             let processedBaseUpdated = 0;
             let totalProcessedServices = 0;
             let totalProcessedBase = 0;
             let hasValidData = false;
             let servicosImportados: ServiceOrder[] = [];
+            let servicosImportResult: { newByType?: Record<string, number>; updatedByType?: Record<string, number>; backlogByType?: Record<string, number> } | null = null;
             let basesImportadas: BaseData[] = [];
+            let servicosError: string | null = null;
             
             // Processar aba de serviços
             if (servicosSheet) {
@@ -9149,14 +9765,15 @@ function ImportData() {
                   const processedServices = processData(servicosJsonData as Record<string, unknown>[]);
                   const result = importServiceOrders(processedServices, true);
                   processedServiceOrders = result.newRecords;
+                  processedServiceUpdated = result.updatedRecords || 0;
                   totalProcessedServices = result.totalProcessed;
-                  // Capturar apenas as novas ordens importadas
+                  servicosImportResult = result;
                   servicosImportados = processedServices.slice(-result.newRecords);
                   hasValidData = true;
-                  console.log(`[ImportData] Serviços: ${result.totalProcessed} processados, ${result.newRecords} novos, ${result.duplicatesIgnored} duplicados`);
+                  console.log(`[ImportData] Serviços: ${result.totalProcessed} processados, ${result.newRecords} novos, ${result.updatedRecords || 0} atualizados`);
                 } catch (serviceError) {
+                  servicosError = serviceError instanceof Error ? serviceError.message : String(serviceError);
                   console.warn("[ImportData] Erro ao processar serviços:", serviceError);
-                  // Continuar processamento mesmo se houver erro nos serviços
                 }
               }
             }
@@ -9185,13 +9802,14 @@ function ImportData() {
               }
             }
             
-            // Verificar se pelo menos algum dado foi encontrado e processado
             if (!hasValidData) {
-              throw new Error("Nenhum dado válido encontrado nas abas processadas. Verifique se as abas contêm dados ou se os campos obrigatórios estão presentes.");
+              const mensagemErro = servicosError
+                ? `Erro na importação de serviços: ${servicosError}`
+                : "Nenhum dado válido encontrado nas abas processadas. Verifique se as abas contêm dados ou se os campos obrigatórios estão presentes.";
+              throw new Error(mensagemErro);
             }
             
-            // Verificar se nenhum dado foi processado (novos ou atualizados)
-            const totalProcessados = processedServiceOrders + processedBaseData + processedBaseUpdated;
+            const totalProcessados = processedServiceOrders + processedServiceUpdated + processedBaseData + processedBaseUpdated;
             
             if (totalProcessados === 0 && (totalProcessedServices > 0 || totalProcessedBase > 0)) {
               toast({
@@ -9205,7 +9823,11 @@ function ImportData() {
                 ) as unknown as string,
                 description: (
                   <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <p className="text-sm text-gray-600">Nenhum novo registro foi adicionado (todos já existiam).</p>
+                    <p className="text-sm text-gray-600">
+                      {processedServiceUpdated > 0 || processedBaseUpdated > 0
+                        ? `${processedServiceUpdated + processedBaseUpdated} registro(s) atualizado(s).`
+                        : "Nenhum novo registro foi adicionado (todos já existiam)."}
+                    </p>
                   </div>
                 ),
                 className: "border-2 border-purple-200 bg-white"
@@ -9217,9 +9839,10 @@ function ImportData() {
               return;
             }
             
-            // Agrupar serviços por tipo e formatar bases
-            const servicosAgrupados = processedServiceOrders > 0 ? agruparServicosPorTipo(servicosImportados) : [];
             const basesFormatadas = processedBaseData > 0 ? formatarBasesTabela(basesImportadas) : [];
+            const newByType = servicosImportResult?.newByType ?? {};
+            const updatedByType = servicosImportResult?.updatedByType ?? {};
+            const backlogByType = servicosImportResult?.backlogByType ?? {};
             
             toast({
               title: (
@@ -9232,21 +9855,43 @@ function ImportData() {
               ) as unknown as string,
               description: totalProcessados > 0 ? (
                 <div className="space-y-3 mt-2">
-                  {processedServiceOrders > 0 && (
+                  {(processedServiceOrders > 0 || processedServiceUpdated > 0 || Object.keys(backlogByType).length > 0) && (
                     <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-semibold text-blue-800">🔵 Novas ordens de serviço</span>
-                        <span className="font-bold text-blue-700 text-base">{processedServiceOrders.toLocaleString('pt-BR')}</span>
-                      </div>
-                      {servicosAgrupados.length > 0 && (
-                        <div className="mt-2 space-y-1 pl-2 border-l-2 border-blue-300">
-                          {servicosAgrupados.map((grupo, idx) => (
-                            <div key={idx} className="text-xs text-blue-700">
-                              <span className="font-semibold">{grupo.count}</span> {grupo.tipo}
+                      <span className="text-sm font-semibold text-blue-800 block mb-3">Ordens de Serviço</span>
+                      <div className="space-y-3">
+                        {processedServiceOrders > 0 && (
+                          <div>
+                            <div className="text-xs font-semibold text-blue-700 mb-1">Novas: {processedServiceOrders}</div>
+                            <div className="pl-2 space-y-0.5 border-l-2 border-blue-300">
+                              {Object.entries(newByType).map(([tipo, count]) => (
+                                <div key={tipo} className="text-xs text-blue-700">{count} {tipo}</div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
-                      )}
+                          </div>
+                        )}
+                        {processedServiceUpdated > 0 && (
+                          <div>
+                            <div className="text-xs font-semibold text-violet-700 mb-1">Atualizadas: {processedServiceUpdated}</div>
+                            <div className="pl-2 space-y-0.5 border-l-2 border-violet-300">
+                              {Object.entries(updatedByType).map(([tipo, count]) => (
+                                <div key={tipo} className="text-xs text-violet-700">{count} {tipo}</div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {Object.keys(backlogByType).length > 0 && (
+                          <div>
+                            <div className="text-xs font-semibold text-amber-600 mb-1">
+                              Backlog: {Object.values(backlogByType).reduce((a, b) => a + b, 0)}
+                            </div>
+                            <div className="pl-2 space-y-0.5 border-l-2 border-amber-400">
+                              {Object.entries(backlogByType).map(([tipo, count]) => (
+                                <div key={tipo} className="text-xs text-amber-700">{count} {tipo}</div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                   
@@ -9503,15 +10148,17 @@ function ImportData() {
           continue;
         }
         
-        // Se o campo ausente for Finalização, verificar se todas as ordens são canceladas
+        // Se o campo ausente for Finalização, verificar exceções
         if (requiredField === "Finalização") {
-          // Verificar se todas as ordens são canceladas
           const todasCanceladas = data.every(row => 
             String(row["Status"] || "").toUpperCase() === "CANCELADA"
           );
-          
-          if (todasCanceladas) {
-            console.log(`[MetricsOverview] Todas as ordens são canceladas. Campo '${requiredField}' não será obrigatório.`);
+          const todasBacklog = data.every(row => {
+            const s = String(row["Status"] || "").toUpperCase();
+            return s.includes("AGUARD") && s.includes("ATENDIMENTO");
+          });
+          if (todasCanceladas || todasBacklog) {
+            console.log(`[MetricsOverview] Campo '${requiredField}' não obrigatório (${todasCanceladas ? 'canceladas' : 'backlog'}).`);
             continue;
           }
         }
@@ -9524,8 +10171,9 @@ function ImportData() {
       throw new Error(`Campos obrigatórios ausentes na planilha: ${missingRequiredFields.join(", ")}`);
     }
     
-    // Verificar se o campo "Código Item" existe no arquivo
-    if (!excelHeaders.includes("Código Item")) {
+    // Verificar se o campo "Código Item" existe no arquivo (aceita qualquer um dos nomes de coluna)
+    const itemCodeKey = excelHeaders.includes("Código Item") ? "Código Item" : excelHeaders.includes("Código Item (não permita duplicacao)") ? "Código Item (não permita duplicacao)" : null;
+    if (!itemCodeKey) {
       throw new Error("O campo 'Código Item' não está presente no arquivo e é necessário para identificação de duplicatas");
     }
     
@@ -9534,7 +10182,7 @@ function ImportData() {
     const duplicatedItemCodes: string[] = [];
     
     data.forEach((row) => {
-      const itemCode = String(row["Código Item"]);
+      const itemCode = String(row[itemCodeKey] ?? "");
       if (itemCodesMap.has(itemCode)) {
         itemCodesMap.set(itemCode, itemCodesMap.get(itemCode)! + 1);
         if (!duplicatedItemCodes.includes(itemCode)) {
@@ -9560,7 +10208,7 @@ function ImportData() {
     const processedItemCodes = new Set<string>();
     
     data.forEach((row) => {
-      const itemCode = String(row["Código Item"]);
+      const itemCode = String(row[itemCodeKey] ?? "");
       if (!processedItemCodes.has(itemCode)) {
         processedRows.push(row);
         processedItemCodes.add(itemCode);
@@ -9569,23 +10217,33 @@ function ImportData() {
     
     const processedOrders = processedRows.map((row, index) => {
       const formatDate = (dateStr: string | null | undefined, isFinalizacao = false): string => {
-        // Se for data de finalização e o status for cancelada, permitir data vazia
         const status = String(row["Status"] || "");
         if (isFinalizacao && status.toUpperCase() === "CANCELADA") {
           if (!dateStr || dateStr.trim() === "") {
-            // Sempre usar a data de criação para ordens canceladas
             if (row["Criação"]) {
               console.log(`[MetricsOverview] OS ${row["Código OS"]}: Status Cancelada - Usando data de criação como finalização`);
               return formatDate(row["Criação"] as string, false);
             } else {
-              // Se não tiver data de criação (caso extremamente raro), lançar erro
               throw new Error(`OS ${row["Código OS"]} cancelada não possui data de criação válida`);
             }
           }
         }
+        // Backlog (Aguard. Atendimento): permitir Finalização vazia
+        if (isFinalizacao && !dateStr && (status.toUpperCase().includes("AGUARD") && status.toUpperCase().includes("ATENDIMENTO"))) {
+          return "";
+        }
+        // Finalizada/Finalizado/Executada/Executado sem data de finalização: usar data de criação
+        const isFinalizadaStatus = ["FINALIZADA", "FINALIZADO", "EXECUTADA", "EXECUTADO"].some(s => status.toUpperCase().includes(s));
+        if (isFinalizacao && (!dateStr || !String(dateStr).trim()) && isFinalizadaStatus) {
+          if (row["Criação"]) {
+            console.log(`[MetricsOverview] OS ${row["Código OS"]}: Status ${status} sem finalização - Usando data de criação`);
+            return formatDate(row["Criação"] as string, false);
+          }
+        }
         
-        if (!dateStr) {
-          throw new Error(`Data inválida na linha ${index + 2}`);
+        if (!dateStr || !String(dateStr).trim()) {
+          const campo = isFinalizacao ? "Finalização" : "Criação";
+          throw new Error(`Linha ${index + 2}: Data inválida ou ausente no campo "${campo}". Verifique os dados nesta linha.`);
         }
         
         let date: Date;
@@ -9613,11 +10271,13 @@ function ImportData() {
             }
           }
         } catch (e) {
-          throw new Error(`Data inválida: "${dateStr}" na linha ${index + 2}`);
+          const campo = isFinalizacao ? "Finalização" : "Criação";
+          throw new Error(`Linha ${index + 2}: Data inválida ("${dateStr}") no campo "${campo}". Verifique o formato da data nesta linha.`);
         }
         
         if (isNaN(date.getTime())) {
-          throw new Error(`Data inválida: "${dateStr}" na linha ${index + 2}`);
+          const campo = isFinalizacao ? "Finalização" : "Criação";
+          throw new Error(`Linha ${index + 2}: Data inválida ("${dateStr}") no campo "${campo}". Verifique o formato da data nesta linha.`);
         }
         
         return date.toISOString();
@@ -9657,7 +10317,7 @@ function ImportData() {
       
       const order: ServiceOrder = {
         codigo_os: String(row["Código OS"]),
-        codigo_item: String(row["Código Item"] || ""), // Código do item específico
+        codigo_item: String(row["Código Item"] ?? row["Código Item (não permita duplicacao)"] ?? "").trim(),
         id_tecnico: row["ID Técnico"] ? String(row["ID Técnico"]) : "",
         nome_tecnico: nomeTecnico,
         sigla_tecnico: String(row["SGL"]),
@@ -9810,13 +10470,15 @@ function ImportData() {
         return date.toISOString();
       };
       
-      // Obter o valor numérico, removendo formatações como R$ e .
+      // Extrai apenas o primeiro valor monetário, descartando texto extra (ex.: "R$ 159,90Tendência de aumento de valor" → 159.90)
       const parseValue = (valueStr: string | null | undefined): number => {
-        if (!valueStr) return 0;
-        
-        // Remover símbolos monetários e outros caracteres não numéricos
-        const cleanValue = valueStr.toString().replace(/[^\d.,]/g, '').replace(',', '.');
-        return parseFloat(cleanValue) || 0;
+        if (valueStr == null || String(valueStr).trim() === '') return 0;
+        const s = String(valueStr).trim();
+        const match = s.match(/(\d+)[,.](\d{0,2})/);
+        if (!match) return 0;
+        const inteiro = match[1];
+        const decimal = match[2].padEnd(2, '0').slice(0, 2);
+        return parseFloat(`${inteiro}.${decimal}`);
       };
       
       // Encontrar as colunas correspondentes usando case-insensitive
@@ -9845,8 +10507,8 @@ function ImportData() {
       const bairroColumn = findColumnContaining("bairro");
       
       // Buscar campos para produtos diferenciais
-      const produtosSecundariosColumn = findColumn("ProdutosSecundarios") || findColumn("produtos_secundarios");
-      const formaPagamentoColumn = findColumn("FormaPagamento") || findColumn("forma_pagamento");
+      const produtosSecundariosColumn = findColumn("Produtos secundários") || findColumn("Produtos Secundários") || findColumn("ProdutosSecundarios") || findColumn("produtos_secundarios");
+      const formaPagamentoColumn = findColumn("Forma de Pagamento") || findColumn("FormaPagamento") || findColumn("forma_pagamento");
       
       // MODIFICAÇÃO: Adicionar suporte ao campo "Subtotal Adesão" mencionado no problema
       const subtotalAdesaoColumn = findColumn("Subtotal Adesão") || findColumn("Subtotal Adesao");
@@ -10147,170 +10809,110 @@ function ImportData() {
     return formattedData;
   };
 
-  // Função para processar vendas de meta
-  // MODIFICAÇÃO: Corrigido para permitir importação de vendas com valores R$ 0,00 
-  // nos campos "Valor" e "Subtotal Adesão", seguindo a lógica do agrupamento do produto
+  // Função para processar vendas de meta (TV e compatível com planilha de vendas)
+  // Validação por linha: apenas Número da proposta e ID/Código do vendedor obrigatórios.
   const processVendasMeta = (data: Record<string, unknown>[]): VendaMeta[] => {
     if (data.length === 0) {
       throw new Error("Nenhum dado de vendas de meta encontrado para processamento");
     }
     
-    console.log("╔════════════════════════════════════════════════════════════════════════════════╗");
-    console.log("║                        INICIANDO IMPORTAÇÃO DE VENDAS META                     ║");
-    console.log("╚════════════════════════════════════════════════════════════════════════════════╝");
-    console.log(`Total de linhas para processar: ${data.length}`);
-    
     const firstRow = data[0];
     const excelHeaders = Object.keys(firstRow);
-    
-    // Campos esperados na planilha VENDAS META (mesmos nomes da VENDAS PERMANENCIA)
-    const REQUIRED_FIELDS = [
-      "Número da proposta",
-      "ID/Código do vendedor", 
-      "Agrupamento do Produto",
-      "Produto principal",
-      "Valor",
-      "Data da Habilitação"
-    ];
-    
-    console.log("Headers encontrados na planilha VENDAS META:", excelHeaders);
-    
-    // Verificar se todos os campos obrigatórios estão presentes
-    const missingFields = REQUIRED_FIELDS.filter(field => !excelHeaders.includes(field));
-    if (missingFields.length > 0) {
-      throw new Error(`Campos obrigatórios ausentes na planilha VENDAS META: ${missingFields.join(", ")}`);
+    const hasProposta = excelHeaders.some((h) => h === 'Número da proposta' || h === 'Numero da proposta');
+    const hasVendedor = excelHeaders.includes('ID/Código do vendedor');
+    if (!hasProposta || !hasVendedor) {
+      throw new Error('A planilha de vendas deve ter as colunas "Número da proposta" e "ID/Código do vendedor".');
     }
     
     const processedVendasMeta: VendaMeta[] = [];
     
     data.forEach((row, index) => {
       try {
-        const numeroPropostaRaw = row["Número da proposta"];
+        const numeroPropostaRaw = row["Número da proposta"] ?? row["Numero da proposta"];
         const valorRaw = row["Valor"];
         const dataHabilitacaoRaw = row["Data da Habilitação"];
         const idVendedorRaw = row["ID/Código do vendedor"];
         const nomeProprietarioRaw = row["Nome completo do proprietário"] || row["Nome do Proprietário"] || row["Nome do proprietário"] || row["NOME DO PROPRIETÁRIO"];
         const agrupamentoProdutoRaw = row["Agrupamento do Produto"];
         const produtoPrincipalRaw = row["Produto principal"];
-        const produtosSecundariosRaw = row["ProdutosSecundarios"];
+        const produtosSecundariosRaw = row["Produtos secundários"] || row["Produtos Secundários"] || row["ProdutosSecundarios"] || row["produtos_secundarios"];
         const cidadeRaw = row["Cidade"];
-        const formaPagamentoRaw = row["FormaPagamento"];
+        const formaPagamentoRaw = row["Forma de Pagamento"] ?? row["FormaPagamento"];
         const cpfRaw = row["CPF"] || row["CNPJ"] || row["CPF/CNPJ"];
         const nomeFantasiaRaw = row["Nome Fantasia"] || row["Nome fantasia"] || row["NOME FANTASIA"];
         const telefoneRaw = row["Telefone"] || row["Telefone Celular"] || row["TELEFONE"];
         const bairroRaw = row["Bairro"] || row["BAIRRO"];
-        // MODIFICAÇÃO: Adicionar suporte ao campo "Subtotal Adesão" mencionado no problema
         const subtotalAdesaoRaw = row["Subtotal Adesão"] || row["Subtotal Adesao"];
+        const statusPropostaRaw = row["Status da Proposta"];
         
-        // Verificar se é produto Nova Parabólica (NP) para flexibilizar validação
+        // Obrigatórios apenas: número da proposta e vendedor
+        if (numeroPropostaRaw === undefined || numeroPropostaRaw === null || numeroPropostaRaw === '' ||
+            idVendedorRaw === undefined || idVendedorRaw === null || idVendedorRaw === '') {
+          console.warn(`Linha ${index + 2}: Número da proposta e ID/Código do vendedor são obrigatórios, pulando linha`);
+          return;
+        }
+        
         const agrupamentoValue = String(agrupamentoProdutoRaw || '').toUpperCase().trim();
         const isNP = agrupamentoValue === 'NP' || agrupamentoValue.includes('NP') || agrupamentoValue.includes('NOVA PARABÓLICA');
         
-        // Para produtos NP, só exigir campos essenciais: ID/Código do vendedor
-        if (isNP) {
-          if (!idVendedorRaw || !agrupamentoProdutoRaw) {
-            console.warn(`Linha ${index + 2}: Para produtos Nova Parabólica (NP), são obrigatórios apenas: ID/Código do vendedor e Agrupamento do Produto, pulando linha`);
-            return;
-          }
-        } else {
-          // Para outros produtos, manter validação original
-          // MODIFICAÇÃO: Permitir valores R$ 0,00 nos campos "Valor" e "Subtotal Adesão"
-          // Validar se os campos existem mas não se são zero
-          if (!numeroPropostaRaw || (valorRaw === undefined && subtotalAdesaoRaw === undefined) || 
-              !dataHabilitacaoRaw || !idVendedorRaw) {
-            console.warn(`Linha ${index + 2}: Campos obrigatórios ausentes, pulando linha`);
-            return;
-          }
-        }
-        
-        // Para produtos NP, gerar valores padrão para campos não obrigatórios
-        const generateNPDefaultsMeta = () => {
-          const currentDate = new Date();
-          const vendedorId = String(idVendedorRaw);
-          const timestamp = Date.now();
-          
-          return {
-            numero_proposta: numeroPropostaRaw ? String(numeroPropostaRaw) : `NP-META-${vendedorId}-${timestamp}`,
-            // MODIFICAÇÃO: Considerar também o campo "Subtotal Adesão" se o valor principal for zero
-            valor: valorRaw ? (typeof valorRaw === 'number' ? valorRaw : parseFloat(String(valorRaw).replace(/[R$\s.,]/g, '').replace(',', '.')) || 0) : 
-                   (subtotalAdesaoRaw ? (typeof subtotalAdesaoRaw === 'number' ? subtotalAdesaoRaw : parseFloat(String(subtotalAdesaoRaw).replace(/[R$\s.,]/g, '').replace(',', '.')) || 0) : 0),
-            data_habilitacao: dataHabilitacaoRaw ? (dataHabilitacaoRaw instanceof Date ? dataHabilitacaoRaw.toISOString().split('T')[0] : String(dataHabilitacaoRaw)) : currentDate.toISOString().split('T')[0],
-            produto_principal: produtoPrincipalRaw ? String(produtoPrincipalRaw) : "Nova Parabólica",
-            mes: currentDate.getMonth() + 1,
-            ano: currentDate.getFullYear()
-          };
+        // Extrai apenas o valor monetário, descartando texto extra (ex.: "R$ 159,90Tendência de aumento de valor" → 159.90)
+        const parseValor = (v: unknown): number => {
+          if (v === undefined || v === null || v === '') return 0;
+          if (typeof v === 'number') return isNaN(v) ? 0 : v;
+          const s = String(v).trim();
+          const match = s.match(/(\d+)[,.](\d{0,2})/);
+          if (!match) return 0;
+          const inteiro = match[1];
+          const decimal = match[2].padEnd(2, '0').slice(0, 2);
+          return parseFloat(`${inteiro}.${decimal}`);
         };
+
+        let valor = parseValor(valorRaw);
+        if (valor === 0 && subtotalAdesaoRaw != null) valor = parseValor(subtotalAdesaoRaw);
         
-        // Processar valores normais ou usar padrões para NP
-        let valor = 0;
         let dataHabilitacao = '';
-        let mes = 0;
-        let ano = 0;
-        
-        if (isNP) {
-          const npDefaults = generateNPDefaultsMeta();
-          valor = npDefaults.valor;
-          dataHabilitacao = npDefaults.data_habilitacao;
-          mes = npDefaults.mes;
-          ano = npDefaults.ano;
-        } else {
-          // Processar valor normalmente
-          // MODIFICAÇÃO: Considerar também o campo "Subtotal Adesão" se o valor principal for zero
-          if (typeof valorRaw === 'number') {
-            valor = valorRaw;
-          } else if (typeof valorRaw === 'string') {
-            valor = parseFloat(valorRaw.replace(/[R$\s.,]/g, '').replace(',', '.')) || 0;
-          }
-          
-          // Se o valor principal for zero, tentar usar o subtotal adesão
-          if (valor === 0 && subtotalAdesaoRaw) {
-            if (typeof subtotalAdesaoRaw === 'number') {
-              valor = subtotalAdesaoRaw;
-            } else if (typeof subtotalAdesaoRaw === 'string') {
-              valor = parseFloat(subtotalAdesaoRaw.replace(/[R$\s.,]/g, '').replace(',', '.')) || 0;
-            }
-          }
-          
-          // Processar data normalmente
-          if (dataHabilitacaoRaw instanceof Date) {
-            dataHabilitacao = dataHabilitacaoRaw.toISOString().split('T')[0];
-          } else if (typeof dataHabilitacaoRaw === 'string') {
-            dataHabilitacao = dataHabilitacaoRaw;
-          }
-          
-          // Extrair mês e ano da data de habilitação - MÉTODO CORRIGIDO
-          // Não usar new Date(string) para evitar problemas de timezone
-          const [anoStr, mesStr, diaStr] = dataHabilitacao.split('-');
-          ano = parseInt(anoStr);
-          mes = parseInt(mesStr); // Já vem correto (1-12)
+        if (dataHabilitacaoRaw instanceof Date) {
+          dataHabilitacao = dataHabilitacaoRaw.toISOString().split('T')[0];
+        } else if (dataHabilitacaoRaw && String(dataHabilitacaoRaw).trim()) {
+          dataHabilitacao = String(dataHabilitacaoRaw).trim();
         }
         
-        // Debug do campo ProdutosSecundarios
-                  // console.log(`[DEBUG PRODUTOS_SEC] Linha ${index + 2}: ProdutosSecundarios = "${produtosSecundariosRaw}"`);
+        const now = new Date();
+        if (!dataHabilitacao) {
+          dataHabilitacao = now.toISOString().split('T')[0];
+        }
         
-        const npDefaults = isNP ? generateNPDefaultsMeta() : null;
+        let mes = now.getMonth() + 1;
+        let ano = now.getFullYear();
+        const parts = dataHabilitacao.split('-');
+        if (parts.length >= 2) {
+          ano = parseInt(parts[0], 10) || ano;
+          mes = parseInt(parts[1], 10) || mes;
+        }
         
-        const vendaMeta = {
-          numero_proposta: isNP ? npDefaults!.numero_proposta : String(numeroPropostaRaw),
-          valor: valor,
+        const statusProposta = statusPropostaRaw != null && String(statusPropostaRaw).trim() !== ''
+          ? String(statusPropostaRaw).trim()
+          : undefined;
+        
+        const vendaMeta: VendaMeta = {
+          numero_proposta: String(numeroPropostaRaw),
+          valor,
           data_venda: dataHabilitacao,
-          vendedor: String(idVendedorRaw), // ID do vendedor
-          nome_proprietario: nomeProprietarioRaw ? String(nomeProprietarioRaw) : String(idVendedorRaw), // Nome do vendedor (igual Permanência)
+          vendedor: String(idVendedorRaw),
+          nome_proprietario: nomeProprietarioRaw ? String(nomeProprietarioRaw) : String(idVendedorRaw),
           categoria: String(agrupamentoProdutoRaw || ''),
-          produto: isNP ? npDefaults!.produto_principal : String(produtoPrincipalRaw || ''),
-          produtos_secundarios: String(produtosSecundariosRaw || ''),
-          cidade: String(cidadeRaw || ''),
-          forma_pagamento: String(formaPagamentoRaw || ''),
-          cpf: cpfRaw ? String(cpfRaw) : undefined,
-          nome_fantasia: nomeFantasiaRaw ? String(nomeFantasiaRaw) : undefined,
-          telefone_celular: telefoneRaw ? String(telefoneRaw) : undefined,
-          bairro: bairroRaw ? String(bairroRaw) : undefined,
-          mes: mes,
-          ano: ano
-                };
-        
-        // Log de cada venda meta processada
-        console.log(`[META] Linha ${index + 2}: Proposta ${vendaMeta.numero_proposta} | Produto: ${vendaMeta.produto} | Valor: R$ ${vendaMeta.valor.toFixed(2)} | Data: ${dataHabilitacao} | Mês/Ano: ${mes}/${ano}`);
+          produto: produtoPrincipalRaw ? String(produtoPrincipalRaw) : (isNP ? 'Nova Parabólica' : ''),
+          produtos_secundarios: produtosSecundariosRaw != null ? String(produtosSecundariosRaw) : undefined,
+          cidade: cidadeRaw != null ? String(cidadeRaw) : undefined,
+          forma_pagamento: formaPagamentoRaw != null ? String(formaPagamentoRaw) : undefined,
+          cpf: cpfRaw != null && String(cpfRaw) !== '' ? String(cpfRaw) : undefined,
+          nome_fantasia: nomeFantasiaRaw != null && String(nomeFantasiaRaw) !== '' ? String(nomeFantasiaRaw) : undefined,
+          telefone_celular: telefoneRaw != null && String(telefoneRaw) !== '' ? String(telefoneRaw) : undefined,
+          bairro: bairroRaw != null && String(bairroRaw) !== '' ? String(bairroRaw) : undefined,
+          mes,
+          ano,
+          status_proposta: statusProposta
+        };
         
         processedVendasMeta.push(vendaMeta);
         
@@ -10732,6 +11334,26 @@ function ImportData() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Card de Migração para Supabase */}
+      <Card className="relative overflow-hidden rounded-3xl border border-white/60 bg-gradient-to-br from-purple-50/30 via-white to-violet-50/50 shadow-[0_32px_70px_-40px_rgba(139,92,246,0.55)] backdrop-blur-sm">
+        <CardHeader className="bg-gradient-to-r from-purple-50 to-violet-50 border-b-2 border-purple-200 pb-4 backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-gradient-to-br from-purple-100 via-white to-purple-50 p-3 shadow-inner">
+              <CloudDownload className="h-6 w-6 text-purple-500" />
+            </div>
+            <div>
+              <CardTitle className="text-3xl font-semibold text-slate-800">Migrar para Supabase</CardTitle>
+              <CardDescription className="mt-2 text-sm text-slate-500">
+                Migre seus dados do localStorage para o Supabase Cloud para maior segurança e performance
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <DataMigrationPanel />
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -10762,6 +11384,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   const [filtroDiasCorridos, setFiltroDiasCorridos] = useState<string[]>([]);
   const [filtroCidade, setFiltroCidade] = useState<string[]>([]);
   const [filtroBairro, setFiltroBairro] = useState<string[]>([]);
+  const [filtroSeguroPermanencia, setFiltroSeguroPermanencia] = useState<'todos' | 'com_seguro' | 'sem_seguro'>('todos');
   
   // Novos filtros de Mês e Ano (baseados na lógica: vendas de fevereiro = permanência em junho +4 meses)
   const [filtroMesPermanencia, setFiltroMesPermanencia] = useState<string[]>([]);
@@ -10772,20 +11395,27 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   
   // Função para calcular o mês de permanência (data de habilitação + 4 meses)
   const calcularMesPermanencia = useCallback((dataHabilitacao: string): string => {
-    const data = new Date(dataHabilitacao);
-    data.setMonth(data.getMonth() + 4); // Adiciona 4 meses
+    const { month } = addMonthsForPermanencia(dataHabilitacao, 4);
     const meses = [
       'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
     ];
-    return meses[data.getMonth()];
+    return meses[month];
   }, []);
 
   // Função para calcular o ano de permanência (mesmo ano da data de habilitação + 4 meses)
   const calcularAnoPermanencia = useCallback((dataHabilitacao: string): number => {
-    const data = new Date(dataHabilitacao);
-    data.setMonth(data.getMonth() + 4); // Adiciona 4 meses
-    return data.getFullYear();
+    const { year } = addMonthsForPermanencia(dataHabilitacao, 4);
+    return year;
+  }, []);
+
+  // Função para verificar se a venda tem seguro (Fatura Protegida)
+  const temSeguro = useCallback((venda: any): boolean => {
+    const produtosSecundarios = (venda.produtos_secundarios || '').toUpperCase();
+    return produtosSecundarios.includes('FATURA PROTEGIDA') || 
+           produtosSecundarios.includes('SEGURO') ||
+           produtosSecundarios.includes('PROTEGIDA') ||
+           produtosSecundarios.includes('PROTEÇÃO');
   }, []);
 
   // Função para calcular os meses de referência das vendas baseado nos filtros de permanência
@@ -11488,6 +12118,13 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
         }
       }
       
+      // Verificar filtro de seguro (Fatura Protegida)
+      if (filtroSeguroPermanencia === 'com_seguro') {
+        if (!temSeguro(venda)) return false;
+      } else if (filtroSeguroPermanencia === 'sem_seguro') {
+        if (temSeguro(venda)) return false;
+      }
+      
       return true;
     });
 
@@ -11521,12 +12158,14 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     filtroMesPermanencia,
     filtroAnoPermanencia,
     filtroOportunidade,
+    filtroSeguroPermanencia,
     getSigla, 
     calcularDiasCorridos, 
     verificarDiasDentroFaixa,
     calcularMesPermanencia,
     calcularAnoPermanencia,
-    termoBusca
+    termoBusca,
+    temSeguro
   ]);
   
   // Ordenar as propostas filtradas por data de importação (mais recentes primeiro)
@@ -12023,8 +12662,6 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                     <div className="flex-1">
                       <p className="text-sm text-blue-900 font-semibold mb-1">Como funciona?</p>
                       <p className="text-xs text-blue-800 leading-relaxed">
-                  <strong>Lógica dos filtros:</strong> Vendas de <em>Fevereiro</em> refletem permanência em <em>Junho</em> (data de habilitação + 4 meses)
-                  <br />
                   <strong>Múltiplas seleções:</strong> Você pode selecionar vários meses e anos para comparar diferentes períodos
                 </p>
                     </div>
@@ -12182,6 +12819,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                       setFiltroDiasCorridos([]);
                       setFiltroCidade([]);
                       setFiltroBairro([]);
+                      setFiltroSeguroPermanencia('todos');
                       setPaginaAtual(1);
                     }}
                     className="text-red-600 hover:bg-red-50"
@@ -12327,6 +12965,31 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   className="w-full text-xs"
                 />
               </div>
+
+              {/* Filtro de Seguro (Fatura Protegida) */}
+              <div>
+                <Label htmlFor="filtro-seguro" className="text-xs">Seguro / Fatura Protegida</Label>
+                <Select value={filtroSeguroPermanencia} onValueChange={(value: 'todos' | 'com_seguro' | 'sem_seguro') => setFiltroSeguroPermanencia(value)}>
+                  <SelectTrigger className="w-full text-xs h-10">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    <SelectItem value="com_seguro">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 text-green-600" />
+                        <span>Com Seguro</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="sem_seguro">
+                      <div className="flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-gray-400" />
+                        <span>Sem Seguro</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               
               {/* Botões de aplicar/limpar filtros */}
               <div className="flex justify-end items-end gap-2">
@@ -12343,6 +13006,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                     setFiltroDiasCorridos([]);
                     setFiltroCidade([]);
                     setFiltroBairro([]);
+                    setFiltroSeguroPermanencia('todos');
                     setPaginaAtual(1);
                   }}
                 >
@@ -12416,6 +13080,7 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                   <TableHead className="text-xs p-3 font-semibold text-gray-700">Passo</TableHead>
                   <TableHead className="text-xs p-3 font-semibold text-gray-700">Vencimento da Fatura</TableHead>
                   <TableHead className="text-xs p-3 font-semibold text-gray-700">Data da Importação</TableHead>
+                  <TableHead className="text-xs p-3 font-semibold text-gray-700">Seguro</TableHead>
                   <TableHead className="text-xs p-3 font-semibold text-gray-700">Ação</TableHead>
                 </TableRow>
               </TableHeader>
@@ -12514,6 +13179,17 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
                         </TableCell>
                         <TableCell className="text-xs p-3 text-gray-600">
                           {pagamento && pagamento.data_importacao ? formatarDataParaExibicao(pagamento.data_importacao) : '-'}
+                        </TableCell>
+                        <TableCell className="text-xs p-3 text-center">
+                          {temSeguro(proposta) ? (
+                            <div className="inline-flex items-center justify-center" title="Fatura Protegida / Seguro">
+                              <ShieldCheck className="h-5 w-5 text-green-600 fill-green-100" />
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center justify-center" title="Sem Seguro">
+                              <Shield className="h-5 w-5 text-gray-300" />
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-xs p-3">
                           <div className="flex items-center gap-1">
@@ -12741,20 +13417,18 @@ function VendedorPermanenciaContent() {
 
   // Função para calcular o mês de permanência (data de habilitação + 4 meses)
   const calcularMesPermanencia = useCallback((dataHabilitacao: string): string => {
-    const data = new Date(dataHabilitacao);
-    data.setMonth(data.getMonth() + 4); // Adiciona 4 meses
+    const { month } = addMonthsForPermanencia(dataHabilitacao, 4);
     const meses = [
       'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
     ];
-    return meses[data.getMonth()];
+    return meses[month];
   }, []);
 
   // Função para calcular o ano de permanência (mesmo ano da data de habilitação + 4 meses)
   const calcularAnoPermanencia = useCallback((dataHabilitacao: string): number => {
-    const data = new Date(dataHabilitacao);
-    data.setMonth(data.getMonth() + 4); // Adiciona 4 meses
-    return data.getFullYear();
+    const { year } = addMonthsForPermanencia(dataHabilitacao, 4);
+    return year;
   }, []);
   
   // Função para identificar a sigla de um produto
@@ -13116,8 +13790,6 @@ function VendedorPermanenciaContent() {
                     <div className="flex-1">
                       <p className="text-sm text-blue-900 font-semibold mb-1">Como funciona?</p>
                       <p className="text-xs text-blue-800 leading-relaxed">
-                  <strong>Lógica dos filtros:</strong> Vendas de <em>Fevereiro</em> refletem permanência em <em>Junho</em> (data de habilitação + 4 meses)
-                  <br />
                   <strong>Múltiplas seleções:</strong> Você pode selecionar vários meses e anos para comparar diferentes períodos
                 </p>
                     </div>

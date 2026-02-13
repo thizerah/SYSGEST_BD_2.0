@@ -3,6 +3,7 @@
 // Mapa de normalização de nomes de cidades
 export const CITY_NAME_MAP: Record<string, string> = {
   "nova iguacu": "Nova Iguaçu",
+  "nova iguacul": "Nova Iguaçu",
   "nova iguaçu": "Nova Iguaçu",
   "sao joao de meriti": "São João de Meriti",
   "são joao de meriti": "São João de Meriti",
@@ -56,14 +57,83 @@ export const VALID_STATUS = [
   "Finalizado", 
   "Executada", 
   "Executado",
-  "Cancelada"
+  "Cancelada",
+  "Aguard. Atendimento",
+  "Aguardando Atendimento"
 ];
+
+// Status que indica Backlog (OS pendente, sem finalização)
+export const BACKLOG_STATUS = ["Aguard. Atendimento", "Aguardando Atendimento"];
+
+// Exibir "Backlog" em vez de "Aguard. Atendimento" na interface
+export const getDisplayStatus = (status: string): string => {
+  if (!status) return "";
+  const isBacklog = BACKLOG_STATUS.some(s => status.toUpperCase().includes(s.toUpperCase()));
+  return isBacklog ? "Backlog" : status;
+};
+
+export const isBacklogStatus = (status: string): boolean =>
+  BACKLOG_STATUS.some(s => (status || "").toUpperCase().includes(s.toUpperCase()));
+
+// Mapear subtipo para exibição no popup de importação
+export const getDisplayTypeForImport = (subtipo: string): string => {
+  const s = (subtipo || "").toLowerCase();
+  if (s.includes("ponto principal")) return "Ponto Principal";
+  if (s.includes("corretiva")) return "Assistência Técnica";
+  if (s.includes("preventiva")) return "Preventiva";
+  if (s.includes("prestação") || s.includes("prestacao")) return "Prestação de Serviço";
+  if (s.includes("substituição") || s.includes("substituicao")) return "Substituição";
+  return subtipo || "Outros";
+};
+
+/**
+ * Adiciona meses a uma data de forma segura, evitando overflow quando o mês destino
+ * tem menos dias (ex: 31/10 + 4 meses = 28/02, não 03/03).
+ * Usa partes da string de data para evitar problemas de timezone.
+ */
+export function addMonthsForPermanencia(
+  dateStr: string,
+  months: number
+): { month: number; year: number } {
+  const parts = dateStr.split('T')[0].split('-');
+  let ano: number;
+  let mes: number;
+  let dia: number;
+
+  if (parts.length >= 3) {
+    ano = parseInt(parts[0], 10);
+    mes = parseInt(parts[1], 10) - 1;
+    dia = parseInt(parts[2], 10);
+  } else {
+    const d = new Date(dateStr);
+    ano = d.getFullYear();
+    mes = d.getMonth();
+    dia = d.getDate();
+  }
+
+  const result = new Date(ano, mes + months, dia);
+  if (result.getDate() !== dia) {
+    result.setDate(0); // último dia do mês destino
+  }
+  return { month: result.getMonth(), year: result.getFullYear() };
+}
 
 // Motivos excluídos
 export const EXCLUDED_REASONS = [
   "Ant Governo", 
   "Nova Parabólica"
 ];
+
+// Formata string com primeira letra de cada palavra maiúscula e demais minúsculas
+function toTitleCase(s: string): string {
+  return s
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ''))
+    .filter(Boolean)
+    .join(' ');
+}
 
 // Função para normalizar nomes de cidades
 export const normalizeCityName = (cityName: string = ""): string => {
@@ -90,8 +160,8 @@ export const normalizeCityName = (cityName: string = ""): string => {
     }
   }
   
-  // Se não encontrado no mapa, retorna o nome original com primeira letra maiúscula
-  return cityName.trim().charAt(0).toUpperCase() + cityName.trim().slice(1);
+  // Se não encontrado no mapa: primeira letra de cada palavra maiúscula, demais minúsculas
+  return toTitleCase(cityName);
 };
 
 // Função para normalizar nomes de bairros
@@ -119,8 +189,8 @@ export const normalizeNeighborhoodName = (neighborhoodName: string = ""): string
     }
   }
   
-  // Se não encontrado no mapa, retorna o nome original com primeira letra maiúscula
-  return neighborhoodName.trim().charAt(0).toUpperCase() + neighborhoodName.trim().slice(1);
+  // Se não encontrado no mapa: primeira letra de cada palavra maiúscula, demais minúsculas
+  return toTitleCase(neighborhoodName);
 };
 
 // Sistema de logs condicionais

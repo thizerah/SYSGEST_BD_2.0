@@ -33,7 +33,8 @@ export interface SupabaseDataState {
 }
 
 export function useSupabaseData() {
-  const { user } = useAuth();
+  const { user, authExtras } = useAuth();
+  const donoUserId = authExtras?.donoUserId ?? user?.id ?? null;
   const [state, setState] = useState<SupabaseDataState>({
     serviceOrders: [],
     vendas: [],
@@ -123,6 +124,11 @@ export function useSupabaseData() {
         delete sanitized.materiais;
       }
       
+      // vendas_meta: não enviar data_importacao (coluna não existe no Supabase)
+      if (tableName === 'vendas_meta') {
+        delete sanitized.data_importacao;
+      }
+      
       // REMOVER CAMPOS AUTO-INCREMENTO DO SUPABASE (CORREÇÃO PARA ERRO DE MIGRAÇÃO)
       if (tableName === 'pagamentos' || tableName === 'primeiros_pagamentos') {
         delete sanitized.id;           // Campo auto-incremento
@@ -162,14 +168,15 @@ export function useSupabaseData() {
 
   // Função para carregar dados do Supabase
   const loadFromSupabase = useCallback(async () => {
-    if (!user) return;
-
-    setState(prev => ({ ...prev, loading: true }));
+    if (!donoUserId && !user?.id) return;
+    setState((prev) => ({ ...prev, loading: true }));
 
     try {
       console.log('[SUPABASE] Carregando dados do usuário...');
 
       // Carregar todos os tipos de dados em paralelo
+      const uid = donoUserId ?? user?.id;
+      if (!uid) throw new Error('Usuário não autenticado');
       const [
         serviceOrdersResponse,
         vendasResponse,
@@ -178,12 +185,12 @@ export function useSupabaseData() {
         vendasMetaResponse,
         baseDataResponse
       ] = await Promise.all([
-        supabase.from('service_orders').select('*').eq('user_id', user.id),
-        supabase.from('vendas').select('*').eq('user_id', user.id),
-        supabase.from('pagamentos').select('*').eq('user_id', user.id),
-        supabase.from('metas').select('*').eq('user_id', user.id),
-        supabase.from('vendas_meta').select('*').eq('user_id', user.id),
-        supabase.from('base_data').select('*').eq('user_id', user.id)
+        supabase.from('service_orders').select('*').eq('user_id', uid),
+        supabase.from('vendas').select('*').eq('user_id', uid),
+        supabase.from('pagamentos').select('*').eq('user_id', uid),
+        supabase.from('metas').select('*').eq('user_id', uid),
+        supabase.from('vendas_meta').select('*').eq('user_id', uid),
+        supabase.from('base_data').select('*').eq('user_id', uid)
       ]);
 
       // Verificar erros
@@ -218,27 +225,25 @@ export function useSupabaseData() {
 
     } catch (error) {
       console.error('[SUPABASE] Erro ao carregar dados:', error);
-      setState(prev => ({ ...prev, loading: false }));
+      setState((prev) => ({ ...prev, loading: false }));
       throw error;
     }
-  }, [user]);
+  }, [donoUserId, user?.id]);
 
   // Carregar dados quando o usuário mudar
   useEffect(() => {
-    if (user) {
-      loadFromSupabase();
-    }
-  }, [user, loadFromSupabase]);
+    if (donoUserId ?? user?.id) loadFromSupabase();
+  }, [donoUserId, user?.id, loadFromSupabase]);
 
   // Função para verificar duplicatas antes da inserção
-  const handleDuplicateCheck = useCallback(async (tableName: string, newData: Record<string, unknown>[]) => {
-    if (!user) throw new Error('Usuário não autenticado');
-
-    // Buscar dados existentes
-    const { data: existingData, error } = await supabase
-      .from(tableName)
-      .select('*')
-      .eq('user_id', user.id);
+  const handleDuplicateCheck = useCallback(
+    async (tableName: string, newData: Record<string, unknown>[]) => {
+      const uid = donoUserId ?? user?.id;
+      if (!uid) throw new Error('Usuário não autenticado');
+      const { data: existingData, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .eq('user_id', uid);
 
     if (error) throw error;
 
@@ -248,9 +253,125 @@ export function useSupabaseData() {
     // Lógica específica de duplicatas por tipo de tabela
     switch (tableName) {
       case 'service_orders': {
-        const existingCodes = new Set(existingData?.map((item: Record<string, unknown>) => item.codigo_os) || []);
-        dataToInsert = newData.filter((item: Record<string, unknown>) => !existingCodes.has(item.codigo_os));
-        duplicatesIgnored = newData.length - dataToInsert.length;
+        // Criar chave composta (codigo_os + codigo_item) para identificar registros únicos
+        const existingKeys = new Set(
+          existingData?.map((item: Record<string, unknown>) => 
+            `${item.codigo_os}-${item.codigo_item ?? ''}`
+          ) || []
+        );
+        
+        const registrosParaInserir: Record<string, unknown>[] = [];
+        const registrosParaAtualizar: Record<string, unknown>[] = [];
+        
+        // Separar registros novos vs existentes
+        newData.forEach((item: Record<string, unknown>) => {
+          const key = `${item.codigo_os}-${item.codigo_item ?? ''}`;
+          if (existingKeys.has(key)) {
+            registrosParaAtualizar.push(item);
+          } else {
+            registrosParaInserir.push(item);
+          }
+        });
+        
+        // Atualizar registros existentes
+        if (registrosParaAtualizar.length > 0) {
+          console.log(`[MIGRAÇÃO] service_orders: Atualizando ${registrosParaAtualizar.length} registros existentes`);
+          const sanitizedToUpdate = sanitizeDataForSupabase(registrosParaAtualizar, 'service_orders');
+          
+          for (const registro of sanitizedToUpdate) {
+            const codigoOs = registro.codigo_os as string;
+            const codigoItem = (registro.codigo_item ?? '') as string;
+            
+            // Extrair todos os campos (exceto user_id e campos auto-gerados)
+            const {
+              id_tecnico,
+              nome_tecnico,
+              sigla_tecnico,
+              tipo_servico,
+              subtipo_servico,
+              motivo,
+              codigo_cliente,
+              nome_cliente,
+              status,
+              data_criacao,
+              data_finalizacao,
+              cidade,
+              bairro,
+              info_ponto_de_referencia,
+              info_cto,
+              info_porta,
+              info_endereco_completo,
+              info_empresa_parceira,
+              acao_tomada,
+              telefone_celular,
+              tempo_atendimento,
+              atingiu_meta,
+              include_in_metrics,
+              // Campos de materiais (colunas individuais)
+              antena_150_cm_kit_fixacao,
+              antena_75_cm,
+              antena_90cm_kit_fixacao,
+              antena_60_cm_kit_fixacao,
+              cabo_coaxial_rgc06_bobina_100metros,
+              conector_f_serie_59_compressao,
+              lnb_duplo_antena_150cm,
+              lnb_simples_antena_150cm,
+              lnbf_duplo_antena_45_60_90_cm,
+              lnbf_simples_antena_45_60_90_cm
+            } = registro;
+            
+            const { error: updateError } = await supabase
+              .from('service_orders')
+              .update({
+                id_tecnico,
+                nome_tecnico,
+                sigla_tecnico,
+                tipo_servico,
+                subtipo_servico,
+                motivo,
+                codigo_cliente,
+                nome_cliente,
+                status,
+                data_criacao,
+                data_finalizacao,
+                cidade,
+                bairro,
+                info_ponto_de_referencia: info_ponto_de_referencia ?? null,
+                info_cto: info_cto ?? null,
+                info_porta: info_porta ?? null,
+                info_endereco_completo: info_endereco_completo ?? null,
+                info_empresa_parceira: info_empresa_parceira ?? null,
+                acao_tomada: acao_tomada ?? null,
+                telefone_celular: telefone_celular ?? null,
+                tempo_atendimento: tempo_atendimento ?? null,
+                atingiu_meta: atingiu_meta ?? null,
+                include_in_metrics: include_in_metrics ?? null,
+                // Materiais
+                antena_150_cm_kit_fixacao: antena_150_cm_kit_fixacao ?? 0,
+                antena_75_cm: antena_75_cm ?? 0,
+                antena_90cm_kit_fixacao: antena_90cm_kit_fixacao ?? 0,
+                antena_60_cm_kit_fixacao: antena_60_cm_kit_fixacao ?? 0,
+                cabo_coaxial_rgc06_bobina_100metros: cabo_coaxial_rgc06_bobina_100metros ?? 0,
+                conector_f_serie_59_compressao: conector_f_serie_59_compressao ?? 0,
+                lnb_duplo_antena_150cm: lnb_duplo_antena_150cm ?? 0,
+                lnb_simples_antena_150cm: lnb_simples_antena_150cm ?? 0,
+                lnbf_duplo_antena_45_60_90_cm: lnbf_duplo_antena_45_60_90_cm ?? 0,
+                lnbf_simples_antena_45_60_90_cm: lnbf_simples_antena_45_60_90_cm ?? 0,
+                imported_at: new Date().toISOString()
+              })
+              .eq('user_id', uid)
+              .eq('codigo_os', codigoOs)
+              .eq('codigo_item', codigoItem || null);
+            
+            if (updateError) {
+              console.error('[MIGRAÇÃO] service_orders: Erro ao atualizar OS', codigoOs, codigoItem, updateError);
+              throw updateError;
+            }
+          }
+        }
+        
+        dataToInsert = registrosParaInserir;
+        duplicatesIgnored = 0; // Não ignoramos duplicatas, atualizamos
         break;
       }
 
@@ -312,7 +433,7 @@ export function useSupabaseData() {
           const { error: deleteError } = await supabase
             .from(tableName)
             .delete()
-            .eq('user_id', user.id)
+            .eq('user_id', uid)
             .in('proposta', propostasParaAtualizar);
           
           if (deleteError) {
@@ -339,8 +460,52 @@ export function useSupabaseData() {
 
       case 'vendas_meta': {
         const existingPropostas = new Set(existingData?.map((item: Record<string, unknown>) => item.numero_proposta) || []);
-        dataToInsert = newData.filter((item: Record<string, unknown>) => !existingPropostas.has(item.numero_proposta));
-        duplicatesIgnored = newData.length - dataToInsert.length;
+        const registrosParaInserir: Record<string, unknown>[] = [];
+        const registrosParaAtualizar: Record<string, unknown>[] = [];
+        newData.forEach((item: Record<string, unknown>) => {
+          if (existingPropostas.has(item.numero_proposta)) {
+            registrosParaAtualizar.push(item);
+          } else {
+            registrosParaInserir.push(item);
+          }
+        });
+        if (registrosParaAtualizar.length > 0) {
+          console.log(`[MIGRAÇÃO] vendas_meta: Atualizando ${registrosParaAtualizar.length} registros existentes`);
+          const sanitizedToUpdate = sanitizeDataForSupabase(registrosParaAtualizar, 'vendas_meta');
+          for (const registro of sanitizedToUpdate) {
+            const numeroProposta = registro.numero_proposta as string;
+            const { valor, data_venda, vendedor, nome_proprietario, categoria, produto, produtos_secundarios, cidade, forma_pagamento, cpf, nome_fantasia, telefone_celular, bairro, mes, ano, status_proposta } = registro;
+            const { error: updateError } = await supabase
+              .from('vendas_meta')
+              .update({
+                valor,
+                data_venda,
+                vendedor,
+                nome_proprietario,
+                categoria,
+                produto,
+                produtos_secundarios: produtos_secundarios ?? null,
+                cidade: cidade ?? null,
+                forma_pagamento: forma_pagamento ?? null,
+                cpf: cpf ?? null,
+                nome_fantasia: nome_fantasia ?? null,
+                telefone_celular: telefone_celular ?? null,
+                bairro: bairro ?? null,
+                mes,
+                ano,
+                status_proposta: status_proposta ?? null,
+                imported_at: new Date().toISOString()
+              })
+              .eq('user_id', uid)
+              .eq('numero_proposta', numeroProposta);
+            if (updateError) {
+              console.error('[MIGRAÇÃO] vendas_meta: Erro ao atualizar proposta', numeroProposta, updateError);
+              throw updateError;
+            }
+          }
+        }
+        dataToInsert = registrosParaInserir;
+        duplicatesIgnored = 0; // Não ignoramos duplicatas, atualizamos
         break;
       }
 
@@ -383,7 +548,7 @@ export function useSupabaseData() {
                 alianca: registro.alianca,
                 imported_at: new Date().toISOString()
               })
-              .eq('user_id', user.id)
+              .eq('user_id', uid)
               .eq('mes', registro.mes)
               .eq('ano', registro.ano);
               
@@ -408,11 +573,12 @@ export function useSupabaseData() {
     }
 
     return { dataToInsert, duplicatesIgnored };
-  }, [user]);
+  }, [donoUserId, user?.id, sanitizeDataForSupabase]);
 
   // Função para migrar dados do localStorage para Supabase
   const migrateFromLocalStorage = useCallback(async (): Promise<{ success: boolean; message: string }> => {
-    if (!user) return { success: false, message: 'Usuário não autenticado' };
+    const uid = donoUserId ?? user?.id;
+    if (!uid) return { success: false, message: 'Usuário não autenticado' };
 
     setState(prev => ({ ...prev, syncing: true }));
 
@@ -467,15 +633,13 @@ export function useSupabaseData() {
                 // APLICAR SANITIZAÇÃO ANTES DA INSERÇÃO
                 const sanitizedData = sanitizeDataForSupabase(dataToInsert, tableName);
                 
-                const dataWithUserId = sanitizedData.map(item => ({
+                const dataWithUserId = sanitizedData.map((item) => ({
                   ...item,
-                  user_id: user.id,
-                  imported_at: new Date().toISOString()
+                  user_id: uid,
+                  imported_at: new Date().toISOString(),
                 }));
-
                 const { error } = await supabase.from(tableName).insert(dataWithUserId);
                 if (error) throw error;
-
                 console.log(`[MIGRAÇÃO] ${tableName}: ${dataToInsert.length} novos registros, ${duplicatesIgnored} duplicatas ignoradas`);
                 migratedCount++;
               }
@@ -507,18 +671,19 @@ export function useSupabaseData() {
       setState(prev => ({ ...prev, syncing: false }));
       return { success: false, message: `Erro durante a migração: ${error instanceof Error ? error.message : 'Erro desconhecido'}` };
     }
-  }, [user, loadFromSupabase, handleDuplicateCheck, sanitizeDataForSupabase]);
+  }, [donoUserId, user?.id, loadFromSupabase, handleDuplicateCheck, sanitizeDataForSupabase]);
 
   // Função para importar dados direto para o Supabase (bypass localStorage)
-  const importToSupabase = useCallback(async (
-    tableName: string,
-    data: Record<string, unknown>[],
-    append: boolean = true
-  ): Promise<ImportResult> => {
-    if (!user) throw new Error('Usuário não autenticado');
-
-    try {
-      setState(prev => ({ ...prev, syncing: true }));
+  const importToSupabase = useCallback(
+    async (
+      tableName: string,
+      data: Record<string, unknown>[],
+      append: boolean = true
+    ): Promise<ImportResult> => {
+      const uid = donoUserId ?? user?.id;
+      if (!uid) throw new Error('Usuário não autenticado');
+      try {
+        setState((prev) => ({ ...prev, syncing: true }));
 
       if (data.length === 0) {
         return { totalProcessed: 0, newRecords: 0, updatedRecords: 0, duplicatesIgnored: 0 };
@@ -559,18 +724,13 @@ export function useSupabaseData() {
         const { error: deleteError } = await supabase
           .from(tableName)
           .delete()
-          .eq('user_id', user.id);
-
+          .eq('user_id', uid);
         if (deleteError) throw deleteError;
-
-        // APLICAR SANITIZAÇÃO ANTES DA INSERÇÃO
         const sanitizedData = sanitizeDataForSupabase(data, tableName);
-
-        // Inserir novos dados
-        const dataWithUserId = sanitizedData.map(item => ({
+        const dataWithUserId = sanitizedData.map((item) => ({
           ...item,
-          user_id: user.id,
-          imported_at: new Date().toISOString()
+          user_id: uid,
+          imported_at: new Date().toISOString(),
         }));
 
         const { error: insertError } = await supabase.from(tableName).insert(dataWithUserId);
@@ -593,7 +753,7 @@ export function useSupabaseData() {
     } finally {
       setState(prev => ({ ...prev, syncing: false }));
     }
-  }, [user, handleDuplicateCheck, loadFromSupabase, sanitizeDataForSupabase]);
+  }, [donoUserId, user?.id, handleDuplicateCheck, loadFromSupabase, sanitizeDataForSupabase]);
 
   return {
     ...state,

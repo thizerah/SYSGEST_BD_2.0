@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import useData from "@/context/useData";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Venda } from "@/types";
 import { ProtectedCard } from "@/components/common/ProtectedCard";
@@ -38,15 +38,30 @@ export function BonificacoesVendas({ vendasFiltradas, vendasParaPermanencia, isM
     });
     
     // Mapear vendas por número de proposta
-    const vendasMap = new Map();
+    const vendasMap = new Map<string, Venda>();
     vendasFiltradasPOS.forEach(venda => {
       vendasMap.set(venda.numero_proposta, venda);
     });
     
-    // Filtrar pagamentos que correspondem às vendas da sigla
-    const pagamentosFiltrados = primeirosPagamentos.filter(pagamento => 
+    // Pagamentos regulares que correspondem às vendas POS
+    const pagamentosRegulares = primeirosPagamentos.filter(pagamento => 
       vendasMap.has(pagamento.proposta)
     );
+    
+    // Inclusões sintéticas: vendas POS sem registro de pagamento (mesma lógica de PermanenciaPorTipoServico)
+    const propostasComPagamento = new Set(pagamentosRegulares.map(p => p.proposta));
+    const inclusoes = vendasFiltradasPOS
+      .filter(v => !propostasComPagamento.has(v.numero_proposta))
+      .map(venda => ({
+        proposta: venda.numero_proposta,
+        passo: "0",
+        data_passo_cobranca: "",
+        vencimento_fatura: "",
+        status_pacote: "N" as const,
+        data_importacao: ""
+      }));
+    
+    const pagamentosFiltrados = [...pagamentosRegulares, ...inclusoes];
     
     // Contar clientes por categoria
     let adimplentes = 0;
@@ -133,6 +148,14 @@ export function BonificacoesVendas({ vendasFiltradas, vendasParaPermanencia, isM
            dadosPOS.percentualAdimplencia < 55;
   }, [bateuMetaPOS, dadosPOS.percentualAdimplencia]);
 
+  // Considerar apenas status finalizada para valor base (mesmo critério do MetricsOverview)
+  const isStatusFinalizada = useCallback((status: string | undefined): boolean => {
+    const s = (status == null ? '' : String(status)).trim().toUpperCase();
+    if (s === '') return false;
+    if (s.includes('AGUARDANDO') || s.includes('PENDENTE') || s.includes('CANCELAD')) return false;
+    return s === 'FINALIZADA' || s.includes('FINALIZADA') || s === 'HABILITADO' || s.includes('HABILITADO') || s === 'HABILITADA' || s.includes('HABILITADA') || s === 'FINALIZADO' || s.includes('FINALIZADO');
+  }, []);
+
   // Buscar valores de POS usando a fonte correta conforme o período (para valor base)
   const valoresMetas = useMemo(() => {
     const hoje = new Date();
@@ -141,9 +164,9 @@ export function BonificacoesVendas({ vendasFiltradas, vendasParaPermanencia, isM
     
     // Usar a prop isMesAtual para determinar a fonte de dados
     if (isMesAtual) {
-      // Usar dados da aba Metas para o mês atual
+      // Usar dados da aba Metas para o mês atual — apenas status finalizada
       const vendasDoMesAtual = vendasMeta.filter(venda => 
-        venda.mes === mesAtual && venda.ano === anoAtual
+        venda.mes === mesAtual && venda.ano === anoAtual && isStatusFinalizada(venda.status_proposta)
       );
       
       // Mapear categorias
@@ -188,7 +211,7 @@ export function BonificacoesVendas({ vendasFiltradas, vendasParaPermanencia, isM
         fonte: 'permanencia' as const
       };
     }
-  }, [isMesAtual, vendas, vendasMeta]);
+  }, [isMesAtual, vendas, vendasMeta, isStatusFinalizada]);
 
   // Calcular bonificações finais
   const bonificacoesPOS = useMemo(() => {

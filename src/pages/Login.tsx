@@ -44,20 +44,20 @@ export default function Login() {
                 </div>
               </div>
               
-              <h1 className="text-5xl md:text-6xl font-bold leading-tight">
+              <h1 className="text-4xl md:text-5xl font-bold leading-snug">
                 <span className="text-gray-800">Bem-vindo ao</span>
                 <br />
                 <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-teal-500 bg-clip-text text-transparent">
-                  Sistema
+                  sistema completo de
                 </span>
                 <br />
                 <span className="bg-gradient-to-r from-teal-500 via-cyan-500 to-blue-500 bg-clip-text text-transparent">
-                  Acompanhamento de Indicadores
+                  gestão de vendas e serviços
                 </span>
               </h1>
               
               <p className="text-xl text-gray-600 max-w-lg leading-relaxed">
-                Aqui o acompanhamento do indicador e gestão do negócio é a nossa prioridade.
+                Centralize vendas, serviços, equipe e indicadores em um único lugar, com insights em tempo real para decisões mais rápidas.
               </p>
             </div>
             
@@ -69,21 +69,25 @@ export default function Login() {
               <div className="space-y-4">
                 <div className="flex items-center space-x-4 group">
                   <div className="w-3 h-3 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-full shadow-md group-hover:scale-125 transition-transform"></div>
-                  <span className="text-gray-700 text-lg font-medium">Dashboard intuitivo e fácil de usar</span>
+                  <span className="text-gray-700 text-lg font-medium">Gestão integrada de vendas, serviços, equipe e indicadores</span>
                 </div>
                 <div className="flex items-center space-x-4 group">
                   <div className="w-3 h-3 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-full shadow-md group-hover:scale-125 transition-transform"></div>
-                  <span className="text-gray-700 text-lg font-medium">Métricas em tempo real</span>
+                  <span className="text-gray-700 text-lg font-medium">Operação em tempo real com visão do status de ordens de serviço e metas</span>
                 </div>
                 <div className="flex items-center space-x-4 group">
                   <div className="w-3 h-3 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-full shadow-md group-hover:scale-125 transition-transform"></div>
-                  <span className="text-gray-700 text-lg font-medium">Relatórios personalizados</span>
+                  <span className="text-gray-700 text-lg font-medium">Relatórios inteligentes para decisões comerciais, operacionais e financeiras</span>
                 </div>
                 <div className="flex items-center space-x-4 group">
                   <div className="w-3 h-3 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-full shadow-md group-hover:scale-125 transition-transform"></div>
-                  <span className="text-gray-700 text-lg font-medium">Suporte técnico especializado</span>
+                  <span className="text-gray-700 text-lg font-medium">Controle de equipe com papéis, permissões e produtividade acompanhados de perto</span>
                 </div>
               </div>
+
+              <p className="text-sm text-gray-600 pt-4 leading-relaxed">
+                Do primeiro contato de venda ao fechamento da ordem de serviço e análise de resultados, o InsightPro acompanha todo o ciclo da sua operação.
+              </p>
             </div>
             
             <div className="text-sm text-gray-500 italic pt-4">
@@ -106,16 +110,16 @@ export default function Login() {
                 </div>
               </div>
               <h1 className="text-3xl font-bold text-gray-800">InsightPro</h1>
-              <p className="text-gray-600 mt-2 text-lg">Sistema de gestão de métricas e insights</p>
+              <p className="text-gray-600 mt-2 text-lg">Sistema completo de gestão de vendas e serviços</p>
             </div>
             
             <Card className="w-full shadow-2xl border-2 border-gray-100 bg-white/95 backdrop-blur-md rounded-2xl overflow-hidden">
               <CardHeader className="text-center space-y-3 pb-6 pt-8 bg-gradient-to-r from-blue-50 to-indigo-50 border-b-2 border-gray-100">
                 <CardTitle className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                  Acesse sua conta
+                  Acesse seu painel
                 </CardTitle>
                 <CardDescription className="text-gray-600 text-base">
-                  Entre com suas credenciais para acessar o sistema
+                  Use suas credenciais para acessar o painel completo de gestão da sua empresa.
                 </CardDescription>
               </CardHeader>
               <LoginForm />
@@ -126,7 +130,7 @@ export default function Login() {
                 <p className="text-sm text-gray-700 flex items-center justify-center space-x-2">
                   <span className="text-2xl">💡</span>
                   <span>
-                    <strong className="text-gray-800">Dica:</strong> Contate o administrador do sistema para obter acesso ou suporte técnico.
+                    <strong className="text-gray-800">Dica:</strong> Fale com o administrador da sua empresa para criar usuários, ajustar permissões ou obter suporte.
                   </span>
                 </p>
               </div>

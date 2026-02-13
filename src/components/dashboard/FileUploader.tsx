@@ -115,6 +115,12 @@ function consolidateMaterials(orders: ServiceOrder[]): ServiceOrder[] {
         
         consolidatedOrders.push(osPrimariaConsolidada);
         consolidatedOrders.push(osSecundariaZerada);
+        // Manter quaisquer outras OSs do grupo (ex.: 3ª linha com mesmo codigo_os e outro subtipo)
+        const outras = group.filter(o => o !== osPrimaria && o !== osSecundaria);
+        if (outras.length > 0) {
+          console.log(`[MaterialConsolidation] Mantendo mais ${outras.length} OS(s) do mesmo código:`, outras.map(o => o.subtipo_servico));
+          consolidatedOrders.push(...outras);
+        }
       } else {
         // Se não encontrar Ponto Principal e Sistema Opcional, manter todas como estão
         console.log(`[MaterialConsolidation] ⚠️ Não encontrou Ponto Principal/Sistema Opcional para OS ${group[0].codigo_os}`);
@@ -276,10 +282,13 @@ export function FileUploader() {
             const servicosJsonData = XLSX.utils.sheet_to_json(servicosWorksheet, { defval: null, raw: false });
             
             if (servicosJsonData && servicosJsonData.length > 0) {
+              const totalLinhasArquivo = servicosJsonData.length;
+              console.log("[Importação Serviços] Total de linhas lidas da planilha (arquivo):", totalLinhasArquivo);
               console.log("Cabeçalhos na aba de serviços:", Object.keys(servicosJsonData[0]).join(", "));
               console.log("Primeira linha de serviços:", servicosJsonData[0]);
               
               const processedServices = processData(servicosJsonData as Record<string, unknown>[]);
+              console.log("[Importação Serviços] Linhas enviadas para importação (após processar/consolidar):", processedServices.length);
               servicosImportResult = importServiceOrders(processedServices, true); // Usar append=true para comportamento incremental
               processedServiceOrders = servicosImportResult.newRecords;
             }
@@ -452,15 +461,16 @@ export function FileUploader() {
           continue;
         }
         
-        // Se o campo ausente for Finalização, verificar se todas as ordens são canceladas
         if (requiredField === "Finalização") {
-          // Verificar se todas as ordens são canceladas
           const todasCanceladas = data.every(row => 
             String(row["Status"] || "").toUpperCase() === "CANCELADA"
           );
-          
-          if (todasCanceladas) {
-            console.log("[FileUploader] Todas as ordens são canceladas. Campo 'Finalização' não será obrigatório.");
+          const todasBacklog = data.every(row => {
+            const s = String(row["Status"] || "").toUpperCase();
+            return s.includes("AGUARD") && s.includes("ATENDIMENTO");
+          });
+          if (todasCanceladas || todasBacklog) {
+            console.log("[FileUploader] Campo 'Finalização' não obrigatório (", todasCanceladas ? "canceladas" : "backlog", ").");
             continue;
           }
         }
@@ -486,14 +496,25 @@ export function FileUploader() {
               console.log(`[FileUploader] OS ${row["Código OS"]}: Status Cancelada - Usando data de criação como finalização`);
               return formatDate(row["Criação"] as string, false);
             } else {
-              // Se não tiver data de criação (caso extremamente raro), lançar erro
               throw new Error(`OS ${row["Código OS"]} cancelada não possui data de criação válida`);
             }
           }
         }
+        if (isFinalizacao && !dateStr && (status.toUpperCase().includes("AGUARD") && status.toUpperCase().includes("ATENDIMENTO"))) {
+          return "";
+        }
+        // Finalizada/Finalizado/Executada/Executado sem data de finalização: usar data de criação
+        const isFinalizadaStatus = ["FINALIZADA", "FINALIZADO", "EXECUTADA", "EXECUTADO"].some(s => status.toUpperCase().includes(s));
+        if (isFinalizacao && (!dateStr || !String(dateStr).trim()) && isFinalizadaStatus) {
+          if (row["Criação"]) {
+            console.log(`[FileUploader] OS ${row["Código OS"]}: Status ${status} sem finalização - Usando data de criação`);
+            return formatDate(row["Criação"] as string, false);
+          }
+        }
         
-        if (!dateStr) {
-          throw new Error(`Data inválida na linha ${index + 2}`);
+        if (!dateStr || !String(dateStr).trim()) {
+          const campo = isFinalizacao ? "Finalização" : "Criação";
+          throw new Error(`Linha ${index + 2}: Data inválida ou ausente no campo "${campo}". Verifique os dados nesta linha.`);
         }
         
         let date: Date;
@@ -521,11 +542,13 @@ export function FileUploader() {
             }
           }
         } catch (e) {
-          throw new Error(`Data inválida: "${dateStr}" na linha ${index + 2}`);
+          const campo = isFinalizacao ? "Finalização" : "Criação";
+          throw new Error(`Linha ${index + 2}: Data inválida ("${dateStr}") no campo "${campo}". Verifique o formato da data nesta linha.`);
         }
         
         if (isNaN(date.getTime())) {
-          throw new Error(`Data inválida: "${dateStr}" na linha ${index + 2}`);
+          const campo = isFinalizacao ? "Finalização" : "Criação";
+          throw new Error(`Linha ${index + 2}: Data inválida ("${dateStr}") no campo "${campo}". Verifique o formato da data nesta linha.`);
         }
         
         return date.toISOString();
@@ -547,7 +570,7 @@ export function FileUploader() {
       
       const order: ServiceOrder = {
         codigo_os: String(row["Código OS"]),
-        codigo_item: String(row["Código Item"] || ""), // Código do item específico
+        codigo_item: String(row["Código Item"] ?? row["Código Item (não permita duplicacao)"] ?? "").trim(),
         id_tecnico: row["ID Técnico"] ? String(row["ID Técnico"]) : "",
         nome_tecnico: String(row["Técnico"]),
         sigla_tecnico: String(row["SGL"]),

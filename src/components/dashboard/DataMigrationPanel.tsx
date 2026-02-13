@@ -8,6 +8,15 @@ import { useToast } from '@/hooks/use-toast';
 import { useSupabaseData } from '@/hooks/useSupabaseData';
 import useData from '@/context/useData';
 import { PrimeiroPagamento } from '@/types';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { 
   CloudDownload, 
   Database, 
@@ -17,15 +26,20 @@ import {
   Loader2,
   Trash2,
   ArrowRight,
-  Shield
+  Shield,
+  FileText,
+  Download,
+  CheckCircle
 } from 'lucide-react';
 
 export function DataMigrationPanel() {
   console.log('=== PAINEL DE MIGRAÇÃO RENDERIZADO ===');
   
   const { migrateFromLocalStorage, syncing, pagamentos: supabasePagamentos } = useSupabaseData();
-  const { clearLocalStorageAfterMigration } = useData();
+  const { clearLocalStorageAfterMigration, lastServiceOrderImportSummary, addRejectedOrdersToPlatform } = useData();
   const { toast } = useToast();
+  const [osRejeitadasModalOpen, setOsRejeitadasModalOpen] = useState(false);
+  const [selectedRejectedKeys, setSelectedRejectedKeys] = useState<Set<string>>(new Set());
   const [migrationResult, setMigrationResult] = useState<{
     success: boolean;
     message: string;
@@ -217,17 +231,163 @@ export function DataMigrationPanel() {
             {localStorageData.map((data, index) => (
               <div 
                 key={index} 
-                className="bg-white rounded-lg p-4 border-2 border-purple-200 shadow-sm hover:shadow-md transition-all flex items-center justify-between group"
+                className="bg-white rounded-lg p-4 border-2 border-purple-200 shadow-sm hover:shadow-md transition-all flex flex-col gap-2 group"
               >
-                <div className="flex items-center space-x-3">
-                  <div className="p-1.5 bg-purple-100 rounded group-hover:bg-purple-200 transition-colors">
-                    <Database className="h-4 w-4 text-purple-600" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-1.5 bg-purple-100 rounded group-hover:bg-purple-200 transition-colors">
+                      <Database className="h-4 w-4 text-purple-600" />
+                    </div>
+                    <span className="text-sm font-semibold text-gray-800">{data.name}</span>
                   </div>
-                  <span className="text-sm font-semibold text-gray-800">{data.name}</span>
+                  <Badge className="bg-purple-600 text-white font-bold px-3 py-1 text-xs shadow-sm">
+                    {data.count.toLocaleString('pt-BR')} registros
+                  </Badge>
                 </div>
-                <Badge className="bg-purple-600 text-white font-bold px-3 py-1 text-xs shadow-sm">
-                  {data.count.toLocaleString('pt-BR')} registros
-                </Badge>
+                {data.name === 'Ordens de Serviço' && lastServiceOrderImportSummary && (
+                  <div className="flex flex-col gap-1.5 pt-1 border-t border-purple-100">
+                    <p className="text-xs text-gray-600">
+                      Última importação: planilha <strong>{lastServiceOrderImportSummary.totalPlanilha}</strong>, aceitas <strong>{lastServiceOrderImportSummary.totalAceito}</strong>, não aceitas <strong>{lastServiceOrderImportSummary.osNaoAceitas.length}</strong>.
+                    </p>
+                    {lastServiceOrderImportSummary.osNaoAceitas.length > 0 && (
+                      <Dialog open={osRejeitadasModalOpen} onOpenChange={setOsRejeitadasModalOpen}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm" className="w-fit text-xs border-purple-300 text-purple-700 hover:bg-purple-50">
+                            <FileText className="h-3.5 w-3.5 mr-1.5" />
+                            Ver OS não aceitas
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+                          <DialogHeader>
+                            <DialogTitle>OS não aceitas na importação</DialogTitle>
+                          </DialogHeader>
+                          <div className="flex flex-col gap-3 min-h-0 flex-1">
+                            <p className="text-sm text-gray-600">
+                              {lastServiceOrderImportSummary.osNaoAceitas.length} OS não atendem aos critérios.
+                            </p>
+                            {(() => {
+                              const itemsComOrder = lastServiceOrderImportSummary.osNaoAceitas.filter((it): it is typeof it & { order: NonNullable<typeof it.order> } => !!it.order);
+                              const allKeys = new Set(itemsComOrder.map(it => `${it.codigo_os}-${it.codigo_item ?? ''}`));
+                              const allSelected = itemsComOrder.length > 0 && itemsComOrder.every(it => selectedRejectedKeys.has(`${it.codigo_os}-${it.codigo_item ?? ''}`));
+                              const toggleKey = (key: string) => {
+                                setSelectedRejectedKeys(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(key)) next.delete(key);
+                                  else next.add(key);
+                                  return next;
+                                });
+                              };
+                              const toggleAll = () => {
+                                if (allSelected) setSelectedRejectedKeys(new Set());
+                                else setSelectedRejectedKeys(new Set(allKeys));
+                              };
+                              return (
+                                <>
+                                  {itemsComOrder.length > 0 && (
+                                    <div className="flex flex-nowrap items-center gap-2 text-sm font-medium text-gray-700 pb-1 border-b">
+                                      <Checkbox
+                                        checked={allSelected}
+                                        onCheckedChange={toggleAll}
+                                        aria-label="Selecionar todas"
+                                      />
+                                      <span>Selecionar todas</span>
+                                    </div>
+                                  )}
+                                  <div className="space-y-2">
+                                    {lastServiceOrderImportSummary.osNaoAceitas.map((item, i) => {
+                                      const key = `${item.codigo_os}-${item.codigo_item ?? ''}`;
+                                      const temOrder = 'order' in item && item.order;
+                                      const checked = selectedRejectedKeys.has(key);
+                                      const mostraItem = item.codigo_item != null && String(item.codigo_item).trim() !== "";
+                                      const motivoOS = (item.motivo != null && String(item.motivo).trim() !== "") ? String(item.motivo).trim() : item.reason;
+                                      return (
+                                        <div key={i} className="flex flex-nowrap items-center gap-2 text-sm bg-gray-50 rounded px-2 py-1.5">
+                                          {temOrder ? (
+                                            <Checkbox
+                                              checked={checked}
+                                              onCheckedChange={() => toggleKey(key)}
+                                              aria-label={`Incluir OS ${item.codigo_os}`}
+                                            />
+                                          ) : (
+                                            <span className="w-4" />
+                                          )}
+                                          <span className="font-mono font-semibold text-gray-800">{item.codigo_os}</span>
+                                          {mostraItem && (
+                                            <>
+                                              <span className="text-gray-600">—</span>
+                                              <span className="font-mono font-semibold text-gray-800">{item.codigo_item}</span>
+                                            </>
+                                          )}
+                                          <span className="text-gray-600">—</span>
+                                          <span className="text-gray-700">{motivoOS}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
+                          <DialogFooter className="flex-shrink-0 pt-2 border-t gap-2 flex-wrap">
+                            {selectedRejectedKeys.size > 0 && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="relative z-10 bg-green-600 hover:bg-green-700"
+                                onClick={() => {
+                                  const itemsComOrder = lastServiceOrderImportSummary.osNaoAceitas.filter((it): it is typeof it & { order: NonNullable<typeof it.order> } => !!it.order);
+                                  const toAdd = itemsComOrder.filter(it => selectedRejectedKeys.has(`${it.codigo_os}-${it.codigo_item ?? ''}`)).map(it => it.order);
+                                  const { added, alreadyPresent } = addRejectedOrdersToPlatform(toAdd);
+                                  setSelectedRejectedKeys(new Set());
+                                  if (added > 0) {
+                                    toast({
+                                      title: 'OS incluídas',
+                                      description: alreadyPresent > 0
+                                        ? `${added} OS incluídas na plataforma (salvas no localStorage). ${alreadyPresent} já existiam.`
+                                        : `${added} OS incluídas na plataforma (salvas no localStorage).`
+                                    });
+                                  } else {
+                                    toast({ title: 'Nenhuma nova OS', description: 'Todas as selecionadas já estavam na plataforma.' });
+                                  }
+                                }}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Incluir selecionadas na plataforma ({selectedRejectedKeys.size})
+                              </Button>
+                            )}
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              className="relative z-10"
+                              onClick={() => {
+                                const linhas = lastServiceOrderImportSummary.osNaoAceitas.map(o => {
+                                  const mostraItem = o.codigo_item != null && String(o.codigo_item).trim() !== "";
+                                  const motivoOS = (o.motivo != null && String(o.motivo).trim() !== "") ? String(o.motivo).trim() : o.reason;
+                                  return mostraItem
+                                    ? `${o.codigo_os} — ${o.codigo_item} — ${motivoOS}`
+                                    : `${o.codigo_os} — ${motivoOS}`;
+                                });
+                                const texto = linhas.join('\n');
+                                const blob = new Blob([texto], { type: 'text/plain;charset=utf-8' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `os-nao-aceitas-importacao-${new Date().toISOString().slice(0, 10)}.txt`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                                toast({ title: 'Exportado', description: 'Arquivo .txt baixado com OS e motivo de cada uma.' });
+                              }}
+                            >
+                              <Download className="h-4 w-4 mr-2" />
+                              Exportar .txt (OS - motivo)
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

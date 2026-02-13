@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { BarChart3, TrendingUp, TrendingDown } from "lucide-react";
 import useData from "@/context/useData";
+import { addMonthsForPermanencia } from "@/context/DataUtils";
 import { Venda, PrimeiroPagamento } from '@/types';
 
 interface PermanenciaTrendTableProps {
@@ -31,20 +32,18 @@ export function PermanenciaTrendTable({
 
   // Função para calcular o mês de permanência (data de habilitação + 4 meses)
   const calcularMesPermanencia = (dataHabilitacao: string): string => {
-    const data = new Date(dataHabilitacao);
-    data.setMonth(data.getMonth() + 4);
+    const { month } = addMonthsForPermanencia(dataHabilitacao, 4);
     const meses = [
       'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
       'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'
     ];
-    return meses[data.getMonth()];
+    return meses[month];
   };
 
   // Função para calcular o ano de permanência
   const calcularAnoPermanencia = (dataHabilitacao: string): number => {
-    const data = new Date(dataHabilitacao);
-    data.setMonth(data.getMonth() + 4);
-    return data.getFullYear();
+    const { year } = addMonthsForPermanencia(dataHabilitacao, 4);
+    return year;
   };
 
   // Processar dados para a tabela

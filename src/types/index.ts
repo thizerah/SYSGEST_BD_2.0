@@ -95,6 +95,22 @@ export const TODOS_MATERIAIS = [
   "ROLDANA PLASTICA RP-2"
 ] as const;
 
+// Informações da última importação comercial
+export interface LastImportInfo {
+  data: string; // ISO date string
+  tipo: 'comercial' | 'servicos' | 'servicos-base';
+  novasVendasPermanencia: number;
+  novasVendasMeta: number;
+  vendasMetaAtualizadasSoData: number;
+  vendasMetaComMudancaStatus: number;
+  statusChangesDetails: { proposta: string; de: string; para: string }[];
+  novasMetas: number;
+  totalProcessado: number;
+  // Agrupamento de vendas por produto
+  vendasPermanenciaAgrupadas?: { produto: string; count: number }[];
+  vendasMetaAgrupadas?: { produto: string; count: number }[];
+}
+
 // User authentication model
 export interface User {
   id: string;
@@ -228,7 +244,7 @@ export interface VendedorMetrics {
   percentual_cancelados: number;
 }
 
-// Interface para dados de metas mensais por categoria
+// Interface para dados de metas mensais por categoria (metas da empresa)
 export interface Meta {
   id?: string;
   mes: number; // 1-12
@@ -241,8 +257,10 @@ export interface Meta {
   seguros_pos: number;
   seguros_fibra: number;
   sky_mais: number;
-  data_criacao: string;
-  data_atualizacao: string;
+  /** Meta de vendas de plano de celular */
+  movel?: number;
+  data_criacao?: string;
+  data_atualizacao?: string;
 }
 
 // Interface para acompanhamento por categoria de meta
@@ -286,14 +304,19 @@ export interface VendaMeta {
   bairro?: string;
   mes: number;
   ano: number;
+  /** Status da Proposta (qualquer texto: Aguardando, Habilitado, etc.) */
+  status_proposta?: string;
 }
 
 export interface BaseData {
   mes: string;
-  ano: number;  // Adicionado campo ano
+  ano: number;
   base_tv: number;
   base_fibra: number;
+  /** Aliança para Base TV (R$) */
   alianca: number;
+  /** Aliança para Base Fibra (R$) - opcional, quando diferente da TV */
+  alianca_fibra?: number;
 }
 
 export interface BaseMetrics {
@@ -322,4 +345,120 @@ export interface BaseMetrics {
   mesUtilizado: number;
   mesOriginal: number;
   usandoMesAnterior: boolean;
+}
+
+// ========================================
+// CONTROLE DE ROTAS E ROTEIROS
+// ========================================
+
+// Status possíveis de uma OS na rota
+export type StatusRotaOS = 
+  | 'pendente'           // Importada, aguardando atribuição
+  | 'atribuida'          // Atribuída a um técnico
+  | 'em_andamento'       // Técnico chegou no local
+  | 'pre_finalizada'     // Técnico pré-finalizou, aguardando confirmação
+  | 'finalizada'         // Confirmada pela torre de controle
+  | 'cancelada'          // Cancelada (cliente desistiu)
+  | 'reagendada';        // Reagendada para outra data
+
+// Dados do técnico
+export interface TecnicoRota {
+  id: string;
+  nome: string;
+  sigla?: string;
+  telefone?: string;
+  areasAtuacao?: string[]; // Bairros/cidades onde atua
+}
+
+// Registro de tempo (chegada/saída)
+export interface RegistroTempo {
+  chegada?: string; // ISO timestamp
+  saida?: string;   // ISO timestamp
+}
+
+// Material utilizado na OS
+export interface MaterialRota {
+  nome: string;
+  quantidade: number;
+}
+
+// Foto antes/depois
+export interface FotoOS {
+  tipo: 'antes' | 'depois';
+  url: string;
+  timestamp: string;
+}
+
+// Ordem de Serviço para Rota
+export interface RotaOS {
+  id: string;                        // ID único da OS na rota
+  codigo_os: string;                 // Código da OS original
+  codigo_cliente: string;
+  nome_cliente: string;
+  telefone?: string;
+  telefone_comercial?: string;        // Telefone comercial
+  telefone_residencial?: string;      // Telefone residencial
+  endereco: string;
+  complemento?: string;               // Complemento do endereço
+  bairro: string;
+  cidade: string;
+  cep?: string;                      // CEP
+  uf?: string;                       // Estado (UF)
+  tipo_servico: string;
+  subtipo_servico?: string;          // Sub-tipo de serviço
+  motivo?: string;
+  observacoes?: string;
+  servico_cobrado?: boolean;         // Se o serviço é cobrado
+  valor?: number;                   // Valor do serviço (se cobrado)
+  servico_pago?: boolean;           // Se o serviço foi pago
+  valor_pago?: number;               // Valor efetivamente pago (pode ser diferente do valor cobrado)
+  forma_pagamento?: string;         // Forma de pagamento: "Dinheiro", "PIX", "CC"
+  historico_tecnico?: string;       // Nome do técnico anterior (quando volta para pendentes)
+  periodo?: string;                  // Período: "Manhã" ou "Tarde"
+  prioridade?: string;              // Prioridade: "Alta" ou "Média"
+  pacote?: string;                   // Pacote
+  codigo_item?: string;              // Código do item
+  acao_tomada?: string;              // Ação tomada
+  sigla_tecnico?: string;            // Sigla do técnico
+  reagendada?: boolean;              // Se foi reagendada
+  historico_status?: StatusRotaOS;  // Último status antes de voltar para pendentes (finalizada, cancelada, reagendada)
+  ordem_sequencia?: number;          // Ordem de execução da OS na rota (1, 2, 3...)
+  
+  // Dados da rota
+  data_agendada: string;             // Data agendada (YYYY-MM-DD)
+  tecnico_id?: string;               // ID do técnico atribuído
+  tecnico_nome?: string;             // Nome do técnico
+  status: StatusRotaOS;
+  
+  // Execução do serviço
+  registro_tempo?: RegistroTempo;
+  materiais_utilizados?: MaterialRota[];
+  fotos?: FotoOS[];
+  assinatura_cliente?: string;       // Base64 ou URL da assinatura
+  observacoes_tecnico?: string;
+  
+  // Metadados
+  data_importacao: string;           // Timestamp de quando foi importada
+  data_atribuicao?: string;          // Timestamp de quando foi atribuída
+  data_finalizacao?: string;         // Timestamp de quando foi finalizada
+  user_id: string;                   // ID do usuário que importou
+}
+
+// Rota completa (agrupamento de OSs por técnico e data)
+export interface Rota {
+  id: string;
+  tecnico_id: string;
+  tecnico_nome: string;
+  data: string;                      // YYYY-MM-DD
+  os_ids: string[];                  // IDs das OSs nesta rota
+  criada_em: string;                 // Timestamp
+  criada_por: string;                // User ID
+}
+
+// Sugestão de técnico baseada em histórico
+export interface SugestaoTecnico {
+  tecnico_id: string;
+  tecnico_nome: string;
+  confianca: number;                 // 0-100 (baseado em quantas OSs na região)
+  motivo: string;                    // Ex: "Atendeu 15 OSs no bairro Centro"
 }
