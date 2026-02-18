@@ -1935,7 +1935,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       for (let i = 0; i < filteredOrders.length; i++) {
         const currOrder = filteredOrders[i];
         
-        if (currOrder.tipo_servico?.includes("Assistência Técnica")) {
+        // Verificar se a ordem atual é uma reabertura válida (apenas Corretiva ou Corretiva BL)
+        if (currOrder.subtipo_servico === "Corretiva" || currOrder.subtipo_servico === "Corretiva BL") {
           // Rastrear a ordem de reabertura mais recente para este cliente
           let lastReopeningIndex = -1;
           let lastReopeningTime = 0;

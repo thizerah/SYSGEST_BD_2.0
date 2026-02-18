@@ -46,6 +46,8 @@ import {
   MessageCircle,
   ChevronDown,
   ChevronUp,
+  AlertCircle,
+  DollarSign,
 } from 'lucide-react';
 import {
   Table,
@@ -348,6 +350,95 @@ Em breve entraremos em contato para mais informações.`;
     if (!filtroTecnicoId || filtroTecnicoId === '__todos__') return resumosPorTecnico;
     return resumosPorTecnico.filter((r) => r.tecnicoId === filtroTecnicoId);
   }, [resumosPorTecnico, filtroTecnicoId]);
+
+  // Calcular resumo geral agregado de todos os técnicos filtrados
+  const resumoGeral = useMemo(() => {
+    if (resumosFiltrados.length === 0) {
+      return {
+        totalOSs: 0,
+        motivosContagem: [] as Array<{ motivo: string; quantidade: number }>,
+        prioridades: { Alta: 0, Média: 0, Baixa: 0 },
+        status: {
+          Aguardando: 0,
+          'Em Andamento': 0,
+          Finalizado: 0,
+          Reagendada: 0,
+          Cancelada: 0
+        },
+        totalAReceber: 0,
+        totalRecebido: 0
+      };
+    }
+
+    let totalOSs = 0;
+    const motivosMap = new Map<string, number>();
+    const prioridades = { Alta: 0, Média: 0, Baixa: 0 };
+    const status = {
+      Aguardando: 0,
+      'Em Andamento': 0,
+      Finalizado: 0,
+      Reagendada: 0,
+      Cancelada: 0
+    };
+    let totalAReceber = 0;
+    let totalRecebido = 0;
+
+    resumosFiltrados.forEach((resumo) => {
+      totalOSs += resumo.quantidadeOS;
+
+      // Contar motivos
+      resumo.oss.forEach(os => {
+        if (os.motivo) {
+          motivosMap.set(os.motivo, (motivosMap.get(os.motivo) || 0) + 1);
+        }
+      });
+
+      // Contar prioridades
+      resumo.oss.forEach(os => {
+        if (os.prioridade === 'Alta') prioridades.Alta++;
+        else if (os.prioridade === 'Média') prioridades.Média++;
+        else if (os.prioridade === 'Baixa') prioridades.Baixa++;
+      });
+
+      // Contar status (mapeando para nomes completos)
+      Object.entries(resumo.statusCount).forEach(([st, count]) => {
+        if (st === 'pendente' || st === 'atribuida') {
+          status.Aguardando += count;
+        } else if (st === 'em_andamento' || st === 'pre_finalizada') {
+          status['Em Andamento'] += count;
+        } else if (st === 'finalizada') {
+          status.Finalizado += count;
+        } else if (st === 'reagendada') {
+          status.Reagendada += count;
+        } else if (st === 'cancelada') {
+          status.Cancelada += count;
+        }
+      });
+
+      // Calcular valores
+      const cobradas = resumo.oss.filter((os) => os.servico_cobrado && os.valor && os.status === 'finalizada');
+      const total = cobradas.reduce((s, os) => s + (os.valor ?? 0), 0);
+      const recebido = cobradas
+        .filter((os) => os.servico_pago)
+        .reduce((s, os) => s + (os.valor_pago ?? os.valor ?? 0), 0);
+      totalAReceber += total - recebido;
+      totalRecebido += recebido;
+    });
+
+    // Converter motivos para array e ordenar por quantidade (decrescente)
+    const motivosContagem = Array.from(motivosMap.entries())
+      .map(([motivo, quantidade]) => ({ motivo, quantidade }))
+      .sort((a, b) => b.quantidade - a.quantidade);
+
+    return {
+      totalOSs,
+      motivosContagem,
+      prioridades,
+      status,
+      totalAReceber,
+      totalRecebido
+    };
+  }, [resumosFiltrados]);
 
   // Tempo estimado total para um resumo (médias por tipo de serviço)
   const calcularTempoEstimadoResumo = (oss: RotaOS[]) => {
@@ -942,6 +1033,172 @@ Em breve entraremos em contato para mais informações.`;
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Resumo Geral do Dia */}
+              {resumosFiltrados.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Package className="h-5 w-5 text-primary" />
+                    Resumo Geral do Dia
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                    {/* Linha 1: Cards menores e compactos */}
+                    <Card className="border-t-4 border-t-blue-500">
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <ListOrdered className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm font-medium text-foreground">Total de Ordens de Serviço</span>
+                        </div>
+                        <div className="text-sm font-semibold">{resumoGeral.totalOSs}</div>
+                        <p className="text-xs text-muted-foreground">
+                          {resumosFiltrados.length} técnico{resumosFiltrados.length !== 1 ? 's' : ''} com rota
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-t-4 border-t-orange-500">
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                          <span className="text-sm font-medium text-foreground">Distribuição de Prioridades</span>
+                        </div>
+                        <div className="text-sm font-semibold mb-1.5">
+                          {resumoGeral.prioridades.Alta + resumoGeral.prioridades.Média + resumoGeral.prioridades.Baixa} OSs
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {resumoGeral.prioridades.Alta > 0 && (
+                            <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300 text-[10px] py-0 px-1.5">
+                              Alta: {resumoGeral.prioridades.Alta}
+                            </Badge>
+                          )}
+                          {resumoGeral.prioridades.Média > 0 && (
+                            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 text-[10px] py-0 px-1.5">
+                              Média: {resumoGeral.prioridades.Média}
+                            </Badge>
+                          )}
+                          {resumoGeral.prioridades.Baixa > 0 && (
+                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 text-[10px] py-0 px-1.5">
+                              Baixa: {resumoGeral.prioridades.Baixa}
+                            </Badge>
+                          )}
+                          {resumoGeral.prioridades.Alta === 0 && resumoGeral.prioridades.Média === 0 && resumoGeral.prioridades.Baixa === 0 && (
+                            <span className="text-xs text-muted-foreground">Sem prioridades definidas</span>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-t-4 border-t-yellow-500">
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <DollarSign className="h-4 w-4 text-yellow-600" />
+                          <span className="text-sm font-medium text-foreground">Valor a Receber</span>
+                        </div>
+                        <div className="text-sm font-semibold">
+                          R$ {resumoGeral.totalAReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Serviços finalizados não pagos
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-t-4 border-t-emerald-500">
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          <span className="text-sm font-medium text-foreground">Valor Recebido</span>
+                        </div>
+                        <div className="text-sm font-semibold">
+                          R$ {resumoGeral.totalRecebido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Pagamentos confirmados
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    {/* Linha 2: Motivos (ocupa 3 colunas) */}
+                    <Card className="border-t-4 border-t-purple-500 lg:col-span-3">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <MessageCircle className="h-5 w-5 text-purple-600" />
+                          <span className="text-sm font-medium text-muted-foreground">Motivos</span>
+                        </div>
+                        <div className="text-3xl font-bold mb-3">{resumoGeral.motivosContagem.length} motivos distintos</div>
+                        {resumoGeral.motivosContagem.length > 0 ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5">
+                            {resumoGeral.motivosContagem.map(({ motivo, quantidade }) => (
+                              <div key={motivo} className="flex items-start justify-between text-xs gap-2 py-1">
+                                <span className="text-muted-foreground flex-1 leading-tight">• {motivo}</span>
+                                <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 shrink-0 h-5">
+                                  {quantidade}
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Nenhum motivo registrado</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Status (embaixo de Valor Recebido - 1 coluna) */}
+                    <Card className="border-t-4 border-t-green-500 lg:col-span-1">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <CheckCircle2 className="h-5 w-5 text-green-600" />
+                          <span className="text-sm font-medium text-muted-foreground">Distribuição de Status</span>
+                        </div>
+                        <div className="text-3xl font-bold mb-3">{resumoGeral.totalOSs} OSs</div>
+                        <div className="space-y-2">
+                          {resumoGeral.status.Aguardando > 0 && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Aguardando:</span>
+                              <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300 ml-1">
+                                {resumoGeral.status.Aguardando}
+                              </Badge>
+                            </div>
+                          )}
+                          {resumoGeral.status['Em Andamento'] > 0 && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Em Andamento:</span>
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 ml-1">
+                                {resumoGeral.status['Em Andamento']}
+                              </Badge>
+                            </div>
+                          )}
+                          {resumoGeral.status.Finalizado > 0 && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Finalizado:</span>
+                              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 ml-1">
+                                {resumoGeral.status.Finalizado}
+                              </Badge>
+                            </div>
+                          )}
+                          {resumoGeral.status.Reagendada > 0 && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Reagendada:</span>
+                              <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300 ml-1">
+                                {resumoGeral.status.Reagendada}
+                              </Badge>
+                            </div>
+                          )}
+                          {resumoGeral.status.Cancelada > 0 && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Cancelada:</span>
+                              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300 ml-1">
+                                {resumoGeral.status.Cancelada}
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              )}
 
               <Card>
                 <Table>
