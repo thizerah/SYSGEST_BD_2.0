@@ -3557,58 +3557,47 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
 
 
 
-  // Função para calcular reaberturas permitidas ou serviços necessários
-  const calculateServicesNeededForTarget = (serviceType: string, currentReopenings: number, currentTotal: number) => {
-    // Se não há serviços, não há como calcular
-    if (currentTotal === 0) {
-      return 0;
-    }
-    
-    const currentRate = (currentReopenings / currentTotal) * 100;
-    
-    // Definir os limites por tipo de serviço (baseado nas regras de cor)
-    let targetRate = 0;
-    
-    // Verificar tipos específicos primeiro (mais específicos para menos específicos)
+  const getTargetRateForType = (serviceType: string): number => {
     if (serviceType.includes("Corretiva") && (serviceType.includes("BL") || serviceType.includes("FIBRA"))) {
-      targetRate = 8.0; // Verde < 8%
+      return 8.0;
     } else if (serviceType === "Corretiva" || serviceType.includes("Corretiva")) {
-      targetRate = 3.5; // Verde < 3.5%
+      return 3.5;
     } else if (serviceType.includes("Ponto Principal") && (serviceType.includes("BL") || serviceType.includes("FIBRA"))) {
-      targetRate = 5.0; // Verde < 5%
+      return 5.0;
     } else if (serviceType === "Ponto Principal" || (serviceType.includes("Ponto Principal") && serviceType.includes("TV"))) {
-      targetRate = 2.0; // Verde < 2%
-    } else {
-      // Para tipos não reconhecidos, usar uma meta padrão
-      targetRate = 5.0;
+      return 2.0;
     }
-    
-    // Calcular o número máximo de reaberturas permitidas sem ultrapassar a meta
-    // Fórmula: maxReaberturas = floor(totalServiços × metaPercentual ÷ 100)
+    return 5.0;
+  };
+
+  // Retorna negativo = reaberturas disponíveis, 0 = no limite, positivo = OS necessárias para meta
+  const calculateServicesNeededForTarget = (serviceType: string, currentReopenings: number, currentTotal: number) => {
+    if (currentTotal === 0) return 0;
+
+    const targetRate = getTargetRateForType(serviceType);
     const maxReopeningsAllowed = Math.floor((currentTotal * targetRate) / 100);
-    
-    // Se estamos dentro da meta, calcular quantas reaberturas ainda estão disponíveis
+
     if (currentReopenings <= maxReopeningsAllowed) {
       const reopeningsAvailable = maxReopeningsAllowed - currentReopenings;
-      
-      // Se há reaberturas disponíveis, retornar negativo para indicar "reab. disponíveis"
-      if (reopeningsAvailable > 0) {
-        return -reopeningsAvailable;
-      }
-      
-      // Se estamos exatamente no limite, mostrar "✓ Meta"
-      return 0;
+      return reopeningsAvailable > 0 ? -reopeningsAvailable : 0;
     }
-    
-    // Se estamos fora da meta, calcular quantos serviços precisamos para baixar o percentual
-    // Queremos que o percentual fique ligeiramente abaixo da meta
-    const desiredRate = targetRate - 0.04; // Margem de segurança de 0.04%
-    
-    // Fórmula: novoTotal = reaberturas ÷ (desiredRate ÷ 100)
+
+    const desiredRate = targetRate - 0.04;
     const targetTotal = currentReopenings / (desiredRate / 100);
     const servicesNeeded = Math.ceil(targetTotal - currentTotal);
-    
     return servicesNeeded > 0 ? servicesNeeded : 1;
+  };
+
+  // Retorna quantas OS faltam para ganhar a próxima reabertura disponível
+  const calculateOSForMargin = (serviceType: string, currentReopenings: number, totalWithBacklog: number): number => {
+    if (totalWithBacklog === 0) return 0;
+
+    const targetRate = getTargetRateForType(serviceType);
+    const currentMaxAllowed = Math.floor((totalWithBacklog * targetRate) / 100);
+    const nextThreshold = currentMaxAllowed + 1;
+    const neededTotal = Math.ceil((nextThreshold * 100) / targetRate);
+    const osNeeded = neededTotal - totalWithBacklog;
+    return osNeeded > 0 ? osNeeded : 0;
   };
 
   const getReopeningMetrics = useMemo(() => {
@@ -3800,11 +3789,12 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
       });
     }
     
-    // Calcular taxas de reabertura por tipo
+    // Calcular taxas de reabertura por tipo (denominador inclui backlog)
     Object.keys(reopeningsByOriginalType).forEach(type => {
-      const { reopenings, totalOriginals } = reopeningsByOriginalType[type];
-      reopeningsByOriginalType[type].reopeningRate = totalOriginals > 0 
-        ? (reopenings / totalOriginals) * 100
+      const { reopenings, totalOriginals, backlogCount } = reopeningsByOriginalType[type];
+      const totalWithBacklog = totalOriginals + (backlogCount || 0);
+      reopeningsByOriginalType[type].reopeningRate = totalWithBacklog > 0 
+        ? (reopenings / totalWithBacklog) * 100
         : 0;
     });
     
@@ -5108,7 +5098,8 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                       <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">Reab.</TableHead>
                       <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">M3M</TableHead>
                       <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">% Reabertura</TableHead>
-                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">Serv. p/ Meta</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">Reab. Dispo</TableHead>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm px-3 py-3">OS p/ +1 Dispo</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -5159,7 +5150,9 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                         };
                         
                         const displayName = mapOriginalServiceTypeName(type);
-                        const servicesNeeded = calculateServicesNeededForTarget(type, data.reopenings, data.totalOriginals);
+                        const totalWithBacklog = data.totalOriginals + ((data as { backlogCount?: number }).backlogCount || 0);
+                        const servicesNeeded = calculateServicesNeededForTarget(type, data.reopenings, totalWithBacklog);
+                        const osForMargin = calculateOSForMargin(type, data.reopenings, totalWithBacklog);
                         const index = Object.entries(getReopeningMetrics.reopeningsByOriginalType)
                           .filter(([t, d]) => {
                             if (originalServiceTypeFilter) return t === originalServiceTypeFilter;
@@ -5213,20 +5206,29 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                               )}
                             </TableCell>
                             <TableCell className="text-center px-3 py-3">
-                              <span className={`text-base font-bold ${getReopeningColorByServiceType(type, (data.reopenings / data.totalOriginals * 100))}`}>
-                                {data.totalOriginals > 0 ? (data.reopenings / data.totalOriginals * 100).toFixed(2) : '0.00'}%
-                              </span>
+                              {(() => {
+                                const pct = totalWithBacklog > 0 ? (data.reopenings / totalWithBacklog) * 100 : 0;
+                                return (
+                                  <span className={`text-base font-bold ${getReopeningColorByServiceType(type, pct)}`}>
+                                    {pct.toFixed(2)}%
+                                  </span>
+                                );
+                              })()}
                             </TableCell>
                             <TableCell className="text-center px-3 py-3">
                               {servicesNeeded < 0 ? (
-                                <span className="text-green-600 font-semibold text-sm">{Math.abs(servicesNeeded)} reab. disp.</span>
+                                <span className="text-green-600 font-semibold text-sm">+{Math.abs(servicesNeeded)} disp.</span>
                               ) : servicesNeeded === 0 ? (
-                                <span className="text-amber-600 font-semibold text-sm">0 reab. disp.</span>
+                                <span className="text-amber-600 font-semibold text-sm">0 disp.</span>
                               ) : (
-                                <span className="text-red-600 font-semibold text-sm">
-                                  +{servicesNeeded} serviços
-                                  <span className="text-muted-foreground ml-1 text-xs">({data.totalOriginals + servicesNeeded} total)</span>
-                                </span>
+                                <span className="text-red-600 font-semibold text-sm">-{servicesNeeded} OS</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center px-3 py-3">
+                              {osForMargin > 0 ? (
+                                <span className="text-blue-600 font-semibold text-sm">+{osForMargin} OS</span>
+                              ) : (
+                                <span className="text-gray-400 text-sm">--</span>
                               )}
                             </TableCell>
                           </TableRow>
@@ -5236,7 +5238,7 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                     
                     {Object.keys(getReopeningMetrics.reopeningsByOriginalType).length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground text-sm">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground text-sm">
                           Nenhuma reabertura encontrada no período selecionado
                         </TableCell>
                       </TableRow>
@@ -5253,7 +5255,10 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                       <span className="font-medium text-gray-800">M3M (Média 3 Meses):</span> Representa a <strong>média de reaberturas dos últimos 3 meses anteriores</strong> ao mês selecionado. Cores: <span className="text-green-600 font-medium">Verde</span> = mês atual abaixo da média, <span className="text-yellow-600 font-medium">Amarelo</span> = igual à média, <span className="text-red-600 font-medium">Vermelho</span> = acima da média.
               </div>
                     <div>
-                      <span className="font-medium text-gray-800">Serv. p/ Meta:</span> <span className="text-green-600 font-medium">X reab. disp.</span> = dentro da meta com X reaberturas ainda disponíveis, <span className="text-amber-600 font-medium">0 reab. disp.</span> = no limite exato da meta (ponto de atenção), <span className="text-red-600 font-medium">+X serviços (Y total)</span> = fora da meta, precisa de X serviços adicionais (chegando a Y serviços no total) para voltar à faixa verde.
+                      <span className="font-medium text-gray-800">Reab. Dispo:</span> <span className="text-green-600 font-medium">+X disp.</span> = dentro da meta com X reaberturas ainda disponíveis, <span className="text-amber-600 font-medium">0 disp.</span> = no limite exato da meta (ponto de atenção), <span className="text-red-600 font-medium">-X OS</span> = fora da meta, précisa de X serviços adicionais para voltar à faixa verde.
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-800">OS p/ +1 Dispo:</span> Quantidade de OS adicionais necessárias para ganhar <strong>+1 reabertura disponível</strong> a partir do estado atual. Calculado como: próximo múltiplo inteiro da meta − total atual (incluindo backlog).
                     </div>
                   </div>
                 </div>
