@@ -1631,36 +1631,105 @@ function MetasTabContent() {
                             </div>
 
                                   {/* Informações secundárias */}
-                                  <div className="space-y-1.5 pt-2 border-t border-gray-200">
-                                    <div className="flex justify-between items-center">
-                                      <span className="text-[10px] text-gray-500">Projeção</span>
-                                      <span className="text-xs font-semibold text-purple-600">
-                                        {projecaoFinal.toFixed(0)}
-                                      </span>
-                            </div>
-                                    <div className="flex justify-between items-center">
-                                      <span className="text-[10px] text-gray-500">Ideal</span>
-                                      <span className="text-xs font-semibold text-gray-700">
-                                        {ideal.toFixed(0)}
-                                      </span>
-                            </div>
-                                    <div className="flex justify-between items-center">
-                                      <span className="text-[10px] text-gray-500">Média/Dia</span>
-                                      <span className="text-xs font-semibold text-blue-600">
-                                        {mediaDiariaAtual.toFixed(1)}
-                                      </span>
-                            </div>
-                                    <div className="flex justify-between items-center">
-                                      <span className="text-[10px] text-gray-500">Meta/Dia</span>
-                                      <span className={`text-xs font-semibold ${
-                                        categoria.percentual_atingido >= 100 
-                                          ? 'text-green-600' 
-                                          : 'text-red-600'
-                                      }`}>
-                                        {metaDiariaParaMeta.toFixed(1)}
-                                      </span>
-                          </div>
-                        </div>
+                                  {(() => {
+                                    const ehMesAtual = metaMetrics.mes === hoje.getMonth() + 1 && metaMetrics.ano === hoje.getFullYear();
+                                    return (
+                                      <div className="space-y-1.5 pt-2 border-t border-gray-200">
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-[10px] text-gray-500">Projeção</span>
+                                          <span className="text-xs font-semibold text-purple-600">
+                                            {projecaoFinal.toFixed(0)}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-[10px] text-gray-500">Ideal</span>
+                                          <span className="text-xs font-semibold text-gray-700">
+                                            {ideal.toFixed(0)}
+                                          </span>
+                                        </div>
+                                        {ehMesAtual ? (
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[10px] text-gray-500">Meta/Dia</span>
+                                            <span className={`text-xs font-semibold ${
+                                              categoria.percentual_atingido >= 100
+                                                ? 'text-green-600'
+                                                : 'text-red-600'
+                                            }`}>
+                                              {metaDiariaParaMeta.toFixed(1)}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[10px] text-gray-500">Atingiu?</span>
+                                            <span className={`text-xs font-bold ${
+                                              categoria.percentual_atingido >= 100
+                                                ? 'text-green-600'
+                                                : 'text-red-600'
+                                            }`}>
+                                              {categoria.percentual_atingido >= 100 ? '✓ Sim' : '✗ Não'}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+
+                                  {/* Indicador de Cartão de Crédito — exclusivo do PÓS-PAGO */}
+                                  {categoria.categoria === 'PÓS-PAGO' && (() => {
+                                    const META_CARTAO_PERCENTUAL = 20;
+                                    const totalPosPago = categoria.vendas_realizadas;
+                                    const totalCartao = metaMetrics.cartao_credito_pos_pago;
+                                    const percentualCartao = totalPosPago > 0
+                                      ? (totalCartao / totalPosPago) * 100
+                                      : 0;
+                                    const metaCartaoQtd = Math.ceil(totalPosPago * (META_CARTAO_PERCENTUAL / 100));
+                                    const atingiuMeta = percentualCartao >= META_CARTAO_PERCENTUAL;
+
+                                    return (
+                                      <div className="mt-3 pt-3 border-t-2 border-amber-200">
+                                        <div className="flex items-center gap-1.5 mb-2">
+                                          <CreditCard className="h-3.5 w-3.5 text-amber-600" />
+                                          <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">
+                                            Cartão de Crédito
+                                          </span>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[10px] text-gray-500">Realizadas</span>
+                                            <span className="text-xs font-semibold text-amber-700">
+                                              {totalCartao} / {totalPosPago}
+                                            </span>
+                                          </div>
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[10px] text-gray-500">Meta ({META_CARTAO_PERCENTUAL}%)</span>
+                                            <span className="text-xs font-semibold text-gray-600">
+                                              {metaCartaoQtd} vendas
+                                            </span>
+                                          </div>
+                                          {/* Barra de progresso */}
+                                          <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1">
+                                            <div
+                                              className={`h-1.5 rounded-full transition-all ${
+                                                atingiuMeta ? 'bg-green-500' : 'bg-amber-500'
+                                              }`}
+                                              style={{ width: `${Math.min(100, percentualCartao / META_CARTAO_PERCENTUAL * 100)}%` }}
+                                            />
+                                          </div>
+                                          <div className="text-center mt-1">
+                                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                                              atingiuMeta
+                                                ? 'bg-green-100 text-green-800'
+                                                : percentualCartao >= META_CARTAO_PERCENTUAL * 0.75
+                                                ? 'bg-yellow-100 text-yellow-800'
+                                                : 'bg-red-100 text-red-800'
+                                            }`}>
+                                              {percentualCartao.toFixed(2)}%
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                             </div>
                               </CardContent>
                             </Card>

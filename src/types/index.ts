@@ -284,6 +284,7 @@ export interface MetaMetrics {
   media_diaria_atual: number;
   media_diaria_necessaria: number;
   status: 'em_dia' | 'atrasado' | 'atingido' | 'superado';
+  cartao_credito_pos_pago: number;
 }
 
 // Interface para vendas do mês atual (específica para metas)

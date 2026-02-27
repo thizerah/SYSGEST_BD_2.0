@@ -2530,6 +2530,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         vendasPorCategoria['seguros_pos'] += 1;
       }
     });
+
+    // Contar vendas POS PAGO pagas com cartão de crédito
+    const cartaoCreditoPosPago = vendasDoMes.filter(venda => {
+      const categoria = mapearCategoriaVenda(venda);
+      if (categoria !== 'pos_pago') return false;
+      const formaPagamento = (venda.forma_pagamento || '').toUpperCase();
+      return formaPagamento.includes('CARTÃO DE CRÉDITO') ||
+             formaPagamento.includes('CARTAO DE CREDITO') ||
+             formaPagamento.includes('CREDITO');
+    }).length;
     
     // Log resumido das vendas por categoria
     const totalVendasProcessadas = Object.values(vendasPorCategoria).reduce((sum, val) => sum + val, 0);
@@ -2690,7 +2700,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       projecao_final: projecaoFinal,
       media_diaria_atual: mediaDiariaAtual,
       media_diaria_necessaria: mediaDiariaNecessaria,
-      status
+      status,
+      cartao_credito_pos_pago: cartaoCreditoPosPago
     };
   };
 
