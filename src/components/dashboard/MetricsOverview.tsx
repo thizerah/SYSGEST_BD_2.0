@@ -2493,7 +2493,7 @@ function MetasDetalhamentoContent({
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Produto</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Vendedor</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Status</TableHead>
-                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Data Habilitação</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Data da Atualização</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Forma</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider text-right">Valor</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider text-center">Seguro</TableHead>
