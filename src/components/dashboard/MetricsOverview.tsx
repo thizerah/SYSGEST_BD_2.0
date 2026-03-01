@@ -303,7 +303,13 @@ function MetasTabContent() {
     const hoje = new Date();
     const isCurrentMonth = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
     if (isCurrentMonth) {
-      return vendasMeta.filter(venda => venda.mes === mes && venda.ano === ano);
+      const mesAnterior = mes === 1 ? 12 : mes - 1;
+      const anoAnterior = mes === 1 ? ano - 1 : ano;
+      const isAguardando = (s: string | undefined) => (s ?? '').toUpperCase().includes('AGUARDANDO');
+      return vendasMeta.filter(venda =>
+        (venda.mes === mes && venda.ano === ano) ||
+        (venda.mes === mesAnterior && venda.ano === anoAnterior && isAguardando(venda.status_proposta))
+      );
     }
     return vendas.filter(venda => {
       if (!venda.data_habilitacao) return false;
@@ -11596,10 +11602,15 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }, []);
 
-  // Função para formatar data para exibição
+  // Função para formatar data para exibição (parse direto evita bug de timezone com YYYY-MM-DD)
   const formatarDataParaExibicao = useCallback((dataString: string): string => {
-    const data = new Date(dataString);
-    return data.toLocaleDateString('pt-BR');
+    const datePart = (dataString || '').split('T')[0];
+    const parts = datePart.split('-');
+    if (parts.length >= 3) {
+      const [ano, mes, dia] = parts;
+      return `${dia}/${mes}/${ano}`;
+    }
+    return new Date(dataString).toLocaleDateString('pt-BR');
   }, []);
 
   // Função para renderizar a coluna DATA LIMITE
