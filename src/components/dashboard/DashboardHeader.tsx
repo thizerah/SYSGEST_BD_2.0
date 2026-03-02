@@ -40,7 +40,7 @@ export function DashboardHeader() {
             <Settings size={22} className="text-sysgest-blue drop-shadow-sm" />
           </div>
           <div>
-            <h1 className="text-lg sm:text-xl md:text-2xl font-bold drop-shadow-sm">InsightPro</h1>
+            <h1 className="text-lg sm:text-xl md:text-2xl font-bold drop-shadow-sm">Sysnex</h1>
             <p className="text-xs sm:text-sm hidden sm:block opacity-80 text-white/90">Sistema de gestão de métricas e insights</p>
           </div>
         </div>

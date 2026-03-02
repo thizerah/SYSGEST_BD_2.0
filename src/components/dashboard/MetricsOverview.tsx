@@ -8456,7 +8456,7 @@ function UserManagement({
         name: (u.name as string) || '',
         email: (u.email as string) || '',
         role: ((u.role as string) || 'user') as 'admin' | 'user',
-        empresa: (u.empresa as string) || 'InsightPro',
+        empresa: (u.empresa as string) || 'Sysnex',
         data_adesao: (u.data_adesao as string) || new Date().toISOString(),
         acesso_liberado: u.acesso_liberado === undefined ? true : Boolean(u.acesso_liberado)
       }));
@@ -8901,7 +8901,7 @@ function PaymentsManagement() {
         name: (u.name as string) || '',
         email: (u.email as string) || '',
         role: ((u.role as string) || 'user') as 'admin' | 'user',
-        empresa: (u.empresa as string) || 'InsightPro',
+        empresa: (u.empresa as string) || 'Sysnex',
         data_adesao: (u.data_adesao as string) || new Date().toISOString(),
         acesso_liberado: u.acesso_liberado === undefined ? true : Boolean(u.acesso_liberado)
       }));

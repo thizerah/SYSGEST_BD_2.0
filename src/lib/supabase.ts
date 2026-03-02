@@ -35,7 +35,7 @@ export const mapSupabaseUser = (supabaseUser: User, userData?: SupabaseUser): Sy
     name: userData?.name || supabaseUser.user_metadata?.name || '',
     email: supabaseUser.email || '',
     role: userData?.role || 'user',
-    empresa: userData?.empresa || 'InsightPro',
+    empresa: userData?.empresa || 'Sysnex',
     data_adesao: userData?.data_adesao || new Date().toISOString(),
     acesso_liberado: userData?.acesso_liberado ?? true,
   };

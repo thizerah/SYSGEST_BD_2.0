@@ -53,7 +53,7 @@ const PAGE_TITLES: Record<string, string> = {
   time: "Tempos e Otimização",
   reopening: "Reaberturas",
   permanencia: "Permanência",
-  indicadores: "Indicadores",
+  indicadores: "Projeção Variável",
   metas: "Vendas",
   technicians: "Técnicos",
   vendedor: "Vendedores",

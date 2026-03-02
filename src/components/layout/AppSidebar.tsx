@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -11,6 +12,7 @@ import {
   SidebarMenuBadge,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   LayoutDashboard,
   Clock,
@@ -28,6 +30,8 @@ import {
   Upload,
   Database,
   Mail,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/context/auth";
 
@@ -52,10 +56,10 @@ interface AppSidebarProps {
 export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
   const { canAccessPage } = useAuth();
 
-  const menuStructure: MenuCategory[] = [
+  const menuStructure: MenuCategory[] = useMemo(() => [
     {
       id: "metricas",
-      label: "MÉTRICAS & INDICADORES",
+      label: "INDICADORES",
       items: [
         {
           id: "time",
@@ -109,7 +113,7 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
     },
     {
       id: "equipe",
-      label: "EQUIPE",
+      label: "ACESSOS",
       items: [
         {
           id: "cadastro_tecnicos",
@@ -125,11 +129,11 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
     },
     {
       id: "variaveis",
-      label: "VARIÁVEIS",
+      label: "PARÂMETROS",
       items: [
         {
           id: "indicadores",
-          label: "Indicadores",
+          label: "Projeção Variável",
           icon: <DollarSign className="h-5 w-5 shrink-0 text-emerald-600" strokeWidth={2.5} />,
         },
         {
@@ -176,58 +180,123 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
         },
       ],
     },
-  ];
+  ], []);
+
+  const filteredCategories = useMemo(
+    () =>
+      menuStructure
+        .filter((category) => category.items.some((item) => canAccessPage(item.id)))
+        .map((category) => ({
+          ...category,
+          visibleItems: category.items.filter((item) => canAccessPage(item.id)),
+        })),
+    [menuStructure, canAccessPage]
+  );
+
+  const activeCategoryId = useMemo(
+    () =>
+      filteredCategories.find((cat) =>
+        cat.visibleItems.some((item) => item.id === activePage)
+      )?.id ?? null,
+    [filteredCategories, activePage]
+  );
+
+  const [openCategories, setOpenCategories] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    if (activeCategoryId) initial.add(activeCategoryId);
+    if (initial.size === 0 && filteredCategories.length > 0) {
+      initial.add(filteredCategories[0].id);
+    }
+    return initial;
+  });
+
+  const toggleCategory = (categoryId: string) => {
+    setOpenCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+      } else {
+        next.add(categoryId);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (activeCategoryId) {
+      setOpenCategories((prev) =>
+        prev.has(activeCategoryId) ? prev : new Set([...prev, activeCategoryId])
+      );
+    }
+  }, [activeCategoryId]);
 
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader className="border-b border-sidebar-border">
         <div className="flex items-center gap-2 px-2 py-4">
-          <LayoutDashboard className="w-6 h-6 shrink-0 text-blue-600" />
+          <LayoutDashboard className="w-6 h-6 shrink-0 text-gray-700" />
           <span className="font-bold text-lg text-sidebar-foreground whitespace-normal break-words">
-            InsightPro
+            Sysnex
           </span>
         </div>
       </SidebarHeader>
 
       <SidebarContent>
-        {menuStructure
-          .filter((category) => category.items.some((item) => canAccessPage(item.id)))
-          .map((category, index) => {
-            const visibleItems = category.items.filter((item) => canAccessPage(item.id));
-            return (
-              <div key={category.id} className="contents">
-                {index > 0 && <SidebarSeparator />}
+        {filteredCategories.map((category, index) => {
+          const isOpen = openCategories.has(category.id);
+          return (
+            <div key={category.id} className="contents">
+              {index > 0 && <SidebarSeparator />}
+              <Collapsible
+                open={isOpen}
+                onOpenChange={() => toggleCategory(category.id)}
+              >
                 <SidebarGroup>
-                  <SidebarGroupLabel className="text-sidebar-foreground/70 uppercase text-xs font-semibold px-2">
-                    {category.label}
-                  </SidebarGroupLabel>
-                  <SidebarGroupContent>
-                    <SidebarMenu>
-                      {visibleItems.map((item) => (
-                        <SidebarMenuItem key={item.id}>
-                          <SidebarMenuButton
-                            isActive={activePage === item.id}
-                            onClick={() => onPageChange(item.id)}
-                            tooltip={item.label}
-                            size="lg"
-                            className="w-full h-auto min-h-11 py-2 !items-start [&>svg]:!size-5 [&>svg]:!shrink-0 [&>span]:!whitespace-normal [&>span]:break-words"
-                          >
-                            {item.icon}
-                            <span>{item.label}</span>
-                            {item.badge !== undefined && item.badge > 0 && (
-                              <SidebarMenuBadge className="ml-auto bg-blue-600 text-white shrink-0">
-                                {item.badge}
-                              </SidebarMenuBadge>
-                            )}
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      ))}
-                    </SidebarMenu>
-                  </SidebarGroupContent>
+                  <CollapsibleTrigger asChild>
+                    <SidebarGroupLabel
+                      asChild
+                      className="text-sidebar-foreground/70 uppercase text-xs font-semibold px-2 cursor-pointer hover:text-sidebar-foreground hover:bg-sidebar-accent/50 rounded-md transition-colors flex items-center gap-1.5 h-8"
+                    >
+                      <div className="flex items-center gap-1.5 w-full">
+                        {isOpen ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 transition-transform" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 transition-transform" />
+                        )}
+                        <span>{category.label}</span>
+                      </div>
+                    </SidebarGroupLabel>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarGroupContent>
+                      <SidebarMenu>
+                        {category.visibleItems.map((item) => (
+                          <SidebarMenuItem key={item.id}>
+                            <SidebarMenuButton
+                              isActive={activePage === item.id}
+                              onClick={() => onPageChange(item.id)}
+                              tooltip={item.label}
+                              size="lg"
+                              className="w-full h-auto min-h-11 py-2 !items-start [&>svg]:!size-5 [&>svg]:!shrink-0 [&>span]:!whitespace-normal [&>span]:break-words"
+                            >
+                              {item.icon}
+                              <span>{item.label}</span>
+                              {item.badge !== undefined && item.badge > 0 && (
+                                <SidebarMenuBadge className="ml-auto bg-gray-700 text-white shrink-0">
+                                  {item.badge}
+                                </SidebarMenuBadge>
+                              )}
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        ))}
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  </CollapsibleContent>
                 </SidebarGroup>
-              </div>
-            );
-          })}
+              </Collapsible>
+            </div>
+          );
+        })}
       </SidebarContent>
     </Sidebar>
   );

@@ -109,10 +109,10 @@ src/
 
 ## 🎨 Design System
 
-### Cores Principais
-- **Azul SysGest**: `#1e40af`
-- **Teal**: `#0d9488`
-- **Amarelo**: `#fbbf24`
+### Cores Principais (Neutral Gray)
+- **Primary**: `#1f2937` (gray-800)
+- **Secondary**: `#6b7280` (gray-500)
+- **Muted**: `#9ca3af` (gray-400)
 
 ### Breakpoints Responsivos
 - **Mobile**: < 768px

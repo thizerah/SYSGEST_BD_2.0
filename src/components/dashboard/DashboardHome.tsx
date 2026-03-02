@@ -82,7 +82,7 @@ const ALL_PAGES: Record<string, Omit<QuickAction, "id">> = {
     bgColor: "bg-orange-50 hover:bg-orange-100",
   },
   indicadores: {
-    label: "Indicadores",
+    label: "Projeção Variável",
     icon: <TrendingUp className="w-5 h-5" />,
     description: "Desempenho, bonificações e ranking",
     color: "text-emerald-600",
@@ -185,28 +185,23 @@ export function DashboardHome({ onPageChange }: DashboardHomeProps) {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Hero Section */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 p-8 md:p-12 shadow-xl">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-gray-700 via-gray-600 to-gray-800 p-8 md:p-12 shadow-xl">
         <div className="relative z-10">
           <div className="flex flex-col items-center justify-center text-center space-y-6">
-            <div className="flex items-center justify-center gap-3">
-              <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
-                <LayoutDashboard className="w-8 h-8 text-white" />
-              </div>
-              <div>
-                <h1 className="text-3xl md:text-4xl font-bold text-white">
-                  InsightPro
-                </h1>
-                <p className="text-blue-100 text-sm md:text-base mt-1">
-                  Sistema de Gestão Inteligente
-                </p>
-              </div>
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold text-white">
+                Sysnex
+              </h1>
+              <p className="text-gray-200 text-sm md:text-base mt-1">
+                Sistema inteligente de gestão operacional, comercial e indicadores
+              </p>
             </div>
             
             <div className="space-y-2">
               <h2 className="text-2xl md:text-3xl font-semibold text-white">
                 {getSaudacao()}, {user?.name?.split(" ")[0] || "Usuário"}! 👋
               </h2>
-              <p className="text-blue-100 text-lg">
+              <p className="text-gray-200 text-lg">
                 Bem-vindo ao seu painel de controle
               </p>
             </div>
@@ -307,11 +302,11 @@ export function DashboardHome({ onPageChange }: DashboardHomeProps) {
                     >
                       <div className={action.color}>{action.icon}</div>
                     </div>
-                    <h4 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors">
+                    <h4 className="font-semibold text-gray-900 mb-1 group-hover:text-gray-700 transition-colors">
                       {action.label}
                     </h4>
                     <p className="text-sm text-gray-600 mb-3">{action.description}</p>
-                    <div className="flex items-center text-sm font-medium text-blue-600 group-hover:gap-2 transition-all">
+                    <div className="flex items-center text-sm font-medium text-gray-700 group-hover:gap-2 transition-all">
                       Acessar
                       <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
                     </div>
@@ -322,11 +317,11 @@ export function DashboardHome({ onPageChange }: DashboardHomeProps) {
           </div>
 
           {/* Welcome Message */}
-          <Card className="bg-gradient-to-r from-gray-50 to-blue-50 border-2 border-blue-100">
+          <Card className="bg-gradient-to-r from-gray-50 to-neutral-50 border-2 border-gray-200">
             <CardContent className="p-6">
               <div className="flex items-start gap-4">
-                <div className="p-3 bg-blue-100 rounded-xl">
-                  <LayoutDashboard className="w-6 h-6 text-blue-600" />
+                <div className="p-3 bg-gray-200 rounded-xl">
+                  <LayoutDashboard className="w-6 h-6 text-gray-700" />
                 </div>
                 <div className="flex-1">
                   <h4 className="font-semibold text-gray-900 mb-2">Comece a explorar</h4>

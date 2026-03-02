@@ -72,7 +72,7 @@ export function LoginForm() {
     } else {
       toast({
         title: "Login realizado com sucesso",
-        description: "Bem-vindo ao InsightPro"
+        description: "Bem-vindo ao Sysnex"
       });
       navigate("/dashboard");
     }
@@ -97,10 +97,10 @@ export function LoginForm() {
       );
     } else if (errorType === 'session_expired') {
       return (
-        <Alert variant="default" className="bg-blue-50 border-blue-500 text-blue-800">
-          <AlertCircle className="h-4 w-4 text-blue-600" />
-          <AlertTitle className="text-blue-800 font-bold">Sessão Expirada</AlertTitle>
-          <AlertDescription className="text-blue-700">
+        <Alert variant="default" className="bg-gray-50 border-gray-400 text-gray-800">
+          <AlertCircle className="h-4 w-4 text-gray-600" />
+          <AlertTitle className="text-gray-800 font-bold">Sessão Expirada</AlertTitle>
+          <AlertDescription className="text-gray-700">
             {error}
           </AlertDescription>
         </Alert>
@@ -124,7 +124,7 @@ export function LoginForm() {
           <Label htmlFor="email" className="text-gray-700 font-semibold text-sm">Email</Label>
           <div className="relative group">
             <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
-              <Mail className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+              <Mail className="text-gray-400 group-focus-within:text-gray-700 transition-colors" size={20} />
             </div>
             <Input
               id="email"
@@ -133,7 +133,7 @@ export function LoginForm() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
-              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-gray-600 focus:ring-2 focus:ring-gray-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
             />
           </div>
         </div>
@@ -142,7 +142,7 @@ export function LoginForm() {
           <Label htmlFor="password" className="text-gray-700 font-semibold text-sm">Senha</Label>
           <div className="relative group">
             <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
-              <Lock className="text-gray-400 group-focus-within:text-blue-600 transition-colors" size={20} />
+              <Lock className="text-gray-400 group-focus-within:text-gray-700 transition-colors" size={20} />
             </div>
             <Input
               id="password"
@@ -151,14 +151,14 @@ export function LoginForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
-              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-gray-600 focus:ring-2 focus:ring-gray-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
             />
           </div>
         </div>
         
         <Button 
           type="submit" 
-          className="w-full h-14 bg-gradient-to-r from-blue-600 via-indigo-600 to-teal-500 hover:from-teal-500 hover:via-indigo-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 flex items-center justify-center space-x-3 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full h-14 bg-gray-800 hover:bg-gray-900 text-white font-bold text-lg rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 flex items-center justify-center space-x-3 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={loading}
         >
           {loading ? (

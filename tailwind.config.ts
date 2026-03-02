@@ -53,11 +53,14 @@ export default {
 					foreground: 'hsl(var(--card-foreground))'
 				},
 				sysgest: {
-					blue: '#1a3a6d',
-					teal: '#00a0b0',
-					gold: '#f9a826',
-					light: '#f5f7fa',
-					dark: '#2c3e50'
+					blue: '#1f2937',
+					teal: '#6b7280',
+					gold: '#9ca3af',
+					primary: '#1f2937',
+					secondary: '#6b7280',
+					muted: '#9ca3af',
+					light: '#f9fafb',
+					dark: '#111827'
 				},
 				sidebar: {
 					DEFAULT: 'hsl(var(--sidebar-background))',

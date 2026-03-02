@@ -1,6 +1,6 @@
 {
-  "name": "InsightPro",
-  "short_name": "InsightPro",
+  "name": "Sysnex",
+  "short_name": "Sysnex",
   "description": "Sistema de Gestão de Ordens de Serviço",
   "start_url": "/",
   "display": "standalone",

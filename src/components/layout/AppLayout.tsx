@@ -31,7 +31,7 @@ const PAGE_TITLES: Record<string, string> = {
   time: "Tempos e Otimização",
   reopening: "Reaberturas",
   permanencia: "Permanência",
-  indicadores: "Indicadores",
+  indicadores: "Projeção Variável",
   metas: "Vendas",
   technicians: "Técnicos",
   vendedor: "Vendedores",
@@ -93,7 +93,7 @@ export function AppLayout({
                   {activePage !== "home" ? (
                     <button
                       onClick={() => onPageChange("home")}
-                      className="group flex items-center gap-2 px-3 py-1.5 rounded-md font-semibold text-sm bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-800 border border-blue-200 hover:border-blue-300 transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer"
+                      className="group flex items-center gap-2 px-3 py-1.5 rounded-md font-semibold text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 hover:text-gray-900 border border-gray-200 hover:border-gray-300 transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer"
                       title="Voltar para o início"
                     >
                       <Home className="w-4 h-4 group-hover:scale-110 transition-transform" />
@@ -114,7 +114,7 @@ export function AppLayout({
           {/* Card de usuário no header principal */}
           <div className="hidden md:flex items-center">
             <div className="flex items-center gap-3 rounded-xl bg-white/80 border border-gray-200 px-4 py-2 shadow-sm">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-700">
+              <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-sm font-bold text-gray-800">
                 {(user?.name || "T").charAt(0).toUpperCase()}
               </div>
               <div className="flex flex-col text-xs leading-tight text-gray-800">
