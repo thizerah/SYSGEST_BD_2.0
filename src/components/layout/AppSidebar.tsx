@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -216,11 +216,20 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
   const [openCategories, setOpenCategories] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     if (activeCategoryId) initial.add(activeCategoryId);
-    if (initial.size === 0 && filteredCategories.length > 0) {
-      initial.add(filteredCategories[0].id);
-    }
     return initial;
   });
+
+  const ignoreNextOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (ignoreNextOpenRef.current) {
+      ignoreNextOpenRef.current = false;
+      return;
+    }
+    if (activeCategoryId && !openCategories.has(activeCategoryId)) {
+      setOpenCategories((prev) => new Set([...prev, activeCategoryId]));
+    }
+  }, [activeCategoryId]);
 
   const toggleCategory = (categoryId: string) => {
     setOpenCategories((prev) => {
@@ -279,6 +288,7 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
                             <SidebarMenuButton
                               isActive={activePage === item.id}
                               onClick={() => {
+                                ignoreNextOpenRef.current = true;
                                 onPageChange(item.id);
                                 setOpenCategories((prev) => {
                                   const next = new Set(prev);
