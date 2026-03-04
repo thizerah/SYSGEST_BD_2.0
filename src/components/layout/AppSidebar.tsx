@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -12,7 +12,7 @@ import {
   SidebarMenuBadge,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContentAnimated, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   LayoutDashboard,
   Clock,
@@ -32,6 +32,8 @@ import {
   Mail,
   ChevronDown,
   ChevronRight,
+  FileEdit,
+  Settings2,
 } from "lucide-react";
 import { useAuth } from "@/context/auth";
 
@@ -96,6 +98,11 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
           id: "permanencia",
           label: "Permanência",
           icon: <Shield className="h-5 w-5 shrink-0 text-orange-600" strokeWidth={2.5} />,
+        },
+        {
+          id: "cadastro_comercial",
+          label: "Cadastro Comercial",
+          icon: <FileEdit className="h-5 w-5 shrink-0 text-emerald-600" strokeWidth={2.5} />,
         },
       ],
     },
@@ -167,6 +174,11 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
           label: "Pagamentos",
           icon: <CreditCard className="h-5 w-5 shrink-0 text-amber-600" strokeWidth={2.5} />,
         },
+        {
+          id: "planos_comercial",
+          label: "Planos Comercial",
+          icon: <Settings2 className="h-5 w-5 shrink-0 text-blue-600" strokeWidth={2.5} />,
+        },
       ],
     },
     {
@@ -222,14 +234,6 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
     });
   };
 
-  useEffect(() => {
-    if (activeCategoryId) {
-      setOpenCategories((prev) =>
-        prev.has(activeCategoryId) ? prev : new Set([...prev, activeCategoryId])
-      );
-    }
-  }, [activeCategoryId]);
-
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader className="border-b border-sidebar-border">
@@ -267,14 +271,21 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
                       </div>
                     </SidebarGroupLabel>
                   </CollapsibleTrigger>
-                  <CollapsibleContent>
+                  <CollapsibleContentAnimated>
                     <SidebarGroupContent>
                       <SidebarMenu>
                         {category.visibleItems.map((item) => (
                           <SidebarMenuItem key={item.id}>
                             <SidebarMenuButton
                               isActive={activePage === item.id}
-                              onClick={() => onPageChange(item.id)}
+                              onClick={() => {
+                                onPageChange(item.id);
+                                setOpenCategories((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(category.id);
+                                  return next;
+                                });
+                              }}
                               tooltip={item.label}
                               size="lg"
                               className="w-full h-auto min-h-11 py-2 !items-start [&>svg]:!size-5 [&>svg]:!shrink-0 [&>span]:!whitespace-normal [&>span]:break-words"
@@ -291,7 +302,7 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
                         ))}
                       </SidebarMenu>
                     </SidebarGroupContent>
-                  </CollapsibleContent>
+                  </CollapsibleContentAnimated>
                 </SidebarGroup>
               </Collapsible>
             </div>

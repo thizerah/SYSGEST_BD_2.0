@@ -24,6 +24,9 @@ export const PERMISSOES_CODIGOS = [
   'editar_base',
   'editar_metas_empresa',
   'visualizar_mailing',
+  'cadastro_fibra',
+  'cadastro_movel',
+  'cadastro_nova_parabolica',
 ] as const;
 
 export type PermissaoCodigo = (typeof PERMISSOES_CODIGOS)[number];
@@ -43,16 +46,27 @@ export const PAGE_TO_PERMISSION: Record<string, PermissaoCodigo | null> = {
   roteiro: 'rotas',
   cadastro_tecnicos: 'cadastro_usuarios',
   subusuarios: 'cadastro_acesso',
+  cadastro_comercial: null, // Usa PAGE_TO_PERMISSION_ANY
+};
+
+/** Páginas que exigem QUALQUER uma das permissões listadas. */
+export const PAGE_TO_PERMISSION_ANY: Record<string, PermissaoCodigo[]> = {
+  cadastro_comercial: ['cadastro_fibra', 'cadastro_movel', 'cadastro_nova_parabolica'],
 };
 
 /** Páginas só para admin (users, payments). */
 export const ADMIN_ONLY_PAGES = ['users', 'payments'] as const;
 
-/** Páginas só para dono/admin (não sub). Ex.: import. */
-export const DONO_OR_ADMIN_PAGES = ['import'] as const;
+/** Páginas só para dono/admin (não sub). Ex.: import, planos comercial. */
+export const DONO_OR_ADMIN_PAGES = ['import', 'planos_comercial'] as const;
 
 export function getPermissionForPage(pageId: string): PermissaoCodigo | null {
   return PAGE_TO_PERMISSION[pageId] ?? null;
+}
+
+/** Retorna as permissões para páginas que aceitam QUALQUER uma delas. */
+export function getPermissionsAnyForPage(pageId: string): PermissaoCodigo[] | null {
+  return PAGE_TO_PERMISSION_ANY[pageId] ?? null;
 }
 
 export function isAdminOnlyPage(pageId: string): boolean {

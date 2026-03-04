@@ -309,6 +309,101 @@ export interface VendaMeta {
   status_proposta?: string;
 }
 
+/** Plano FIBRA (catálogo admin) */
+export interface PlanoFibra {
+  id: string;
+  user_id: string;
+  nome: string;
+  velocidade?: number;
+  preco_mensal?: number;
+  descricao?: string;
+  beneficios?: string;
+  ativo: boolean;
+}
+
+/** Plano MÓVEL (catálogo admin) */
+export interface PlanoMovel {
+  id: string;
+  user_id: string;
+  nome: string;
+  descricao?: string;
+  dados_gb?: number;
+  minutos?: number;
+  sms?: string;
+  preco_mensal?: number;
+  beneficios?: string;
+  ativo: boolean;
+}
+
+/** Venda FIBRA (cadastro vendedor) */
+export interface VendaFibra {
+  id?: string;
+  user_id: string;
+  nome_completo: string;
+  cpf_cnpj: string;
+  data_nascimento?: string;
+  telefone: string;
+  whatsapp?: string;
+  email: string;
+  cep: string;
+  endereco?: string;
+  numero: string;
+  bairro?: string;
+  cidade?: string;
+  vendedor?: string;
+  data_cadastro?: string;
+  status_proposta?: string;
+  plano_fibra_id?: string;
+}
+
+/** Venda MÓVEL (cadastro vendedor) */
+export interface VendaMovel {
+  id?: string;
+  user_id: string;
+  nome_completo: string;
+  cpf?: string;
+  rg?: string;
+  data_nascimento?: string;
+  email: string;
+  telefone: string;
+  whatsapp?: string;
+  cep: string;
+  endereco?: string;
+  numero: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+  complemento?: string;
+  referencia?: string;
+  dia_vencimento?: number;
+  esim?: boolean;
+  portabilidade?: boolean;
+  vendedor?: string;
+  data_cadastro?: string;
+  status_proposta?: string;
+  plano_movel_id?: string;
+}
+
+/** Venda Nova Parabólica (tabela vendas_nova_parabolica) */
+export interface VendaNovaParabolica {
+  id?: string;
+  user_id: string;
+  nome_proprietario?: string;
+  cpf?: string;
+  telefone_celular?: string;
+  numero_proposta: string;
+  valor: number;
+  valor_recarga?: number;
+  forma_pagamento?: string;
+  cartao_condicao?: string;
+  parcelas?: number;
+  data_venda: string;
+  cidade?: string;
+  bairro?: string;
+  vendedor?: string;
+  status_proposta?: string;
+}
+
 export interface BaseData {
   mes: string;
   ano: number;

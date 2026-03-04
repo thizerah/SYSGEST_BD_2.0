@@ -219,6 +219,8 @@ import { OptimizationCountCard } from "@/components/dashboard/OptimizationCountC
 import { Badge } from "@/components/ui/badge";
 import { RoteiroMain } from "@/components/roteiro/RoteiroMain";
 import { CadastroTecnicos } from "@/components/cadastro/CadastroTecnicos";
+import { CadastroComercial } from "@/components/cadastro/CadastroComercial";
+import { PlanosComercial } from "@/components/cadastro/PlanosComercial";
 import { GestaoSubusuarios } from "@/components/equipe/GestaoSubusuarios";
 import { BasePage } from "@/components/base/BasePage";
 import { MetasEmpresaPage } from "@/components/metas/MetasEmpresaPage";
@@ -8244,6 +8246,16 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
     {/* Cadastro de Acesso */}
     <TabsContent value="subusuarios" className="space-y-4">
       <GestaoSubusuarios />
+    </TabsContent>
+
+    {/* Cadastro Comercial (FIBRA | MÓVEL | Nova Parabólica) */}
+    <TabsContent value="cadastro_comercial" className="space-y-4">
+      <CadastroComercial />
+    </TabsContent>
+
+    {/* Planos Comercial (CRUD FIBRA | MÓVEL - admin) */}
+    <TabsContent value="planos_comercial" className="space-y-4">
+      <PlanosComercial />
     </TabsContent>
 
     {/* Base (TV, Fibra, Aliança) */}

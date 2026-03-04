@@ -1,9 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Tab } from "@/components/layout/TabsManager";
 
-const STORAGE_KEY = "dashboard-open-tabs";
-const ACTIVE_TAB_KEY = "dashboard-active-tab";
-
 // Limite máximo de abas abertas
 const MAX_TABS = 5;
 
@@ -29,55 +26,13 @@ export function useTabs(initialPage: string = "home", onTabClose?: OnTabCloseCal
   // Estado para indicar se limite foi atingido (para notificação externa)
   const [limitReached, setLimitReached] = useState(false);
 
-  // Carregar abas do localStorage ou usar padrão
-  const [tabs, setTabs] = useState<Tab[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Limitar abas carregadas ao máximo permitido e remover icon (não serializável, pode vir corrompido)
-        const limitedTabs = parsed.slice(0, MAX_TABS).map((tab: Tab) => {
-          const { icon, ...rest } = tab;
-          return rest;
-        });
-        return limitedTabs.length > 0 ? limitedTabs : [{ id: "home", title: "Início", page: "home" }];
-      }
-    } catch (error) {
-      console.error("Erro ao carregar abas do localStorage:", error);
-    }
-    return [{ id: "home", title: "Início", page: "home" }];
-  });
+  // Abas não são mais persistidas no localStorage - sempre iniciar apenas com Início.
+  // Evita abrir a página com guias antigas e conteúdo em branco.
+  const [tabs, setTabs] = useState<Tab[]>(() => [
+    { id: "home", title: "Início", page: "home" },
+  ]);
 
-  const [activeTabId, setActiveTabId] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem(ACTIVE_TAB_KEY);
-      if (saved && tabs.find(t => t.id === saved)) {
-        return saved;
-      }
-    } catch (error) {
-      console.error("Erro ao carregar aba ativa do localStorage:", error);
-    }
-    return "home";
-  });
-
-  // Salvar abas no localStorage quando mudarem (excluir icon - React elements não podem ser serializados)
-  useEffect(() => {
-    try {
-      const tabsToSave = tabs.map(({ icon, ...rest }) => rest);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(tabsToSave));
-    } catch (error) {
-      console.error("Erro ao salvar abas no localStorage:", error);
-    }
-  }, [tabs]);
-
-  // Salvar aba ativa no localStorage quando mudar
-  useEffect(() => {
-    try {
-      localStorage.setItem(ACTIVE_TAB_KEY, activeTabId);
-    } catch (error) {
-      console.error("Erro ao salvar aba ativa no localStorage:", error);
-    }
-  }, [activeTabId]);
+  const [activeTabId, setActiveTabId] = useState<string>("home");
 
   // Resetar flag de limite quando abas mudarem
   useEffect(() => {

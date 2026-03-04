@@ -6,6 +6,7 @@ import type { AuthExtras } from '@/types/auth';
 import { defaultAuthExtras } from '@/types/auth';
 import {
   getPermissionForPage,
+  getPermissionsAnyForPage,
   isAdminOnlyPage,
   isDonoOrAdminOnlyPage,
 } from '@/lib/permissoes';
@@ -138,6 +139,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!user) return false;
       if (isAdminOnlyPage(pageId)) return user.role === 'admin';
       if (isDonoOrAdminOnlyPage(pageId)) return !authExtras.isSubUser;
+      const permsAny = getPermissionsAnyForPage(pageId);
+      if (permsAny && permsAny.length > 0) {
+        return permsAny.some((p) => hasPermissao(p));
+      }
       const perm = getPermissionForPage(pageId);
       if (!perm) return true;
       return hasPermissao(perm);
