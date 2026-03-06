@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/context/useAuth';
 import { formatarCEP, buscarCEP } from '@/utils/viacep';
-import { formatarCPF, formatarTelefone } from '@/utils/mascaras';
+import { formatarCPF, formatarTelefone, normalizarNome } from '@/utils/mascaras';
 import { fetchPlanosFibra, insertVendaFibra } from '@/lib/cadastro-comercial';
 import type { PlanoFibra } from '@/types';
 
@@ -36,6 +36,7 @@ export function CadastroFibra() {
   const [cidade, setCidade] = useState('');
   const [planoId, setPlanoId] = useState('');
   const [statusProposta, setStatusProposta] = useState('Aguardando');
+  const [dataVenda, setDataVenda] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     if (!donoUserId) return;
@@ -83,7 +84,7 @@ export function CadastroFibra() {
     try {
       await insertVendaFibra({
         user_id: donoUserId,
-        nome_completo: nomeCompleto.trim(),
+        nome_completo: normalizarNome(nomeCompleto),
         cpf_cnpj: cpfCnpj.replace(/\D/g, ''),
         data_nascimento: dataNascimento || undefined,
         telefone: telefone.replace(/\D/g, ''),
@@ -95,8 +96,10 @@ export function CadastroFibra() {
         bairro: bairro || undefined,
         cidade: cidade || undefined,
         vendedor: vendedorNome,
+        data_venda: dataVenda || undefined,
         status_proposta: statusProposta || 'Aguardando',
         plano_fibra_id: planoId || undefined,
+        plano_fibra_nome: planoId ? planos.find((p) => p.id === planoId)?.nome : undefined,
       });
       toast({ title: 'Sucesso', description: 'Venda FIBRA cadastrada.' });
       setEtapa(1);
@@ -112,6 +115,7 @@ export function CadastroFibra() {
       setBairro('');
       setCidade('');
       setPlanoId('');
+      setDataVenda(new Date().toISOString().split('T')[0]);
     } catch (err) {
       toast({
         title: 'Erro',
@@ -232,6 +236,15 @@ export function CadastroFibra() {
             ) : (
               <p className="text-sm text-amber-600">Nenhum plano FIBRA cadastrado. O admin precisa criar planos primeiro.</p>
             )}
+            <div>
+              <Label htmlFor="data_venda">Data da venda</Label>
+              <Input
+                id="data_venda"
+                type="date"
+                value={dataVenda}
+                onChange={(e) => setDataVenda(e.target.value)}
+              />
+            </div>
             <div>
               <Label>Status da proposta</Label>
               <Select value={statusProposta} onValueChange={setStatusProposta}>

@@ -352,8 +352,10 @@ export interface VendaFibra {
   cidade?: string;
   vendedor?: string;
   data_cadastro?: string;
+  data_venda?: string;
   status_proposta?: string;
   plano_fibra_id?: string;
+  plano_fibra_nome?: string;
 }
 
 /** Venda MÓVEL (cadastro vendedor) */
@@ -380,9 +382,14 @@ export interface VendaMovel {
   portabilidade?: boolean;
   vendedor?: string;
   data_cadastro?: string;
+  data_venda?: string;
   status_proposta?: string;
   plano_movel_id?: string;
+  plano_movel_nome?: string;
 }
+
+/** Valores permitidos para info_recarga (Nova Parabólica) */
+export type InfoRecargaTipo = 'RECARGA_ESTOQUE' | 'RECARGA_APARELHO_NOVO' | 'RECARGA_SEM_APARELHO';
 
 /** Venda Nova Parabólica (tabela vendas_nova_parabolica) */
 export interface VendaNovaParabolica {
@@ -394,12 +401,19 @@ export interface VendaNovaParabolica {
   numero_proposta: string;
   valor: number;
   valor_recarga?: number;
+  info_recarga?: InfoRecargaTipo;
   forma_pagamento?: string;
   cartao_condicao?: string;
   parcelas?: number;
   data_venda: string;
+  cep?: string;
+  endereco?: string;
+  numero?: string;
   cidade?: string;
   bairro?: string;
+  estado?: string;
+  complemento?: string;
+  referencia?: string;
   vendedor?: string;
   status_proposta?: string;
 }

@@ -2,6 +2,16 @@
  * Máscaras para campos de formulário.
  */
 
+/** Normaliza nome para formato próprio: GILSINEY DANTAS LEAL → Gilsiney Dantas Leal */
+export function normalizarNome(nome: string): string {
+  if (!nome || !nome.trim()) return nome;
+  return nome
+    .trim()
+    .split(/\s+/)
+    .map((palavra) => palavra.charAt(0).toUpperCase() + palavra.slice(1).toLowerCase())
+    .join(' ');
+}
+
 /** CPF: XXX.XXX.XXX-XX (11 dígitos) */
 export function formatarCPF(valor: string): string {
   const nums = valor.replace(/\D/g, '').slice(0, 11);

@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/context/useAuth';
 import { formatarCEP, buscarCEP } from '@/utils/viacep';
-import { formatarCPF, formatarRG, formatarTelefone } from '@/utils/mascaras';
+import { formatarCPF, formatarRG, formatarTelefone, normalizarNome } from '@/utils/mascaras';
 import { fetchPlanosMovel, insertVendaMovel } from '@/lib/cadastro-comercial';
 import type { PlanoMovel } from '@/types';
 
@@ -43,6 +43,7 @@ export function CadastroMovel() {
   const [portabilidade, setPortabilidade] = useState<string>('');
   const [planoId, setPlanoId] = useState('');
   const [statusProposta, setStatusProposta] = useState('Aguardando');
+  const [dataVenda, setDataVenda] = useState(new Date().toISOString().split('T')[0]);
 
   const DIA_VENCIMENTO_OPCOES = ['5', '10', '15', '20'];
 
@@ -97,7 +98,7 @@ export function CadastroMovel() {
     try {
       await insertVendaMovel({
         user_id: donoUserId,
-        nome_completo: nomeCompleto.trim(),
+        nome_completo: normalizarNome(nomeCompleto),
         cpf: cpf.replace(/\D/g, '') || undefined,
         rg: rg.replace(/\D/g, '') || undefined,
         data_nascimento: dataNascimento || undefined,
@@ -116,8 +117,10 @@ export function CadastroMovel() {
         esim: esim === 'sim',
         portabilidade: portabilidade === 'sim',
         vendedor: vendedorNome,
+        data_venda: dataVenda || undefined,
         status_proposta: statusProposta || 'Aguardando',
         plano_movel_id: planoId || undefined,
+        plano_movel_nome: planoId ? planos.find((p) => p.id === planoId)?.nome : undefined,
       });
       toast({ title: 'Sucesso', description: 'Venda MÓVEL cadastrada.' });
       setEtapa(1);
@@ -140,6 +143,7 @@ export function CadastroMovel() {
       setEsim('');
       setPortabilidade('');
       setPlanoId('');
+      setDataVenda(new Date().toISOString().split('T')[0]);
     } catch (err) {
       toast({
         title: 'Erro',
@@ -324,6 +328,15 @@ export function CadastroMovel() {
             ) : (
               <p className="text-sm text-amber-600">Nenhum plano MÓVEL cadastrado. O admin precisa criar planos primeiro.</p>
             )}
+            <div>
+              <Label htmlFor="data_venda">Data da venda</Label>
+              <Input
+                id="data_venda"
+                type="date"
+                value={dataVenda}
+                onChange={(e) => setDataVenda(e.target.value)}
+              />
+            </div>
             <div>
               <Label>Status da proposta</Label>
               <Select value={statusProposta} onValueChange={setStatusProposta}>
