@@ -220,10 +220,12 @@ import { Badge } from "@/components/ui/badge";
 import { RoteiroMain } from "@/components/roteiro/RoteiroMain";
 import { CadastroTecnicos } from "@/components/cadastro/CadastroTecnicos";
 import { CadastroComercial } from "@/components/cadastro/CadastroComercial";
+import { VisualizarVendasPage } from "@/components/vendas/VisualizarVendasPage";
 import { PlanosComercial } from "@/components/cadastro/PlanosComercial";
 import { GestaoSubusuarios } from "@/components/equipe/GestaoSubusuarios";
 import { BasePage } from "@/components/base/BasePage";
 import { MetasEmpresaPage } from "@/components/metas/MetasEmpresaPage";
+import { MetasVendedorPage } from "@/components/metas/MetasVendedorPage";
 import { MailingPage } from "@/components/mailing/MailingPage";
 import { DataMigrationPanel } from "@/components/dashboard/DataMigrationPanel";
 import { DashboardHome } from "@/components/dashboard/DashboardHome";
@@ -8253,6 +8255,11 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
       <CadastroComercial />
     </TabsContent>
 
+    {/* Visualizar Vendas (vendedor: suas vendas | supervisor: todas) */}
+    <TabsContent value="visualizar_vendas" className="space-y-4">
+      <VisualizarVendasPage />
+    </TabsContent>
+
     {/* Planos Comercial (CRUD FIBRA | MÓVEL - admin) */}
     <TabsContent value="planos_comercial" className="space-y-4">
       <PlanosComercial />
@@ -8266,6 +8273,11 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
     {/* Meta de Vendas Empresa */}
     <TabsContent value="metas_empresa" className="space-y-4">
       <MetasEmpresaPage />
+    </TabsContent>
+
+    {/* Meta de Vendas Vendedor */}
+    <TabsContent value="metas_vendedor" className="space-y-4">
+      <MetasVendedorPage />
     </TabsContent>
 
     {/* Mailing */}

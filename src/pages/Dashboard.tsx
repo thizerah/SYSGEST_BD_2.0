@@ -46,8 +46,10 @@ const PAGE_ICONS: Record<string, React.ReactNode> = {
   subusuarios: <Shield className="w-4 h-4" />,
   base: <Database className="w-4 h-4" />,
   metas_empresa: <Target className="w-4 h-4" />,
+  metas_vendedor: <Target className="w-4 h-4" />,
   mailing: <Mail className="w-4 h-4" />,
   cadastro_comercial: <FileEdit className="w-4 h-4" />,
+  visualizar_vendas: <BarChart3 className="w-4 h-4" />,
   planos_comercial: <Settings2 className="w-4 h-4" />,
 };
 
@@ -69,8 +71,10 @@ const PAGE_TITLES: Record<string, string> = {
   subusuarios: "Cadastro de Acesso",
   base: "Base",
   metas_empresa: "Meta de Vendas Empresa",
+  metas_vendedor: "Meta de Vendas Vendedor",
   mailing: "Mailing",
   cadastro_comercial: "Cadastro Comercial",
+  visualizar_vendas: "Visualizar Vendas",
   planos_comercial: "Planos Comercial",
 };
 

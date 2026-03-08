@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/auth';
 import useData from '@/context/useData';
 import { useToast } from '@/components/ui/use-toast';
@@ -98,7 +99,6 @@ export function MetasEmpresaPage() {
   const podeEditar = hasPermissao('editar_metas_empresa');
 
   const [dados, setDados] = useState<Meta[]>([]);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [anoFiltro, setAnoFiltro] = useState<string>('');
   const [mostrarAdicionar, setMostrarAdicionar] = useState(false);
@@ -111,11 +111,7 @@ export function MetasEmpresaPage() {
   const [modalComparar, setModalComparar] = useState(false);
 
   const carregar = useCallback(async () => {
-    if (!donoUserId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+    if (!donoUserId) return;
     try {
       const rows = await fetchMetas(donoUserId);
       setDados(rows.sort(ordenarMetasPorMesAno));
@@ -127,8 +123,6 @@ export function MetasEmpresaPage() {
         description: e instanceof Error ? e.message : 'Tente novamente.',
         variant: 'destructive',
       });
-    } finally {
-      setLoading(false);
     }
   }, [donoUserId, toast]);
 
@@ -271,14 +265,6 @@ export function MetasEmpresaPage() {
     return totais;
   }, [dadosFiltrados, metricsPorLinha]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[200px]">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <Card>
@@ -336,40 +322,48 @@ export function MetasEmpresaPage() {
           {mostrarAdicionar && podeEditar && (
             <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
               <h4 className="font-medium text-sm">Novo registro</h4>
-              <div className="flex flex-wrap gap-3 items-end">
-                <Select value={novoMes} onValueChange={setNovoMes}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Mês" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MESES_OPCOES.map((m) => (
-                      <SelectItem key={m.valor} value={m.valor}>
-                        {m.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  type="number"
-                  placeholder="Ano"
-                  className="w-24"
-                  value={novoAno}
-                  onChange={(e) => setNovoAno(parseInt(e.target.value, 10) || new Date().getFullYear())}
-                  min={2020}
-                  max={2030}
-                />
-                {CAMPOS_EDITAVEIS.map((c) => (
+              <div className="flex flex-wrap gap-4 items-end">
+                <div className="flex flex-col gap-1.5">
+                  <Label>Mês</Label>
+                  <Select value={novoMes} onValueChange={setNovoMes}>
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue placeholder="Mês" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MESES_OPCOES.map((m) => (
+                        <SelectItem key={m.valor} value={m.valor}>
+                          {m.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Ano</Label>
                   <Input
-                    key={c.key}
                     type="number"
-                    placeholder={c.label}
+                    placeholder=""
                     className="w-24"
-                    value={novoValores[c.key]}
-                    onChange={(e) =>
-                      setNovoValores((v) => ({ ...v, [c.key]: parseInt(e.target.value, 10) || 0 }))
-                    }
-                    min={0}
+                    value={novoAno}
+                    onChange={(e) => setNovoAno(parseInt(e.target.value, 10) || new Date().getFullYear())}
+                    min={2020}
+                    max={2030}
                   />
+                </div>
+                {CAMPOS_EDITAVEIS.map((c) => (
+                  <div key={c.key} className="flex flex-col gap-1.5">
+                    <Label>{c.label}</Label>
+                    <Input
+                      type="number"
+                      placeholder=""
+                      className="w-24"
+                      value={novoValores[c.key] === 0 ? '' : novoValores[c.key]}
+                      onChange={(e) =>
+                        setNovoValores((v) => ({ ...v, [c.key]: parseInt(e.target.value, 10) || 0 }))
+                      }
+                      min={0}
+                    />
+                  </div>
                 ))}
                 <div className="flex gap-2">
                   <Button onClick={adicionar} disabled={saving === '__novo__'}>

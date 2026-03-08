@@ -34,6 +34,7 @@ import {
   ChevronRight,
   FileEdit,
   Settings2,
+  Eye,
 } from "lucide-react";
 import { useAuth } from "@/context/auth";
 
@@ -104,6 +105,11 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
           label: "Cadastro Comercial",
           icon: <FileEdit className="h-5 w-5 shrink-0 text-emerald-600" strokeWidth={2.5} />,
         },
+        {
+          id: "visualizar_vendas",
+          label: "Visualizar Vendas",
+          icon: <Eye className="h-5 w-5 shrink-0 text-green-600" strokeWidth={2.5} />,
+        },
       ],
     },
     {
@@ -152,6 +158,11 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
           id: "metas_empresa",
           label: "Meta de Vendas Empresa",
           icon: <Target className="h-5 w-5 shrink-0 text-amber-600" strokeWidth={2.5} />,
+        },
+        {
+          id: "metas_vendedor",
+          label: "Meta de Vendas Vendedor",
+          icon: <Briefcase className="h-5 w-5 shrink-0 text-amber-600" strokeWidth={2.5} />,
         },
         {
           id: "mailing",

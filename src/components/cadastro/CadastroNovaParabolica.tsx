@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/context/useAuth';
 import { insertVendaNovaParabolica } from '@/lib/cadastro-comercial';
+import { fetchEquipeById } from '@/lib/equipe';
 import { INFO_RECARGA_OPCOES } from '@/constants/infoRecarga';
 import type { InfoRecargaTipo } from '@/types';
 import { formatarCPF, formatarTelefone, normalizarNome } from '@/utils/mascaras';
@@ -25,7 +26,7 @@ const FORMA_PAGAMENTO_OPCOES = [
   { value: 'DINHEIRO', label: 'Dinheiro' },
 ];
 
-const STATUS_OPCOES = ['Aguardando', 'Habilitado', 'Finalizado', 'Aguardando Habilitação', 'Aguardando Pagamento', 'Pagamento Confirmado'];
+const STATUS_OPCOES = ['Aguardando', 'Finalizado', 'Aguardando Habilitação', 'Aguardando Pagamento', 'Pagamento Confirmado'];
 
 function gerarNumeroPropostaSomenteRecarga(): string {
   const digitos = Math.floor(100000000 + Math.random() * 900000000);
@@ -36,7 +37,7 @@ export function CadastroNovaParabolica() {
   const { user, authExtras } = useAuth();
   const { toast } = useToast();
   const donoUserId = authExtras?.donoUserId ?? user?.id ?? null;
-  const vendedorNome = user?.name || user?.username || user?.email?.split('@')[0] || '';
+  const [equipeVendedor, setEquipeVendedor] = useState<{ nome: string; idVendedor: string | null } | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [numeroProposta, setNumeroProposta] = useState('');
@@ -61,6 +62,19 @@ export function CadastroNovaParabolica() {
   const [infoRecarga, setInfoRecarga] = useState<InfoRecargaTipo | ''>('');
 
   const isSomenteRecarga = infoRecarga === 'RECARGA_SEM_APARELHO';
+
+  useEffect(() => {
+    const equipeId = authExtras?.equipeId ?? null;
+    if (equipeId) {
+      fetchEquipeById(equipeId).then((eq) => {
+        if (eq) setEquipeVendedor({ nome: eq.nome_completo, idVendedor: eq.id_vendedor ?? null });
+        else setEquipeVendedor(null);
+      }).catch(() => setEquipeVendedor(null));
+    } else {
+      const nome = user?.name || user?.username || user?.email?.split('@')[0] || '';
+      setEquipeVendedor(nome ? { nome, idVendedor: null } : null);
+    }
+  }, [authExtras?.equipeId, user?.name, user?.username, user?.email]);
 
   const handleCepBlur = async () => {
     if (!cep || cep.replace(/\D/g, '').length !== 8) return;
@@ -142,12 +156,14 @@ export function CadastroNovaParabolica() {
       const valorRecargaNum = parsePrecoFormatado(valorRecarga);
       const valorNum = parsePrecoFormatado(valor) ?? 0;
 
+      const vendedorNome = equipeVendedor?.nome || user?.name || user?.username || user?.email?.split('@')[0] || '';
       const payload = {
         numero_proposta: isSomenteRecarga ? numeroProposta.trim() : numeroProposta.trim(),
         valor: isSomenteRecarga ? (valorRecargaNum ?? 0) : valorNum,
         valor_recarga: valorRecargaNum,
         data_venda: dataVenda || new Date().toISOString().split('T')[0],
         vendedor: vendedorNome,
+        id_vendedor: equipeVendedor?.idVendedor ?? null,
         nome_proprietario: isSomenteRecarga ? vendedorNome : normalizarNome(nomeProprietario),
         cep: isSomenteRecarga ? undefined : (cep ? cep.replace(/\D/g, '') : undefined),
         endereco: isSomenteRecarga ? undefined : (endereco || undefined),

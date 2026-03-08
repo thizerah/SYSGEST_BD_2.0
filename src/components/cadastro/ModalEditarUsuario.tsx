@@ -36,6 +36,7 @@ export interface ModalEditarUsuarioProps {
   onSave: (payload: {
     nome: string;
     funcao: string;
+    idVendedor?: string | null;
     papelCodigo?: string;
     permissoesCodigos?: string[];
   }) => Promise<void>;
@@ -55,6 +56,7 @@ export function ModalEditarUsuario({
 }: ModalEditarUsuarioProps) {
   const [nome, setNome] = useState('');
   const [funcao, setFuncao] = useState('');
+  const [idVendedor, setIdVendedor] = useState('');
   const [papelCodigo, setPapelCodigo] = useState('');
   const [permissoesLocal, setPermissoesLocal] = useState<string[]>([]);
 
@@ -62,6 +64,7 @@ export function ModalEditarUsuario({
     if (!open || !equipeRow) return;
     setNome(equipeRow.nome_completo);
     setFuncao(equipeRow.funcao || '');
+    setIdVendedor(equipeRow.id_vendedor ?? '');
     if (subuser) {
       setPapelCodigo(subuser.papel_codigo);
       setPermissoesLocal([...subuser.permissoes_codigos]);
@@ -82,6 +85,7 @@ export function ModalEditarUsuario({
     await onSave({
       nome: nome.trim(),
       funcao,
+      idVendedor: idVendedor.trim() || null,
       ...(subuser && {
         papelCodigo,
         permissoesCodigos: permissoesLocal,
@@ -110,6 +114,16 @@ export function ModalEditarUsuario({
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               placeholder="Nome completo"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="editar-id">ID</Label>
+            <Input
+              id="editar-id"
+              value={idVendedor}
+              onChange={(e) => setIdVendedor(e.target.value)}
+              placeholder="Código SKY ou outro (opcional)"
             />
           </div>
 

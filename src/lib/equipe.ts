@@ -6,8 +6,15 @@ export interface EquipeRow {
   nome_completo: string;
   user_id: string | null;
   funcao: string;
+  id_vendedor?: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+export async function fetchEquipeById(id: string): Promise<EquipeRow | null> {
+  const { data, error } = await supabase.from('equipe').select('*').eq('id', id).single();
+  if (error || !data) return null;
+  return data as EquipeRow;
 }
 
 export async function fetchEquipe(donoUserId: string): Promise<EquipeRow[]> {
@@ -22,7 +29,7 @@ export async function fetchEquipe(donoUserId: string): Promise<EquipeRow[]> {
 
 export async function createEquipe(
   donoUserId: string,
-  payload: { nome_completo: string; user_id?: string | null; funcao: string }
+  payload: { nome_completo: string; user_id?: string | null; funcao: string; id_vendedor?: string | null }
 ): Promise<EquipeRow> {
   const { data, error } = await supabase
     .from('equipe')
@@ -31,6 +38,7 @@ export async function createEquipe(
       nome_completo: payload.nome_completo,
       user_id: payload.user_id ?? null,
       funcao: payload.funcao,
+      id_vendedor: payload.id_vendedor ?? null,
     })
     .select()
     .single();
@@ -40,7 +48,7 @@ export async function createEquipe(
 
 export async function updateEquipe(
   id: string,
-  payload: Partial<{ nome_completo: string; user_id: string | null; funcao: string }>
+  payload: Partial<{ nome_completo: string; user_id: string | null; funcao: string; id_vendedor: string | null }>
 ): Promise<EquipeRow> {
   const { data, error } = await supabase
     .from('equipe')

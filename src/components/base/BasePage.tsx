@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/auth';
 import useData from '@/context/useData';
 import { useToast } from '@/components/ui/use-toast';
@@ -72,9 +73,9 @@ export function BasePage() {
   const [mostrarAdicionar, setMostrarAdicionar] = useState(false);
   const [novoMes, setNovoMes] = useState<string>('1');
   const [novoAno, setNovoAno] = useState<number>(new Date().getFullYear());
-  const [novoBaseTv, setNovoBaseTv] = useState<string>('0');
-  const [novoBaseFibra, setNovoBaseFibra] = useState<string>('0');
-  const [novoAlianca, setNovoAlianca] = useState<string>('0');
+  const [novoBaseTv, setNovoBaseTv] = useState<string>('');
+  const [novoBaseFibra, setNovoBaseFibra] = useState<string>('');
+  const [novoAlianca, setNovoAlianca] = useState<string>('');
   const [novoAliancaFibra, setNovoAliancaFibra] = useState<string>('');
   const [editando, setEditando] = useState<Record<string, Partial<BaseData>>>({});
 
@@ -189,9 +190,9 @@ export function BasePage() {
       setMostrarAdicionar(false);
       setNovoMes('1');
       setNovoAno(new Date().getFullYear());
-      setNovoBaseTv('0');
-      setNovoBaseFibra('0');
-      setNovoAlianca('0');
+      setNovoBaseTv('');
+      setNovoBaseFibra('');
+      setNovoAlianca('');
       setNovoAliancaFibra('');
       toast({ title: 'Adicionado', description: `${mesNome}/${novoAno} criado.` });
     } catch (e) {
@@ -293,53 +294,71 @@ export function BasePage() {
           {mostrarAdicionar && podeEditar && (
             <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
               <h4 className="font-medium text-sm">Novo registro</h4>
-              <div className="grid grid-cols-2 sm:grid-cols-8 gap-3">
-                <Select value={novoMes} onValueChange={setNovoMes}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Mês" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MESES_OPCOES.map((m) => (
-                      <SelectItem key={m.valor} value={m.valor}>
-                        {m.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  type="number"
-                  placeholder="Ano"
-                  value={novoAno}
-                  onChange={(e) => setNovoAno(parseInt(e.target.value, 10) || new Date().getFullYear())}
-                  min={2020}
-                  max={2030}
-                />
-                <Input
-                  type="number"
-                  placeholder="Base TV"
-                  value={novoBaseTv}
-                  onChange={(e) => setNovoBaseTv(e.target.value)}
-                  min={0}
-                />
-                <Input
-                  type="text"
-                  placeholder="Aliança TV (R$)"
-                  value={novoAlianca}
-                  onChange={(e) => setNovoAlianca(e.target.value)}
-                />
-                <Input
-                  type="number"
-                  placeholder="Base Fibra"
-                  value={novoBaseFibra}
-                  onChange={(e) => setNovoBaseFibra(e.target.value)}
-                  min={0}
-                />
-                <Input
-                  type="text"
-                  placeholder="Aliança Fibra (R$)"
-                  value={novoAliancaFibra}
-                  onChange={(e) => setNovoAliancaFibra(e.target.value)}
-                />
+              <div className="grid grid-cols-2 sm:grid-cols-8 gap-4 items-end">
+                <div className="flex flex-col gap-1.5">
+                  <Label>Mês</Label>
+                  <Select value={novoMes} onValueChange={setNovoMes}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Mês" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MESES_OPCOES.map((m) => (
+                        <SelectItem key={m.valor} value={m.valor}>
+                          {m.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Ano</Label>
+                  <Input
+                    type="number"
+                    placeholder="Ano"
+                    value={novoAno}
+                    onChange={(e) => setNovoAno(parseInt(e.target.value, 10) || new Date().getFullYear())}
+                    min={2020}
+                    max={2030}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Base TV</Label>
+                  <Input
+                    type="number"
+                    placeholder=""
+                    value={novoBaseTv}
+                    onChange={(e) => setNovoBaseTv(e.target.value)}
+                    min={0}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Aliança TV (R$)</Label>
+                  <Input
+                    type="text"
+                    placeholder=""
+                    value={novoAlianca}
+                    onChange={(e) => setNovoAlianca(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Base Fibra</Label>
+                  <Input
+                    type="number"
+                    placeholder=""
+                    value={novoBaseFibra}
+                    onChange={(e) => setNovoBaseFibra(e.target.value)}
+                    min={0}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Aliança Fibra (R$)</Label>
+                  <Input
+                    type="text"
+                    placeholder=""
+                    value={novoAliancaFibra}
+                    onChange={(e) => setNovoAliancaFibra(e.target.value)}
+                  />
+                </div>
                 <div className="flex gap-2">
                   <Button onClick={adicionar} disabled={saving === '__novo__'}>
                     {saving === '__novo__' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
@@ -350,9 +369,9 @@ export function BasePage() {
                       setMostrarAdicionar(false);
                       setNovoMes('1');
                       setNovoAno(new Date().getFullYear());
-                      setNovoBaseTv('0');
-                      setNovoBaseFibra('0');
-                      setNovoAlianca('0');
+                      setNovoBaseTv('');
+                      setNovoBaseFibra('');
+                      setNovoAlianca('');
                       setNovoAliancaFibra('');
                     }}
                     disabled={saving === '__novo__'}

@@ -27,6 +27,10 @@ export const PERMISSOES_CODIGOS = [
   'cadastro_fibra',
   'cadastro_movel',
   'cadastro_nova_parabolica',
+  'visualizar_vendas',
+  'visualizar_vendas_todas',
+  'editar_metas_vendedor',
+  'visualizar_metas_vendedor',
 ] as const;
 
 export type PermissaoCodigo = (typeof PERMISSOES_CODIGOS)[number];
@@ -42,6 +46,7 @@ export const PAGE_TO_PERMISSION: Record<string, PermissaoCodigo | null> = {
   indicadores: 'indicadores',
   base: 'editar_base',
   metas_empresa: 'editar_metas_empresa',
+  metas_vendedor: null, // Usa PAGE_TO_PERMISSION_ANY
   mailing: 'visualizar_mailing',
   roteiro: 'rotas',
   cadastro_tecnicos: 'cadastro_usuarios',
@@ -52,6 +57,8 @@ export const PAGE_TO_PERMISSION: Record<string, PermissaoCodigo | null> = {
 /** Páginas que exigem QUALQUER uma das permissões listadas. */
 export const PAGE_TO_PERMISSION_ANY: Record<string, PermissaoCodigo[]> = {
   cadastro_comercial: ['cadastro_fibra', 'cadastro_movel', 'cadastro_nova_parabolica'],
+  visualizar_vendas: ['visualizar_vendas', 'visualizar_vendas_todas'],
+  metas_vendedor: ['editar_metas_vendedor', 'visualizar_metas_vendedor'],
 };
 
 /** Páginas só para admin (users, payments). */

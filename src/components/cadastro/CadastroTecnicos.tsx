@@ -55,6 +55,7 @@ export function CadastroTecnicos({ onNavigateToCadastroAcesso }: CadastroTecnico
 
   const [nome, setNome] = useState('');
   const [funcao, setFuncao] = useState('');
+  const [idVendedor, setIdVendedor] = useState('');
   const [editingRow, setEditingRow] = useState<EquipeRow | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -98,10 +99,12 @@ export function CadastroTecnicos({ onNavigateToCadastroAcesso }: CadastroTecnico
       await createEquipe(donoUserId, {
         nome_completo: nome.trim(),
         funcao,
+        id_vendedor: idVendedor.trim() || null,
       });
       toast({ title: 'Adicionado', description: `${nome} foi cadastrado na equipe.` });
       setNome('');
       setFuncao('');
+      setIdVendedor('');
       load();
     } catch (e) {
       toast({
@@ -139,6 +142,7 @@ export function CadastroTecnicos({ onNavigateToCadastroAcesso }: CadastroTecnico
   const handleSaveEdicao = async (payload: {
     nome: string;
     funcao: string;
+    idVendedor?: string | null;
     papelCodigo?: string;
     permissoesCodigos?: string[];
   }) => {
@@ -148,6 +152,7 @@ export function CadastroTecnicos({ onNavigateToCadastroAcesso }: CadastroTecnico
       await updateEquipe(editingRow.id, {
         nome_completo: payload.nome,
         funcao: payload.funcao,
+        id_vendedor: payload.idVendedor ?? null,
       });
       const sub = subusuarios.find((s) => s.equipe_id === editingRow.id);
       if (sub && payload.papelCodigo != null) {
@@ -206,6 +211,15 @@ export function CadastroTecnicos({ onNavigateToCadastroAcesso }: CadastroTecnico
               />
             </div>
             <div className="space-y-2">
+              <Label htmlFor="id-vendedor">ID</Label>
+              <Input
+                id="id-vendedor"
+                placeholder="Código SKY ou outro (opcional)"
+                value={idVendedor}
+                onChange={(e) => setIdVendedor(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
               <Label>Função *</Label>
               <Select value={funcao} onValueChange={setFuncao}>
                 <SelectTrigger>
@@ -258,6 +272,7 @@ export function CadastroTecnicos({ onNavigateToCadastroAcesso }: CadastroTecnico
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nome completo</TableHead>
+                    <TableHead>ID</TableHead>
                     <TableHead>Função</TableHead>
                     <TableHead className="w-32 text-center">Ações</TableHead>
                   </TableRow>
@@ -266,6 +281,7 @@ export function CadastroTecnicos({ onNavigateToCadastroAcesso }: CadastroTecnico
                   {filtrados.map((e) => (
                     <TableRow key={e.id}>
                       <TableCell className="font-medium">{e.nome_completo}</TableCell>
+                      <TableCell className="text-muted-foreground">{e.id_vendedor ?? '—'}</TableCell>
                       <TableCell>{nomeFuncao(e.funcao)}</TableCell>
                       <TableCell>
                         <div className="flex justify-center gap-1">

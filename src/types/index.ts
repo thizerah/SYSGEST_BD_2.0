@@ -351,6 +351,7 @@ export interface VendaFibra {
   bairro?: string;
   cidade?: string;
   vendedor?: string;
+  id_vendedor?: string | null;
   data_cadastro?: string;
   data_venda?: string;
   status_proposta?: string;
@@ -381,6 +382,7 @@ export interface VendaMovel {
   esim?: boolean;
   portabilidade?: boolean;
   vendedor?: string;
+  id_vendedor?: string | null;
   data_cadastro?: string;
   data_venda?: string;
   status_proposta?: string;
@@ -415,6 +417,7 @@ export interface VendaNovaParabolica {
   complemento?: string;
   referencia?: string;
   vendedor?: string;
+  id_vendedor?: string | null;
   status_proposta?: string;
 }
 

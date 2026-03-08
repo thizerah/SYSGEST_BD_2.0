@@ -110,3 +110,63 @@ export async function insertVendaNovaParabolica(
   });
   if (error) throw error;
 }
+
+/** Busca vendas FIBRA do dono */
+export async function fetchVendasFibra(userId: string): Promise<VendaFibra[]> {
+  const { data, error } = await supabase
+    .from('vendas_fibra')
+    .select('*')
+    .eq('user_id', userId)
+    .order('data_cadastro', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as VendaFibra[];
+}
+
+/** Busca vendas MÓVEL do dono */
+export async function fetchVendasMovel(userId: string): Promise<VendaMovel[]> {
+  const { data, error } = await supabase
+    .from('vendas_movel')
+    .select('*')
+    .eq('user_id', userId)
+    .order('data_cadastro', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as VendaMovel[];
+}
+
+/** Busca vendas Nova Parabólica do dono */
+export async function fetchVendasNovaParabolica(userId: string): Promise<VendaNovaParabolica[]> {
+  const { data, error } = await supabase
+    .from('vendas_nova_parabolica')
+    .select('*')
+    .eq('user_id', userId)
+    .order('data_venda', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as VendaNovaParabolica[];
+}
+
+/** Atualiza status da venda FIBRA */
+export async function updateStatusVendaFibra(id: string, statusProposta: string): Promise<void> {
+  const { error } = await supabase
+    .from('vendas_fibra')
+    .update({ status_proposta: statusProposta, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+/** Atualiza status da venda MÓVEL */
+export async function updateStatusVendaMovel(id: string, statusProposta: string): Promise<void> {
+  const { error } = await supabase
+    .from('vendas_movel')
+    .update({ status_proposta: statusProposta, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+/** Atualiza status da venda Nova Parabólica */
+export async function updateStatusVendaNovaParabolica(id: string, statusProposta: string): Promise<void> {
+  const { error } = await supabase
+    .from('vendas_nova_parabolica')
+    .update({ status_proposta: statusProposta, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}

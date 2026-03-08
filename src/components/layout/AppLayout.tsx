@@ -43,7 +43,10 @@ const PAGE_TITLES: Record<string, string> = {
   subusuarios: "Cadastro de Acesso",
   base: "Base",
   metas_empresa: "Meta de Vendas Empresa",
+  metas_vendedor: "Meta de Vendas Vendedor",
   mailing: "Mailing",
+  cadastro_comercial: "Cadastro Comercial",
+  visualizar_vendas: "Visualizar Vendas",
 };
 
 export function AppLayout({ 

@@ -9,15 +9,16 @@ import { useAuth } from '@/context/useAuth';
 import { formatarCEP, buscarCEP } from '@/utils/viacep';
 import { formatarCPF, formatarRG, formatarTelefone, normalizarNome } from '@/utils/mascaras';
 import { fetchPlanosMovel, insertVendaMovel } from '@/lib/cadastro-comercial';
+import { fetchEquipeById } from '@/lib/equipe';
 import type { PlanoMovel } from '@/types';
 
-const STATUS_OPCOES = ['Aguardando', 'Habilitado', 'Finalizado', 'Aguardando Habilitação', 'Aguardando Pagamento', 'Pagamento Confirmado'];
+const STATUS_OPCOES = ['Aguardando', 'Finalizado', 'Aguardando Habilitação', 'Aguardando Pagamento', 'Pagamento Confirmado'];
 
 export function CadastroMovel() {
   const { user, authExtras } = useAuth();
   const { toast } = useToast();
   const donoUserId = authExtras?.donoUserId ?? user?.id ?? null;
-  const vendedorNome = user?.name || user?.username || user?.email?.split('@')[0] || '';
+  const [equipeVendedor, setEquipeVendedor] = useState<{ nome: string; idVendedor: string | null } | null>(null);
 
   const [etapa, setEtapa] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -51,6 +52,19 @@ export function CadastroMovel() {
     if (!donoUserId) return;
     fetchPlanosMovel(donoUserId).then(setPlanos).catch(() => setPlanos([]));
   }, [donoUserId]);
+
+  useEffect(() => {
+    const equipeId = authExtras?.equipeId ?? null;
+    if (equipeId) {
+      fetchEquipeById(equipeId).then((eq) => {
+        if (eq) setEquipeVendedor({ nome: eq.nome_completo, idVendedor: eq.id_vendedor ?? null });
+        else setEquipeVendedor(null);
+      }).catch(() => setEquipeVendedor(null));
+    } else {
+      const nome = user?.name || user?.username || user?.email?.split('@')[0] || '';
+      setEquipeVendedor(nome ? { nome, idVendedor: null } : null);
+    }
+  }, [authExtras?.equipeId, user?.name, user?.username, user?.email]);
 
   const handleCepBlur = async () => {
     if (!cep || cep.replace(/\D/g, '').length !== 8) return;
@@ -116,7 +130,8 @@ export function CadastroMovel() {
         referencia: referencia || undefined,
         esim: esim === 'sim',
         portabilidade: portabilidade === 'sim',
-        vendedor: vendedorNome,
+        vendedor: equipeVendedor?.nome || user?.name || user?.username || user?.email?.split('@')[0] || '',
+        id_vendedor: equipeVendedor?.idVendedor ?? null,
         data_venda: dataVenda || undefined,
         status_proposta: statusProposta || 'Aguardando',
         plano_movel_id: planoId || undefined,
