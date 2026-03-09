@@ -33,6 +33,7 @@ import { fetchMetasVendedor, type MetaVendedor } from '@/lib/metas-vendedor';
 import { fetchMetas } from '@/lib/metas';
 import type { Venda, VendaMeta, VendaFibra, VendaMovel, VendaNovaParabolica, Meta } from '@/types';
 import { Eye, Loader2, FilterX, TrendingUp } from 'lucide-react';
+import { DetalheVendaSheet } from './DetalheVendaSheet';
 
 const STATUS_OPCOES = [
   'Aguardando',
@@ -65,6 +66,8 @@ export interface VendaUnificada {
   vendedor: string;
   editavel: boolean;
   origem?: 'fibra' | 'movel' | 'nova_parabolica';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _raw?: Record<string, any>;
 }
 
 /** Extrai mês (1-12) e ano da string de data sem timezone.
@@ -234,6 +237,7 @@ export function VisualizarVendasPage() {
   const [todasMetasVendedor, setTodasMetasVendedor] = useState<MetaVendedor[]>([]);
   const [todasMetasEmpresa, setTodasMetasEmpresa] = useState<Meta[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [vendaDetalhes, setVendaDetalhes] = useState<VendaUnificada | null>(null);
   const [filtroTipo, setFiltroTipo] = useState<string>('__todos__');
   const [filtroMes, setFiltroMes] = useState<string>('');
   const [filtroAno, setFiltroAno] = useState<string>('');
@@ -342,6 +346,7 @@ export function VisualizarVendasPage() {
           status: v.status_proposta || '—',
           vendedor: nomePadronizado(v.id_vendedor, v.nome_proprietario || v.id_vendedor || ''),
           editavel: false,
+          _raw: v as Record<string, unknown>,
         });
       });
 
@@ -365,6 +370,7 @@ export function VisualizarVendasPage() {
           status: v.status_proposta || '—',
           vendedor: nomePadronizado(v.vendedor, v.nome_proprietario || v.vendedor || ''),
           editavel: false,
+          _raw: v as Record<string, unknown>,
         });
       });
 
@@ -376,7 +382,7 @@ export function VisualizarVendasPage() {
         list.push({
           id: v.id || `f-${v.cpf_cnpj}`,
           tipo: 'FIBRA',
-          produto: 'FIBRA',
+          produto: v.plano_fibra_nome || 'FIBRA',
           cliente: v.nome_completo || '—',
           dataVenda: v.data_venda || v.data_cadastro || '',
           mes: ma.mes,
@@ -387,6 +393,7 @@ export function VisualizarVendasPage() {
           vendedor: nomePadronizado(v.id_vendedor, v.vendedor || ''),
           editavel: true,
           origem: 'fibra',
+          _raw: v as Record<string, unknown>,
         });
       });
 
@@ -398,7 +405,7 @@ export function VisualizarVendasPage() {
         list.push({
           id: v.id || `m-${v.cpf || v.email}`,
           tipo: 'MÓVEL',
-          produto: 'MÓVEL',
+          produto: v.plano_movel_nome || 'MÓVEL',
           cliente: v.nome_completo || '—',
           dataVenda: v.data_venda || v.data_cadastro || '',
           mes: ma.mes,
@@ -409,6 +416,7 @@ export function VisualizarVendasPage() {
           vendedor: nomePadronizado(v.id_vendedor, v.vendedor || ''),
           editavel: true,
           origem: 'movel',
+          _raw: v as Record<string, unknown>,
         });
       });
 
@@ -431,6 +439,7 @@ export function VisualizarVendasPage() {
           vendedor: nomePadronizado(v.id_vendedor, v.vendedor || ''),
           editavel: true,
           origem: 'nova_parabolica',
+          _raw: v as Record<string, unknown>,
         });
       });
 
@@ -818,6 +827,7 @@ export function VisualizarVendasPage() {
                       <TableHead className="font-semibold text-gray-700 text-center">Seguro</TableHead>
                       <TableHead className="font-semibold text-gray-700">Status</TableHead>
                       {verTodas && <TableHead className="font-semibold text-gray-700">Vendedor</TableHead>}
+                      <TableHead className="w-10" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -868,6 +878,15 @@ export function VisualizarVendasPage() {
                         {verTodas && (
                           <TableCell className="text-sm text-gray-700">{row.vendedor}</TableCell>
                         )}
+                        <TableCell>
+                          <button
+                            onClick={() => setVendaDetalhes(row)}
+                            className="p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            title="Ver detalhes"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -881,6 +900,18 @@ export function VisualizarVendasPage() {
           )}
         </CardContent>
       </Card>
+
+      <DetalheVendaSheet
+        venda={vendaDetalhes}
+        onClose={() => setVendaDetalhes(null)}
+        onStatusChange={async (row, novoStatus) => {
+          await handleStatusChange(row, novoStatus);
+          setVendaDetalhes((prev) =>
+            prev?.id === row.id ? { ...prev, status: novoStatus } : prev
+          );
+        }}
+        savingId={savingId}
+      />
     </div>
   );
 }
