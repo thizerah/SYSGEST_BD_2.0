@@ -96,3 +96,17 @@ export async function upsertMetaRow(userId: string, item: MetaUpsertItem): Promi
     if (error) throw error;
   }
 }
+
+export async function deleteMetaRow(
+  userId: string,
+  mes: number,
+  ano: number
+): Promise<void> {
+  const { error } = await supabase
+    .from('metas')
+    .delete()
+    .eq('user_id', userId)
+    .eq('mes', mes)
+    .eq('ano', ano);
+  if (error) throw error;
+}

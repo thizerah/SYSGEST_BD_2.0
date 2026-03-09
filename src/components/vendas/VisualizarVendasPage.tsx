@@ -29,8 +29,10 @@ import {
   updateStatusVendaMovel,
   updateStatusVendaNovaParabolica,
 } from '@/lib/cadastro-comercial';
-import type { Venda, VendaMeta, VendaFibra, VendaMovel, VendaNovaParabolica } from '@/types';
-import { Eye, Loader2, FilterX } from 'lucide-react';
+import { fetchMetasVendedor, type MetaVendedor } from '@/lib/metas-vendedor';
+import { fetchMetas } from '@/lib/metas';
+import type { Venda, VendaMeta, VendaFibra, VendaMovel, VendaNovaParabolica, Meta } from '@/types';
+import { Eye, Loader2, FilterX, TrendingUp } from 'lucide-react';
 
 const STATUS_OPCOES = [
   'Aguardando',
@@ -124,6 +126,99 @@ function verificarSeguro(produtosSecundarios?: string, formaPagamento?: string):
   );
 }
 
+const TIPO_STYLES: Record<string, string> = {
+  POS: 'bg-green-100 text-green-800',
+  PRE: 'bg-teal-100 text-teal-800',
+  'SKY+': 'bg-indigo-100 text-indigo-800',
+  FIBRA: 'bg-purple-100 text-purple-800',
+  'MÓVEL': 'bg-blue-100 text-blue-800',
+  'NOVA PARABÓLICA': 'bg-orange-100 text-orange-800',
+};
+
+function TipoBadge({ tipo }: { tipo: string }) {
+  const cls = TIPO_STYLES[tipo] ?? 'bg-gray-100 text-gray-700';
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${cls}`}>
+      {tipo}
+    </span>
+  );
+}
+
+function getStatusStyle(status: string): string {
+  const u = (status || '').toUpperCase();
+  if (STATUS_FINALIZADO_GROUP.includes(u) || u === 'FINALIZADO') return 'bg-green-100 text-green-800';
+  if (u.includes('CANCELAD') || u.includes('NEGAD') || u.includes('RECUSA')) return 'bg-red-100 text-red-700';
+  if (u.includes('AGUARDANDO') || u.includes('PENDENTE')) return 'bg-yellow-100 text-yellow-800';
+  if (u.includes('CONFIRMADO') || u.includes('PAGO')) return 'bg-blue-100 text-blue-700';
+  return 'bg-gray-100 text-gray-600';
+}
+
+const DESEMPENHO_TEXT_COLOR: Record<string, string> = {
+  green: 'text-green-700', teal: 'text-teal-700', orange: 'text-orange-700',
+  purple: 'text-purple-700', blue: 'text-blue-700', indigo: 'text-indigo-700',
+  amber: 'text-amber-700', slate: 'text-slate-700',
+};
+
+function DesempenhoCard({
+  label, realizado, meta, color, metaLabel,
+}: {
+  label: string;
+  realizado: number;
+  meta: number;
+  color: string;
+  metaLabel?: string;
+}) {
+  const pct = meta > 0 ? Math.min(Math.round((realizado / meta) * 100), 100) : null;
+  const over = meta > 0 && realizado > meta;
+  const barColor =
+    pct === null ? 'bg-gray-200'
+    : over ? 'bg-green-500'
+    : pct >= 70 ? 'bg-yellow-400'
+    : 'bg-red-400';
+  const textColor = DESEMPENHO_TEXT_COLOR[color] ?? 'text-gray-700';
+  return (
+    <div className="bg-white rounded-lg border border-blue-100 p-3 flex flex-col gap-2">
+      <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">{label}</div>
+      <div className="flex items-stretch gap-2">
+        <div className="flex flex-col items-center flex-1 bg-gray-50 rounded-md py-1.5 px-2">
+          <span className={`text-2xl font-bold leading-none ${textColor}`}>{realizado}</span>
+          <span className="text-[10px] text-gray-400 mt-1">finalizadas</span>
+        </div>
+        {meta > 0 && (
+          <div className="flex flex-col items-center flex-1 bg-gray-50 rounded-md py-1.5 px-2">
+            <span className="text-2xl font-bold leading-none text-gray-600">{meta}</span>
+            <span className="text-[10px] text-gray-400 mt-1">{metaLabel ?? 'meta'}</span>
+          </div>
+        )}
+      </div>
+      {meta > 0 ? (
+        <>
+          <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${barColor}`}
+              style={{ width: `${Math.min((realizado / meta) * 100, 100)}%` }}
+            />
+          </div>
+          <div className={`text-[11px] font-semibold ${over ? 'text-green-600' : pct! >= 70 ? 'text-yellow-600' : 'text-red-500'}`}>
+            {over ? `+${realizado - meta} acima da meta` : `${pct}% atingido`}
+          </div>
+        </>
+      ) : (
+        <div className="text-[11px] text-muted-foreground">Sem meta cadastrada</div>
+      )}
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const display = STATUS_FINALIZADO_GROUP.includes((status || '').toUpperCase()) ? 'Finalizado' : status;
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusStyle(status)}`}>
+      {display}
+    </span>
+  );
+}
+
 export function VisualizarVendasPage() {
   const { user, authExtras, hasPermissao } = useAuth();
   const { vendas, vendasMeta, loadFromSupabaseIfEmpty } = useData();
@@ -136,6 +231,8 @@ export function VisualizarVendasPage() {
   const [vendasMovel, setVendasMovel] = useState<VendaMovel[]>([]);
   const [vendasNp, setVendasNp] = useState<VendaNovaParabolica[]>([]);
   const [equipe, setEquipe] = useState<Awaited<ReturnType<typeof fetchEquipe>>>([]);
+  const [todasMetasVendedor, setTodasMetasVendedor] = useState<MetaVendedor[]>([]);
+  const [todasMetasEmpresa, setTodasMetasEmpresa] = useState<Meta[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [filtroTipo, setFiltroTipo] = useState<string>('__todos__');
   const [filtroMes, setFiltroMes] = useState<string>('');
@@ -149,16 +246,20 @@ export function VisualizarVendasPage() {
     if (!donoUserId) return;
     try {
       await loadFromSupabaseIfEmpty();
-      const [fibra, movel, np, eq] = await Promise.all([
+      const [fibra, movel, np, eq, metasV, metasE] = await Promise.all([
         fetchVendasFibra(donoUserId),
         fetchVendasMovel(donoUserId),
         fetchVendasNovaParabolica(donoUserId),
         fetchEquipe(donoUserId),
+        fetchMetasVendedor(donoUserId),
+        fetchMetas(donoUserId),
       ]);
       setVendasFibra(fibra);
       setVendasMovel(movel);
       setVendasNp(np);
       setEquipe(eq);
+      setTodasMetasVendedor(metasV);
+      setTodasMetasEmpresa(metasE);
     } catch (e) {
       toast({
         title: 'Erro ao carregar vendas',
@@ -476,18 +577,59 @@ export function VisualizarVendasPage() {
     }
   };
 
-  const dashboard = useMemo(() => {
-    const pos = filtradas.filter((v) => v.tipo === 'POS').length;
-    const pre = filtradas.filter((v) => v.tipo === 'PRE').length;
-    const sky = filtradas.filter((v) => v.tipo === 'SKY+').length;
-    const fibra = filtradas.filter((v) => v.tipo === 'FIBRA').length;
-    const movel = filtradas.filter((v) => v.tipo === 'MÓVEL').length;
-    const np = filtradas.filter((v) => v.tipo === 'NOVA PARABÓLICA').length;
-    const seguros = filtradas.filter((v) => v.temSeguro).length;
-    const cartao = filtradas.filter((v) =>
-      (v.formaPagamento || '').toUpperCase().includes('CARTAO')
+  /** Nome do vendedor para cruzar com metas_vendedor */
+  const nomeVendedorParaMeta = useMemo(() => {
+    if (!verTodas) return equipeDoUsuario?.nome_completo ?? vendedorNome;
+    if (filtroVendedor !== '__todos__') return filtroVendedor;
+    return null; // supervisor sem filtro → sem meta individual
+  }, [verTodas, equipeDoUsuario, vendedorNome, filtroVendedor]);
+
+  const metaVendedorPeriodo = useMemo((): MetaVendedor | null => {
+    if (!filtroMes || !filtroAno || !nomeVendedorParaMeta) return null;
+    const mes = parseInt(filtroMes, 10);
+    const ano = parseInt(filtroAno, 10);
+    return (
+      todasMetasVendedor.find(
+        (m) => m.mes === mes && m.ano === ano && m.vendedor_nome === nomeVendedorParaMeta
+      ) ?? null
+    );
+  }, [todasMetasVendedor, filtroMes, filtroAno, nomeVendedorParaMeta]);
+
+  const metaEmpresaPeriodo = useMemo((): Meta | null => {
+    if (!filtroMes || !filtroAno) return null;
+    const mes = parseInt(filtroMes, 10);
+    const ano = parseInt(filtroAno, 10);
+    return todasMetasEmpresa.find((m) => m.mes === mes && m.ano === ano) ?? null;
+  }, [todasMetasEmpresa, filtroMes, filtroAno]);
+
+
+  /** Contagem apenas de vendas finalizadas — usada nos cards de desempenho vs meta */
+  const dashboardFinalizado = useMemo(() => {
+    const fin = filtradas.filter((v) =>
+      STATUS_FINALIZADO_GROUP.includes((v.status || '').trim().toUpperCase())
+    );
+    const pos = fin.filter((v) => v.tipo === 'POS').length;
+    const cartao = fin.filter(
+      (v) =>
+        v.tipo === 'POS' &&
+        (v.formaPagamento || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toUpperCase()
+          .includes('CARTAO')
     ).length;
-    return { pos, pre, sky, fibra, movel, np, seguros, cartao };
+    return {
+      pos,
+      pre: fin.filter((v) => v.tipo === 'PRE').length,
+      sky: fin.filter((v) => v.tipo === 'SKY+').length,
+      fibra: fin.filter((v) => v.tipo === 'FIBRA').length,
+      movel: fin.filter((v) => v.tipo === 'MÓVEL').length,
+      np: fin.filter((v) => v.tipo === 'NOVA PARABÓLICA').length,
+      seguros: fin.filter((v) => v.temSeguro).length,
+      cartao,
+      /** Meta dinâmica: 20% das vendas POS finalizadas (mínimo 1 se houver POS) */
+      metaCartao: pos > 0 ? Math.max(1, Math.ceil(pos * 0.2)) : 0,
+    };
   }, [filtradas]);
 
   return (
@@ -613,106 +755,128 @@ export function VisualizarVendasPage() {
             </p>
           ) : (
             <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-4">
-            <div className="rounded-lg border bg-green-50/50 p-3 text-center">
-              <div className="text-2xl font-bold text-green-700">{dashboard.pos}</div>
-              <div className="text-xs text-gray-600">Vendas POS</div>
-            </div>
-            <div className="rounded-lg border bg-teal-50/50 p-3 text-center">
-              <div className="text-2xl font-bold text-teal-700">{dashboard.pre}</div>
-              <div className="text-xs text-gray-600">Vendas PRE</div>
-            </div>
-            <div className="rounded-lg border bg-indigo-50/50 p-3 text-center">
-              <div className="text-2xl font-bold text-indigo-700">{dashboard.sky}</div>
-              <div className="text-xs text-gray-600">SKY+</div>
-            </div>
-            <div className="rounded-lg border bg-purple-50/50 p-3 text-center">
-              <div className="text-2xl font-bold text-purple-700">{dashboard.fibra}</div>
-              <div className="text-xs text-gray-600">Vendas FIBRA</div>
-            </div>
-            <div className="rounded-lg border bg-blue-50/50 p-3 text-center">
-              <div className="text-2xl font-bold text-blue-700">{dashboard.movel}</div>
-              <div className="text-xs text-gray-600">Vendas MÓVEL</div>
-            </div>
-            <div className="rounded-lg border bg-orange-50/50 p-3 text-center">
-              <div className="text-2xl font-bold text-orange-700">{dashboard.np}</div>
-              <div className="text-xs text-gray-600">Nova Parabólica</div>
-            </div>
-            <div className="rounded-lg border bg-amber-50/50 p-3 text-center">
-              <div className="text-2xl font-bold text-amber-700">{dashboard.seguros}</div>
-              <div className="text-xs text-gray-600">Seguros</div>
-            </div>
-            <div className="rounded-lg border bg-slate-50/50 p-3 text-center">
-              <div className="text-2xl font-bold text-slate-700">{dashboard.cartao}</div>
-              <div className="text-xs text-gray-600">Cartão Crédito</div>
-            </div>
-          </div>
+            {/* ── Cards de desempenho vs meta ── */}
+            {(metaVendedorPeriodo || metaEmpresaPeriodo) && (
+              <div className="mb-5 rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50/60 to-indigo-50/40 p-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <TrendingUp className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-semibold text-blue-800">
+                    Desempenho do período · apenas Finalizados
+                    {metaVendedorPeriodo && nomeVendedorParaMeta ? ` — ${nomeVendedorParaMeta}` : ''}
+                  </span>
+                  {metaVendedorPeriodo && (
+                    <span className="ml-auto text-xs text-muted-foreground">Meta individual</span>
+                  )}
+                  {metaEmpresaPeriodo && !metaVendedorPeriodo && (
+                    <span className="ml-auto text-xs text-muted-foreground">Meta empresa</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
+                  {([
+                    { label: 'Pos Pago', realizado: dashboardFinalizado.pos, keyV: 'pos_pago' as const, keyE: 'pos_pago' as const, color: 'green' },
+                    { label: 'Pré / Flex', realizado: dashboardFinalizado.pre, keyV: 'flex_conforto' as const, keyE: 'flex_conforto' as const, color: 'teal' },
+                    { label: 'Nova Parabólica', realizado: dashboardFinalizado.np, keyV: 'nova_parabolica' as const, keyE: 'nova_parabolica' as const, color: 'orange' },
+                    { label: 'Fibra', realizado: dashboardFinalizado.fibra, keyV: 'fibra' as const, keyE: 'fibra' as const, color: 'purple' },
+                    { label: 'Móvel', realizado: dashboardFinalizado.movel, keyV: 'movel' as const, keyE: 'movel' as const, color: 'blue' },
+                    { label: 'SKY+', realizado: dashboardFinalizado.sky, keyV: 'sky_mais' as const, keyE: 'sky_mais' as const, color: 'indigo' },
+                    { label: 'Seguros', realizado: dashboardFinalizado.seguros, keyV: 'seguros_pos' as const, keyE: 'seguros_pos' as const, color: 'amber' },
+                  ] as const).map(({ label, realizado, keyV, keyE, color }) => {
+                    const meta = metaVendedorPeriodo
+                      ? (metaVendedorPeriodo[keyV] ?? 0)
+                      : (metaEmpresaPeriodo?.[keyE] ?? 0);
+                    return (
+                      <DesempenhoCard key={label} label={label} realizado={realizado} meta={meta} color={color} />
+                    );
+                  })}
+                  {/* Card Cartão de Crédito — meta dinâmica: mín. 20% do POS finalizado */}
+                  <DesempenhoCard
+                    label="Cartão Crédito"
+                    realizado={dashboardFinalizado.cartao}
+                    meta={dashboardFinalizado.metaCartao}
+                    color="slate"
+                    metaLabel={dashboardFinalizado.pos > 0 ? '20% do POS' : undefined}
+                  />
+                </div>
+              </div>
+            )}
 
-          {filtradas.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">
-              Nenhuma venda encontrada para o período selecionado.
-            </p>
-          ) : (
-            <div className="overflow-x-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-gray-50">
-                    <TableHead className="font-semibold">Tipo</TableHead>
-                    <TableHead className="font-semibold">Produto</TableHead>
-                    <TableHead className="font-semibold">Cliente</TableHead>
-                    <TableHead className="font-semibold">Data</TableHead>
-                    <TableHead className="font-semibold">Forma Pagamento</TableHead>
-                    <TableHead className="font-semibold">Seguro</TableHead>
-                    <TableHead className="font-semibold">Status</TableHead>
-                    {verTodas && <TableHead className="font-semibold">Vendedor</TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtradas.map((row, idx) => (
-                    <TableRow
-                      key={row.id}
-                      className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}
-                    >
-                      <TableCell className="font-medium">{row.tipo}</TableCell>
-                      <TableCell>{row.produto}</TableCell>
-                      <TableCell>{row.cliente}</TableCell>
-                      <TableCell>{formatarData(row.dataVenda)}</TableCell>
-                      <TableCell>{row.formaPagamento}</TableCell>
-                      <TableCell>{row.temSeguro ? 'Sim' : 'Não'}</TableCell>
-                      <TableCell>
-                        {row.editavel ? (
-                          <div className="flex items-center gap-2">
-                            <Select
-                              value={row.status}
-                              onValueChange={(v) => handleStatusChange(row, v)}
-                              disabled={savingId === row.id}
-                            >
-                              <SelectTrigger className="h-8 w-[160px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {STATUS_OPCOES.map((s) => (
-                                  <SelectItem key={s} value={s}>
-                                    {s}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {savingId === row.id && (
-                              <Loader2 className="h-4 w-4 animate-spin text-green-600" />
-                            )}
-                          </div>
-                        ) : (
-                          <span>{row.status}</span>
-                        )}
-                      </TableCell>
-                      {verTodas && <TableCell>{row.vendedor}</TableCell>}
+            {/* ── Tabela de vendas ── */}
+            {filtradas.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">
+                Nenhuma venda encontrada para o período selecionado.
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-50 border-b border-gray-200">
+                      <TableHead className="font-semibold text-gray-700 py-3">Tipo</TableHead>
+                      <TableHead className="font-semibold text-gray-700">Produto</TableHead>
+                      <TableHead className="font-semibold text-gray-700">Cliente</TableHead>
+                      <TableHead className="font-semibold text-gray-700">Data</TableHead>
+                      <TableHead className="font-semibold text-gray-700">Forma Pagamento</TableHead>
+                      <TableHead className="font-semibold text-gray-700 text-center">Seguro</TableHead>
+                      <TableHead className="font-semibold text-gray-700">Status</TableHead>
+                      {verTodas && <TableHead className="font-semibold text-gray-700">Vendedor</TableHead>}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+                  </TableHeader>
+                  <TableBody>
+                    {filtradas.map((row) => (
+                      <TableRow
+                        key={row.id}
+                        className="border-b border-gray-100 hover:bg-blue-50/30 transition-colors"
+                      >
+                        <TableCell className="py-3">
+                          <TipoBadge tipo={row.tipo} />
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-700">{row.produto}</TableCell>
+                        <TableCell className="font-medium text-gray-800">{row.cliente}</TableCell>
+                        <TableCell className="text-sm text-gray-600 whitespace-nowrap">{formatarData(row.dataVenda)}</TableCell>
+                        <TableCell className="text-sm text-gray-600">{row.formaPagamento}</TableCell>
+                        <TableCell className="text-center">
+                          {row.temSeguro ? (
+                            <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Sim</span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">Não</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {row.editavel ? (
+                            <div className="flex items-center gap-2">
+                              <Select
+                                value={row.status}
+                                onValueChange={(v) => handleStatusChange(row, v)}
+                                disabled={savingId === row.id}
+                              >
+                                <SelectTrigger className="h-8 w-[180px] text-sm">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {STATUS_OPCOES.map((s) => (
+                                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {savingId === row.id && (
+                                <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                              )}
+                            </div>
+                          ) : (
+                            <StatusBadge status={row.status} />
+                          )}
+                        </TableCell>
+                        {verTodas && (
+                          <TableCell className="text-sm text-gray-700">{row.vendedor}</TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-muted-foreground text-right">
+                  {filtradas.length} registro{filtradas.length !== 1 ? 's' : ''}
+                </div>
+              </div>
+            )}
             </>
           )}
         </CardContent>

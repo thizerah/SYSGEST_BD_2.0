@@ -32,12 +32,24 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   fetchMetas,
   upsertMetaRow,
+  deleteMetaRow,
   ordenarMetasPorMesAno,
   getMesNomeMetas,
   MESES_NOMES_METAS,
 } from '@/lib/metas';
 import type { Meta } from '@/types';
-import { Target, Plus, Loader2, GitCompare } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Target, Plus, Loader2, GitCompare, Trash2 } from 'lucide-react';
 
 const MESES_OPCOES = Object.entries(MESES_NOMES_METAS).map(([num, nome]) => ({
   valor: num,
@@ -79,17 +91,16 @@ function getPayTvRealizadas(metrics: { categorias: { categoria: string; vendas_r
   }, 0);
 }
 
-const valoresIniciais = () => ({
-  pos_pago: 0,
-  flex_conforto: 0,
-  nova_parabolica: 0,
-  total: 0,
-  fibra: 0,
-  seguros_pos: 0,
-  seguros_fibra: 0,
-  sky_mais: 0,
-  movel: 0,
-});
+const valoresIniciais = () =>
+  Object.fromEntries(
+    CAMPOS_EDITAVEIS.map((c) => [c.key, ''])
+  ) as Record<(typeof CAMPOS_EDITAVEIS)[number]['key'], string>;
+
+function parseValoresParaNumeros(v: Record<string, string>): Record<string, number> {
+  return Object.fromEntries(
+    CAMPOS_EDITAVEIS.map((c) => [c.key, parseInt(String(v[c.key]), 10) || 0])
+  );
+}
 
 export function MetasEmpresaPage() {
   const { authExtras, user, hasPermissao } = useAuth();
@@ -105,7 +116,12 @@ export function MetasEmpresaPage() {
   const [novoMes, setNovoMes] = useState<string>('1');
   const [novoAno, setNovoAno] = useState<number>(new Date().getFullYear());
   const [novoValores, setNovoValores] = useState(valoresIniciais);
-  const [editando, setEditando] = useState<Record<string, Partial<Meta>>>({});
+  const [modalEditar, setModalEditar] = useState<Meta | null>(null);
+  const [editarForm, setEditarForm] = useState<{
+    mes: string;
+    ano: number;
+    valores: Record<string, string>;
+  } | null>(null);
   const [modalDetalhe, setModalDetalhe] = useState<{ row: Meta; campo: (typeof CAMPOS_META)[number] } | null>(null);
   const [mesesSelecionados, setMesesSelecionados] = useState<Set<string>>(new Set());
   const [modalComparar, setModalComparar] = useState(false);
@@ -136,35 +152,63 @@ export function MetasEmpresaPage() {
       ? dadosOrdenados.filter((r) => String(r.ano) === anoFiltro)
       : dadosOrdenados;
 
-  const salvar = async (item: Meta) => {
-    if (!donoUserId || !podeEditar) return;
-    const key = `${item.mes}-${item.ano}`;
-    setSaving(key);
+  const abrirModalEditar = (row: Meta) => {
+    setModalEditar(row);
+    setEditarForm({
+      mes: String(row.mes),
+      ano: row.ano,
+      valores: Object.fromEntries(
+        CAMPOS_EDITAVEIS.map((c) => [c.key, String(row[c.key] ?? '')])
+      ) as Record<string, string>,
+    });
+  };
+
+  const salvarEdicao = async () => {
+    if (!donoUserId || !podeEditar || !modalEditar || !editarForm) return;
+    const mesNum = parseInt(editarForm.mes, 10);
+    const parsed = parseValoresParaNumeros(editarForm.valores);
+    const mudouChave = mesNum !== modalEditar.mes || editarForm.ano !== modalEditar.ano;
+
+    setSaving('__editar__');
     try {
+      if (mudouChave) {
+        await deleteMetaRow(donoUserId, modalEditar.mes, modalEditar.ano);
+      }
       await upsertMetaRow(donoUserId, {
-        mes: item.mes,
-        ano: item.ano,
-        pos_pago: item.pos_pago ?? 0,
-        flex_conforto: item.flex_conforto ?? 0,
-        nova_parabolica: item.nova_parabolica ?? 0,
-        total: getPayTvMeta(item),
-        fibra: item.fibra ?? 0,
-        seguros_pos: item.seguros_pos ?? 0,
-        seguros_fibra: item.seguros_fibra ?? 0,
-        sky_mais: item.sky_mais ?? 0,
-        movel: item.movel ?? 0,
+        mes: mesNum,
+        ano: editarForm.ano,
+        ...parsed,
+        total: getPayTvMeta({ ...parsed, mes: mesNum, ano: editarForm.ano } as Meta),
       });
       await carregar();
       await refreshMetas();
-      setEditando((e) => {
-        const next = { ...e };
-        delete next[key];
-        return next;
-      });
-      toast({ title: 'Salvo', description: `${getMesNomeMetas(item.mes)}/${item.ano} atualizado.` });
+      setModalEditar(null);
+      setEditarForm(null);
+      toast({ title: 'Salvo', description: `${getMesNomeMetas(mesNum)}/${editarForm.ano} atualizado.` });
     } catch (e) {
       toast({
         title: 'Erro ao salvar',
+        description: e instanceof Error ? e.message : 'Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const excluirEdicao = async () => {
+    if (!donoUserId || !podeEditar || !modalEditar) return;
+    setSaving('__editar__');
+    try {
+      await deleteMetaRow(donoUserId, modalEditar.mes, modalEditar.ano);
+      await carregar();
+      await refreshMetas();
+      setModalEditar(null);
+      setEditarForm(null);
+      toast({ title: 'Excluído', description: 'Meta removida.' });
+    } catch (e) {
+      toast({
+        title: 'Erro ao excluir',
         description: e instanceof Error ? e.message : 'Tente novamente.',
         variant: 'destructive',
       });
@@ -190,13 +234,14 @@ export function MetasEmpresaPage() {
       });
       return;
     }
+    const parsed = parseValoresParaNumeros(novoValores);
     setSaving('__novo__');
     try {
       await upsertMetaRow(donoUserId, {
         mes: mesNum,
         ano: novoAno,
-        ...novoValores,
-        total: getPayTvMeta({ ...novoValores, mes: mesNum, ano: novoAno } as Meta),
+        ...parsed,
+        total: getPayTvMeta({ ...parsed, mes: mesNum, ano: novoAno } as Meta),
       });
       await carregar();
       await refreshMetas();
@@ -357,9 +402,9 @@ export function MetasEmpresaPage() {
                       type="number"
                       placeholder=""
                       className="w-24"
-                      value={novoValores[c.key] === 0 ? '' : novoValores[c.key]}
+                      value={novoValores[c.key] ?? ''}
                       onChange={(e) =>
-                        setNovoValores((v) => ({ ...v, [c.key]: parseInt(e.target.value, 10) || 0 }))
+                        setNovoValores((v) => ({ ...v, [c.key]: e.target.value }))
                       }
                       min={0}
                     />
@@ -402,8 +447,6 @@ export function MetasEmpresaPage() {
                 <TableBody>
                   {dadosFiltrados.map((row, idx) => {
                     const key = `${row.mes}-${row.ano}`;
-                    const ed = editando[key];
-                    const isEditing = !!ed;
                     const metrics = metricsPorLinha.get(key);
 
                     return (
@@ -424,7 +467,6 @@ export function MetasEmpresaPage() {
                         <TableCell>{row.ano}</TableCell>
                         {CAMPOS_META.map((c) => {
                           const isPayTv = c.key === 'pay_tv';
-                          const val = isPayTv ? getPayTvMeta(ed ? { ...row, ...ed } : row) : (ed?.[c.key] ?? row[c.key] ?? 0);
                           const isMovel = c.key === 'movel';
                           const movelNaoAplicavel = isMovel && !isMovelAplicavel(row.ano, row.mes);
 
@@ -433,28 +475,13 @@ export function MetasEmpresaPage() {
                               <TableCell
                                 key={c.key}
                                 className="text-right text-gray-400"
-                                onClick={() => !isEditing && setModalDetalhe({ row, campo: c })}
-                                role={!isEditing ? 'button' : undefined}
-                                tabIndex={!isEditing ? 0 : undefined}
-                                onKeyDown={(e) => !isEditing && (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setModalDetalhe({ row, campo: c }))}
-                                style={!isEditing ? { cursor: 'pointer' } : undefined}
+                                onClick={() => setModalDetalhe({ row, campo: c })}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setModalDetalhe({ row, campo: c }))}
+                                style={{ cursor: 'pointer' }}
                               >
-                                {isEditing && podeEditar ? (
-                                  <Input
-                                    type="number"
-                                    className="w-20 h-8 text-right"
-                                    value={val}
-                                    onChange={(e) =>
-                                      setEditando((x) => ({
-                                        ...x,
-                                        [key]: { ...(x[key] ?? row), [c.key]: parseInt(e.target.value, 10) || 0 },
-                                      }))
-                                    }
-                                    min={0}
-                                  />
-                                ) : (
-                                  '—'
-                                )}
+                                —
                               </TableCell>
                             );
                           }
@@ -478,92 +505,35 @@ export function MetasEmpresaPage() {
                           return (
                             <TableCell
                               key={c.key}
-                              className={`text-right ${colorClass} ${!isEditing ? 'cursor-pointer hover:bg-amber-50/50' : ''}`}
-                              onClick={() => !isEditing && setModalDetalhe({ row, campo: c })}
-                              role={!isEditing ? 'button' : undefined}
-                              tabIndex={!isEditing ? 0 : undefined}
-                              onKeyDown={(e) => !isEditing && (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setModalDetalhe({ row, campo: c }))}
+                              className={`text-right ${colorClass} cursor-pointer hover:bg-amber-50/50`}
+                              onClick={() => setModalDetalhe({ row, campo: c })}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setModalDetalhe({ row, campo: c }))}
                             >
-                              {isEditing && podeEditar && !isPayTv ? (
-                                <Input
-                                  type="number"
-                                  className="w-20 h-8 text-right"
-                                  value={val}
-                                  onChange={(e) =>
-                                    setEditando((x) => ({
-                                      ...x,
-                                      [key]: { ...(x[key] ?? row), [c.key]: parseInt(e.target.value, 10) || 0 },
-                                    }))
-                                  }
-                                  min={0}
-                                />
-                              ) : (
-                                <div className="flex flex-col items-end">
-                                  <span>
-                                    {metaVal.toLocaleString('pt-BR')} /{' '}
-                                    {realizadasVal.toLocaleString('pt-BR')}
-                                    {(() => {
-                                      const pct = metaVal > 0 ? (realizadasVal / metaVal) * 100 : null;
-                                      return pct !== null ? ` (${pct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%)` : '';
-                                    })()}
-                                  </span>
-                                </div>
-                              )}
+                              <div className="flex flex-col items-end">
+                                <span>
+                                  {metaVal.toLocaleString('pt-BR')} /{' '}
+                                  {realizadasVal.toLocaleString('pt-BR')}
+                                  {(() => {
+                                    const pct = metaVal > 0 ? (realizadasVal / metaVal) * 100 : null;
+                                    return pct !== null ? ` (${pct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%)` : '';
+                                  })()}
+                                </span>
+                              </div>
                             </TableCell>
                           );
                         })}
                         {podeEditar && (
                           <TableCell className="sticky right-0 bg-inherit">
-                            {isEditing ? (
-                              <div className="flex gap-1">
-                                <Button
-                                  size="sm"
-                                  variant="default"
-                                  className="h-7 text-xs"
-                                  disabled={saving === key}
-                                  onClick={() =>
-                                    salvar({
-                                      ...row,
-                                      ...ed,
-                                      pos_pago: ed?.pos_pago ?? row.pos_pago,
-                                      flex_conforto: ed?.flex_conforto ?? row.flex_conforto,
-                                      nova_parabolica: ed?.nova_parabolica ?? row.nova_parabolica,
-                                      total: getPayTvMeta({ ...row, ...ed }),
-                                      fibra: ed?.fibra ?? row.fibra,
-                                      seguros_pos: ed?.seguros_pos ?? row.seguros_pos,
-                                      seguros_fibra: ed?.seguros_fibra ?? row.seguros_fibra,
-                                      sky_mais: ed?.sky_mais ?? row.sky_mais,
-                                      movel: ed?.movel ?? row.movel ?? 0,
-                                    })
-                                  }
-                                >
-                                  {saving === key ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Salvar'}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 text-xs"
-                                  onClick={() =>
-                                    setEditando((x) => {
-                                      const n = { ...x };
-                                      delete n[key];
-                                      return n;
-                                    })
-                                  }
-                                >
-                                  Cancelar
-                                </Button>
-                              </div>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 text-xs"
-                                onClick={() => setEditando((x) => ({ ...x, [key]: { ...row } }))}
-                              >
-                                Editar
-                              </Button>
-                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs"
+                              onClick={() => abrirModalEditar(row)}
+                            >
+                              Editar
+                            </Button>
                           </TableCell>
                         )}
                       </TableRow>
@@ -650,6 +620,107 @@ export function MetasEmpresaPage() {
               </>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!modalEditar} onOpenChange={(open) => !open && (setModalEditar(null), setEditarForm(null))}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Editar meta</DialogTitle>
+          </DialogHeader>
+          {modalEditar && editarForm && (
+            <div className="space-y-4 py-2">
+              <div className="flex flex-wrap gap-4 items-end">
+                <div className="flex flex-col gap-1.5">
+                  <Label>Mês</Label>
+                  <Select
+                    value={editarForm.mes}
+                    onValueChange={(v) => setEditarForm((f) => f && { ...f, mes: v })}
+                  >
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue placeholder="Mês" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MESES_OPCOES.map((m) => (
+                        <SelectItem key={m.valor} value={m.valor}>{m.nome}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Ano</Label>
+                  <Input
+                    type="number"
+                    placeholder=""
+                    className="w-24"
+                    value={editarForm.ano}
+                    onChange={(e) =>
+                      setEditarForm((f) =>
+                        f ? { ...f, ano: parseInt(e.target.value, 10) || new Date().getFullYear() } : null
+                      )
+                    }
+                    min={2020}
+                    max={2030}
+                  />
+                </div>
+                {CAMPOS_EDITAVEIS.map((c) => (
+                  <div key={c.key} className="flex flex-col gap-1.5">
+                    <Label>{c.label}</Label>
+                    <Input
+                      type="number"
+                      placeholder=""
+                      className="w-24"
+                      value={editarForm.valores[c.key] ?? ''}
+                      onChange={(e) =>
+                        setEditarForm((f) =>
+                          f ? {
+                            ...f,
+                            valores: { ...f.valores, [c.key]: e.target.value },
+                          } : null
+                        )
+                      }
+                      min={0}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between pt-2 border-t">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm" disabled={saving === '__editar__'}>
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Excluir
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Excluir meta</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Excluir a meta de {getMesNomeMetas(modalEditar.mes)}/{modalEditar.ano}? Esta ação não pode ser desfeita.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={excluirEdicao}
+                        className="bg-red-600 hover:bg-red-700"
+                      >
+                        Excluir
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => (setModalEditar(null), setEditarForm(null))}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={salvarEdicao} disabled={saving === '__editar__'}>
+                    {saving === '__editar__' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

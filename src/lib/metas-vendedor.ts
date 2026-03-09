@@ -104,3 +104,19 @@ export async function upsertMetaVendedor(
     if (error) throw error;
   }
 }
+
+export async function deleteMetaVendedor(
+  userId: string,
+  vendedorNome: string,
+  mes: number,
+  ano: number
+): Promise<void> {
+  const { error } = await supabase
+    .from('metas_vendedor')
+    .delete()
+    .eq('user_id', userId)
+    .eq('vendedor_nome', vendedorNome)
+    .eq('mes', mes)
+    .eq('ano', ano);
+  if (error) throw error;
+}
