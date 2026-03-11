@@ -142,7 +142,7 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
     },
     {
       id: "variaveis",
-      label: "PARÂMETROS",
+      label: "GESTÃO",
       items: [
         {
           id: "indicadores",

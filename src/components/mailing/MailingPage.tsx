@@ -14,8 +14,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import useData from '@/context/useData';
+import { useAuth } from '@/context/useAuth';
 import { normalizeCityName, normalizeNeighborhoodName } from '@/context/DataUtils';
-import type { ServiceOrder, Venda, VendaMeta } from '@/types';
+import type { ServiceOrder, Venda, VendaMeta, VendaFibra, VendaMovel, VendaNovaParabolica } from '@/types';
+import { fetchVendasFibra, fetchVendasMovel, fetchVendasNovaParabolica } from '@/lib/cadastro-comercial';
 import { Mail, Download, Loader2, Search, ChevronLeft, ChevronRight, ChevronDown, Eraser } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -68,30 +70,88 @@ function formatDate(s: string | null | undefined): string {
 function buildMailingRows(
   serviceOrders: ServiceOrder[],
   vendas: Venda[],
-  vendasMeta: VendaMeta[]
+  vendasMeta: VendaMeta[],
+  vendasFibra: VendaFibra[],
+  vendasMovel: VendaMovel[],
+  vendasNovaParabolica: VendaNovaParabolica[]
 ): MailingRow[] {
   const rows: MailingRow[] = [];
   const byCpfComercial = new Map<string, { nome: string; cpf: string; telefone: string; cidade: string; bairro: string; categoria: string; produto: string; data: string }>();
   const comercialByTel = new Map<string, string>(); // tel -> cpf
 
-  const allVendas: Array<{ tipo: 'venda'; r: Venda } | { tipo: 'meta'; r: VendaMeta }> = [
+  type VendaEntry =
+    | { tipo: 'venda'; r: Venda }
+    | { tipo: 'meta'; r: VendaMeta }
+    | { tipo: 'fibra'; r: VendaFibra }
+    | { tipo: 'movel'; r: VendaMovel }
+    | { tipo: 'np'; r: VendaNovaParabolica };
+
+  const allVendas: VendaEntry[] = [
     ...vendas.map((r) => ({ tipo: 'venda' as const, r })),
     ...vendasMeta.map((r) => ({ tipo: 'meta' as const, r })),
+    ...vendasFibra.map((r) => ({ tipo: 'fibra' as const, r })),
+    ...vendasMovel.map((r) => ({ tipo: 'movel' as const, r })),
+    ...vendasNovaParabolica.map((r) => ({ tipo: 'np' as const, r })),
   ];
 
-  for (const { tipo, r } of allVendas) {
-    const cpf = (tipo === 'venda' ? (r as Venda).cpf : (r as VendaMeta).cpf) ?? '';
-    const cpfNorm = String(cpf).trim();
-    if (byCpfComercial.has(cpfNorm)) continue;
+  for (const entry of allVendas) {
+    let cpfNorm: string;
+    let nome: string;
+    let telefone: string;
+    let cidade: string;
+    let bairro: string;
+    let categoria: string;
+    let produto: string;
+    let data: string;
 
-    const nome = (tipo === 'venda' ? (r as Venda).nome_fantasia : (r as VendaMeta).nome_fantasia)?.trim()
-      || (tipo === 'venda' ? (r as Venda).nome_proprietario : (r as VendaMeta).nome_proprietario) || '';
-    const telefone = tipo === 'venda' ? (r as Venda).telefone_celular ?? '' : (r as VendaMeta).telefone_celular ?? '';
-    const cidade = tipo === 'venda' ? (r as Venda).cidade ?? '' : (r as VendaMeta).cidade ?? '';
-    const bairro = tipo === 'venda' ? (r as Venda).bairro ?? '' : (r as VendaMeta).bairro ?? '';
-    const categoria = tipo === 'venda' ? (r as Venda).agrupamento_produto ?? '' : (r as VendaMeta).categoria ?? '';
-    const produto = tipo === 'venda' ? (r as Venda).produto_principal ?? '' : (r as VendaMeta).produto ?? '';
-    const data = tipo === 'venda' ? (r as Venda).data_habilitacao ?? '' : (r as VendaMeta).data_venda ?? '';
+    if (entry.tipo === 'venda') {
+      cpfNorm = String(entry.r.cpf ?? '').trim();
+      nome = entry.r.nome_fantasia?.trim() || entry.r.nome_proprietario || '';
+      telefone = entry.r.telefone_celular ?? '';
+      cidade = entry.r.cidade ?? '';
+      bairro = entry.r.bairro ?? '';
+      categoria = entry.r.agrupamento_produto ?? '';
+      produto = entry.r.produto_principal ?? '';
+      data = entry.r.data_habilitacao ?? '';
+    } else if (entry.tipo === 'meta') {
+      cpfNorm = String(entry.r.cpf ?? '').trim();
+      nome = entry.r.nome_fantasia?.trim() || entry.r.nome_proprietario || '';
+      telefone = entry.r.telefone_celular ?? '';
+      cidade = entry.r.cidade ?? '';
+      bairro = entry.r.bairro ?? '';
+      categoria = entry.r.categoria ?? '';
+      produto = entry.r.produto ?? '';
+      data = entry.r.data_venda ?? '';
+    } else if (entry.tipo === 'fibra') {
+      cpfNorm = String(entry.r.cpf_cnpj ?? '').trim();
+      nome = entry.r.nome_completo ?? '';
+      telefone = entry.r.telefone ?? '';
+      cidade = entry.r.cidade ?? '';
+      bairro = entry.r.bairro ?? '';
+      categoria = 'Fibra';
+      produto = entry.r.plano_fibra_nome ?? '';
+      data = entry.r.data_venda ?? '';
+    } else if (entry.tipo === 'movel') {
+      cpfNorm = String(entry.r.cpf ?? '').trim();
+      nome = entry.r.nome_completo ?? '';
+      telefone = entry.r.telefone ?? '';
+      cidade = entry.r.cidade ?? '';
+      bairro = entry.r.bairro ?? '';
+      categoria = 'Móvel';
+      produto = entry.r.plano_movel_nome ?? '';
+      data = entry.r.data_venda ?? '';
+    } else {
+      cpfNorm = String(entry.r.cpf ?? '').trim();
+      nome = entry.r.nome_proprietario ?? '';
+      telefone = entry.r.telefone_celular ?? '';
+      cidade = entry.r.cidade ?? '';
+      bairro = entry.r.bairro ?? '';
+      categoria = 'Nova Parabólica';
+      produto = 'Nova Parabólica';
+      data = entry.r.data_venda ?? '';
+    }
+
+    if (!cpfNorm || byCpfComercial.has(cpfNorm)) continue;
 
     byCpfComercial.set(cpfNorm, { nome, cpf: cpfNorm, telefone, cidade, bairro, categoria, produto, data });
     const tel = normTel(telefone);
@@ -374,6 +434,11 @@ function FilterMultiSelect({
 
 export function MailingPage() {
   const { serviceOrders, vendas, vendasMeta } = useData();
+  const { user, authExtras } = useAuth();
+  const donoUserId = authExtras?.donoUserId ?? user?.id ?? '';
+  const [vendasFibra, setVendasFibra] = useState<VendaFibra[]>([]);
+  const [vendasMovel, setVendasMovel] = useState<VendaMovel[]>([]);
+  const [vendasNp, setVendasNp] = useState<VendaNovaParabolica[]>([]);
   const [filtroAtuacao, setFiltroAtuacao] = useState<string[]>([]);
   const [filtroCidade, setFiltroCidade] = useState<string[]>([]);
   const [filtroBairro, setFiltroBairro] = useState<string[]>([]);
@@ -388,9 +453,22 @@ export function MailingPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [exporting, setExporting] = useState(false);
 
+  useEffect(() => {
+    if (!donoUserId) return;
+    Promise.all([
+      fetchVendasFibra(donoUserId),
+      fetchVendasMovel(donoUserId),
+      fetchVendasNovaParabolica(donoUserId),
+    ]).then(([fibra, movel, np]) => {
+      setVendasFibra(fibra);
+      setVendasMovel(movel);
+      setVendasNp(np);
+    }).catch(() => {});
+  }, [donoUserId]);
+
   const allRows = useMemo(
-    () => buildMailingRows(serviceOrders, vendas, vendasMeta),
-    [serviceOrders, vendas, vendasMeta]
+    () => buildMailingRows(serviceOrders, vendas, vendasMeta, vendasFibra, vendasMovel, vendasNp),
+    [serviceOrders, vendas, vendasMeta, vendasFibra, vendasMovel, vendasNp]
   );
 
   const filterState = useMemo(
@@ -458,13 +536,13 @@ export function MailingPage() {
   // Quando as opções em cascata mudam, remover dos filtros valores que não existem mais nas opções
   useEffect(() => {
     if (!hasSearched || rawRows.length === 0) return;
-    setFiltroAtuacao((prev) => prev.filter((a) => OPCOES_ATUACAO.includes(a as typeof OPCOES_ATUACAO[number])));
-    setFiltroCidade((prev) => prev.filter((c) => options.cidades.includes(c)));
-    setFiltroBairro((prev) => prev.filter((b) => options.bairros.includes(b)));
-    setFiltroTipoServico((prev) => prev.filter((t) => options.tiposServico.includes(t)));
-    setFiltroMotivo((prev) => prev.filter((m) => options.motivos.includes(m)));
-    setFiltroCategoria((prev) => prev.filter((c) => options.categorias.includes(c)));
-    setFiltroProduto((prev) => prev.filter((p) => options.produtos.includes(p)));
+    setFiltroAtuacao((prev) => { const n = prev.filter((a) => OPCOES_ATUACAO.includes(a as typeof OPCOES_ATUACAO[number])); return n.length === prev.length ? prev : n; });
+    setFiltroCidade((prev) => { const n = prev.filter((c) => options.cidades.includes(c)); return n.length === prev.length ? prev : n; });
+    setFiltroBairro((prev) => { const n = prev.filter((b) => options.bairros.includes(b)); return n.length === prev.length ? prev : n; });
+    setFiltroTipoServico((prev) => { const n = prev.filter((t) => options.tiposServico.includes(t)); return n.length === prev.length ? prev : n; });
+    setFiltroMotivo((prev) => { const n = prev.filter((m) => options.motivos.includes(m)); return n.length === prev.length ? prev : n; });
+    setFiltroCategoria((prev) => { const n = prev.filter((c) => options.categorias.includes(c)); return n.length === prev.length ? prev : n; });
+    setFiltroProduto((prev) => { const n = prev.filter((p) => options.produtos.includes(p)); return n.length === prev.length ? prev : n; });
   }, [hasSearched, rawRows.length, options.cidades, options.bairros, options.tiposServico, options.motivos, options.categorias, options.produtos]);
 
   const clearFilters = useCallback(() => {
@@ -483,7 +561,7 @@ export function MailingPage() {
   }, []);
 
   const runSearch = useCallback(() => {
-    const raw = buildMailingRows(serviceOrders, vendas, vendasMeta);
+    const raw = buildMailingRows(serviceOrders, vendas, vendasMeta, vendasFibra, vendasMovel, vendasNp);
     setRawRows(raw);
     setHasSearched(true);
     setCurrentPage(1);
