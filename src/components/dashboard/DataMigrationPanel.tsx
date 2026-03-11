@@ -35,7 +35,7 @@ import {
 export function DataMigrationPanel() {
   console.log('=== PAINEL DE MIGRAÇÃO RENDERIZADO ===');
   
-  const { migrateFromLocalStorage, syncing, pagamentos: supabasePagamentos } = useSupabaseData();
+  const { migrateFromLocalStorage, syncing, migrationProgress, pagamentos: supabasePagamentos } = useSupabaseData();
   const { clearLocalStorageAfterMigration, lastServiceOrderImportSummary, addRejectedOrdersToPlatform } = useData();
   const { toast } = useToast();
   const [osRejeitadasModalOpen, setOsRejeitadasModalOpen] = useState(false);
@@ -443,11 +443,25 @@ export function DataMigrationPanel() {
         {syncing && (
           <div className="bg-blue-50 rounded-lg p-4 border-2 border-blue-200 shadow-sm">
             <div className="space-y-3">
-              <div className="flex items-center space-x-3">
-                <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                <span className="text-sm font-semibold text-blue-900">Migrando dados para o Supabase...</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                  <span className="text-sm font-semibold text-blue-900">
+                    {migrationProgress
+                      ? `Migrando: ${migrationProgress.label} (${migrationProgress.current}/${migrationProgress.total})`
+                      : 'Preparando migração...'}
+                  </span>
+                </div>
+                {migrationProgress && (
+                  <span className="text-xs font-medium text-blue-700">
+                    {Math.round((migrationProgress.current / migrationProgress.total) * 100)}%
+                  </span>
+                )}
               </div>
-              <Progress value={50} className="h-2.5 bg-blue-100" />
+              <Progress
+                value={migrationProgress ? (migrationProgress.current / migrationProgress.total) * 100 : 0}
+                className="h-2.5 bg-blue-100"
+              />
             </div>
           </div>
         )}

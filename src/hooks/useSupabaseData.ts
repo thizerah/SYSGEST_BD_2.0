@@ -21,6 +21,12 @@ interface ImportResult {
   stepChanges?: number;
 }
 
+export interface MigrationProgress {
+  current: number;
+  total: number;
+  label: string;
+}
+
 export interface SupabaseDataState {
   serviceOrders: ServiceOrder[];
   vendas: Venda[];
@@ -30,6 +36,7 @@ export interface SupabaseDataState {
   baseData: BaseData[];
   loading: boolean;
   syncing: boolean;
+  migrationProgress: MigrationProgress | null;
 }
 
 export function useSupabaseData() {
@@ -43,7 +50,8 @@ export function useSupabaseData() {
     vendasMeta: [],
     baseData: [],
     loading: false,
-    syncing: false
+    syncing: false,
+    migrationProgress: null,
   });
 
   // Função para obter campos de timestamp por tabela
@@ -580,23 +588,40 @@ export function useSupabaseData() {
     const uid = donoUserId ?? user?.id;
     if (!uid) return { success: false, message: 'Usuário não autenticado' };
 
-    setState(prev => ({ ...prev, syncing: true }));
+    setState(prev => ({ ...prev, syncing: true, migrationProgress: null }));
 
     try {
-      const STORAGE_KEYS = {
+      const STORAGE_KEYS: Record<string, string> = {
         SERVICE_ORDERS: 'sysgest_service_orders',
         VENDAS: 'sysgest_vendas',
         PAGAMENTOS: 'sysgest_pagamentos',
-        METAS: 'sysgest_metas',
         VENDAS_META: 'sysgest_vendas_meta',
-        BASE_DATA: 'sysgest_base_data'
+      };
+
+      const STORAGE_LABELS: Record<string, string> = {
+        SERVICE_ORDERS: 'Ordens de Serviço',
+        VENDAS: 'Vendas',
+        PAGAMENTOS: 'Pagamentos',
+        VENDAS_META: 'Meta de Vendas',
       };
 
       let migratedCount = 0;
       let totalProcessed = 0;
       let totalDuplicates = 0;
 
-      for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
+      const storageEntries = Object.entries(STORAGE_KEYS);
+      const totalTables = storageEntries.length;
+
+      for (let tableIndex = 0; tableIndex < storageEntries.length; tableIndex++) {
+        const [key, storageKey] = storageEntries[tableIndex];
+        setState(prev => ({
+          ...prev,
+          migrationProgress: {
+            current: tableIndex + 1,
+            total: totalTables,
+            label: STORAGE_LABELS[key] ?? key,
+          },
+        }));
         const data = localStorage.getItem(storageKey);
         if (data) {
           const parsedData = JSON.parse(data);
@@ -612,14 +637,8 @@ export function useSupabaseData() {
               case 'PAGAMENTOS':
                 tableName = 'pagamentos';
                 break;
-              case 'METAS':
-                tableName = 'metas';
-                break;
               case 'VENDAS_META':
                 tableName = 'vendas_meta';
-                break;
-              case 'BASE_DATA':
-                tableName = 'base_data';
                 break;
             }
 
@@ -652,7 +671,7 @@ export function useSupabaseData() {
       }
 
       await loadFromSupabase();
-      setState(prev => ({ ...prev, syncing: false }));
+      setState(prev => ({ ...prev, syncing: false, migrationProgress: null }));
       
       if (migratedCount > 0) {
         return { 
@@ -668,7 +687,7 @@ export function useSupabaseData() {
 
     } catch (error) {
       console.error('[MIGRAÇÃO] Erro durante a migração:', error);
-      setState(prev => ({ ...prev, syncing: false }));
+      setState(prev => ({ ...prev, syncing: false, migrationProgress: null }));
       return { success: false, message: `Erro durante a migração: ${error instanceof Error ? error.message : 'Erro desconhecido'}` };
     }
   }, [donoUserId, user?.id, loadFromSupabase, handleDuplicateCheck, sanitizeDataForSupabase]);

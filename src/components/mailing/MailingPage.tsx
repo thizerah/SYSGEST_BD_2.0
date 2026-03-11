@@ -223,66 +223,6 @@ function applyFilters(
   return list;
 }
 
-/** Opções para dropdowns extraídas dos dados fonte (antes de buscar); cidade e bairro padronizados. */
-function useFilterOptionsFromSource(
-  serviceOrders: ServiceOrder[],
-  vendas: Venda[],
-  vendasMeta: VendaMeta[]
-) {
-  return useMemo(() => {
-    const cidades = new Set<string>();
-    const bairros = new Set<string>();
-    const tiposServico = new Set<string>();
-    const motivos = new Set<string>();
-    const categorias = new Set<string>();
-    const produtos = new Set<string>();
-    for (const os of serviceOrders) {
-      if (os.cidade?.trim()) {
-        const c = normalizeCityName(os.cidade);
-        if (c !== 'Desconhecido') cidades.add(c);
-      }
-      if (os.bairro?.trim()) {
-        const b = normalizeNeighborhoodName(os.bairro);
-        if (b !== 'Desconhecido') bairros.add(b);
-      }
-      const t = (os.subtipo_servico || os.tipo_servico || '').trim();
-      if (t) tiposServico.add(t);
-      if (os.motivo?.trim()) motivos.add(os.motivo.trim());
-    }
-    for (const v of vendas) {
-      if (v.cidade?.trim()) {
-        const c = normalizeCityName(v.cidade);
-        if (c !== 'Desconhecido') cidades.add(c);
-      }
-      if (v.bairro?.trim()) {
-        const b = normalizeNeighborhoodName(v.bairro);
-        if (b !== 'Desconhecido') bairros.add(b);
-      }
-      if (v.agrupamento_produto?.trim()) categorias.add(v.agrupamento_produto.trim());
-      if (v.produto_principal?.trim()) produtos.add(v.produto_principal.trim());
-    }
-    for (const v of vendasMeta) {
-      if (v.cidade?.trim()) {
-        const c = normalizeCityName(v.cidade);
-        if (c !== 'Desconhecido') cidades.add(c);
-      }
-      if (v.bairro?.trim()) {
-        const b = normalizeNeighborhoodName(v.bairro);
-        if (b !== 'Desconhecido') bairros.add(b);
-      }
-      if (v.categoria?.trim()) categorias.add(v.categoria.trim());
-      if (v.produto?.trim()) produtos.add(v.produto.trim());
-    }
-    return {
-      cidades: Array.from(cidades).sort(),
-      bairros: Array.from(bairros).sort(),
-      tiposServico: Array.from(tiposServico).sort(),
-      motivos: Array.from(motivos).sort(),
-      categorias: Array.from(categorias).sort(),
-      produtos: Array.from(produtos).sort(),
-    };
-  }, [serviceOrders, vendas, vendasMeta]);
-}
 
 /** Verifica se a linha atende aos filtros atuais exceto uma dimensão (para cascata). */
 function rowMatchesOtherFilters(
@@ -448,7 +388,10 @@ export function MailingPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [exporting, setExporting] = useState(false);
 
-  const optionsFromSource = useFilterOptionsFromSource(serviceOrders, vendas, vendasMeta);
+  const allRows = useMemo(
+    () => buildMailingRows(serviceOrders, vendas, vendasMeta),
+    [serviceOrders, vendas, vendasMeta]
+  );
 
   const filterState = useMemo(
     () => ({
@@ -504,9 +447,9 @@ export function MailingPage() {
   ]);
 
   const options = useMemo(() => {
-    if (!hasSearched || rawRows.length === 0) return optionsFromSource;
-    return getCascadingOptions(rawRows, filterState);
-  }, [hasSearched, rawRows, filterState, optionsFromSource]);
+    const sourceRows = hasSearched && rawRows.length > 0 ? rawRows : allRows;
+    return getCascadingOptions(sourceRows, filterState);
+  }, [hasSearched, rawRows, allRows, filterState]);
 
   useEffect(() => {
     setCurrentPage(1);
