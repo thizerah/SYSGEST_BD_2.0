@@ -263,7 +263,7 @@ import { VendasMetaCleaner } from "@/components/dashboard/VendasMetaCleaner";
 
 // Componente para o conteúdo da guia Metas
 function MetasTabContent() {
-  const { metas, vendas, vendasMeta, calculateMetaMetrics } = useData();
+  const { metas, vendas, vendasMeta, calculateMetaMetrics, updateVendaMetaStatus } = useData();
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [activeMetasTab, setActiveMetasTab] = useState("dashboard");
@@ -1762,6 +1762,7 @@ function MetasTabContent() {
             selectedMonth={selectedMonth}
             selectedYear={selectedYear}
             buscarVendasDoPeriodo={buscarTodasVendasDoPeriodo}
+            onUpdateVendaMetaStatus={updateVendaMetaStatus}
           />
         </TabsContent>
       </Tabs>
@@ -1773,14 +1774,50 @@ function MetasTabContent() {
 function MetasDetalhamentoContent({ 
   selectedMonth, 
   selectedYear, 
-  buscarVendasDoPeriodo 
+  buscarVendasDoPeriodo,
+  onUpdateVendaMetaStatus
 }: { 
   selectedMonth: number | null; 
   selectedYear: number | null; 
   buscarVendasDoPeriodo: (mes: number, ano: number) => any[];
+  onUpdateVendaMetaStatus: (numeroProposta: string, novoStatus: string) => Promise<void>;
 }) {
   const { toast } = useToast();
-  
+
+  // Estados para cancelamento manual de proposta
+  const [propostaParaCancelar, setPropostaParaCancelar] = useState<string | null>(null);
+  const [atualizandoStatus, setAtualizandoStatus] = useState<string | null>(null);
+
+  const handleCancelarProposta = async () => {
+    if (!propostaParaCancelar) return;
+    setAtualizandoStatus(propostaParaCancelar);
+    try {
+      await onUpdateVendaMetaStatus(propostaParaCancelar, 'Cancelada');
+      toast({
+        title: 'Status atualizado',
+        description: `Proposta ${propostaParaCancelar} marcada como Cancelada.`,
+      });
+    } catch {
+      toast({
+        title: 'Erro ao atualizar',
+        description: 'Não foi possível atualizar o status. Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setAtualizandoStatus(null);
+      setPropostaParaCancelar(null);
+    }
+  };
+
+  const getStatusBadgeStyle = (status: string): string => {
+    const s = status.toLowerCase();
+    if (s === 'cancelada' || s === 'cancelado') return 'bg-red-100 text-red-700 border-red-300';
+    if (s.includes('habilitad') || s === 'finalizado' || s === 'finalizada') return 'bg-green-100 text-green-700 border-green-300';
+    if (s.includes('aguardando')) return 'bg-yellow-100 text-yellow-700 border-yellow-300';
+    if (s === '—') return 'bg-gray-100 text-gray-400 border-gray-200';
+    return 'bg-slate-100 text-slate-600 border-slate-300';
+  };
+
   // Estados para paginação
   const [paginaAtual, setPaginaAtual] = useState(1);
   const itensPorPagina = 15;
@@ -2637,7 +2674,22 @@ function MetasDetalhamentoContent({
                               {nomeVendedor || '-'}
                             </TableCell>
                             <TableCell className="text-xs p-3">
-                              <span className="font-medium text-slate-700">{getStatus(venda)}</span>
+                              <div className="flex items-center gap-1.5 group">
+                                <span className={`${getStatusBadgeStyle(getStatus(venda))} inline-flex items-center font-medium text-xs px-2 py-0.5 border rounded-full whitespace-nowrap pointer-events-none`}>
+                                  {getStatus(venda)}
+                                </span>
+                                {atualizandoStatus === venda.numero_proposta ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 shrink-0" />
+                                ) : (
+                                  <button
+                                    onClick={() => setPropostaParaCancelar(venda.numero_proposta)}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded hover:bg-slate-100 shrink-0"
+                                    title="Alterar status manualmente"
+                                  >
+                                    <Pencil className="h-3 w-3 text-slate-400 hover:text-slate-600" />
+                                  </button>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell className="text-xs p-3 text-gray-700">
                               {dataHabilitacao ? 
@@ -2755,6 +2807,28 @@ function MetasDetalhamentoContent({
           )}
         </CardContent>
       </Card>
+
+      {/* AlertDialog para confirmação de cancelamento manual */}
+      <AlertDialog open={!!propostaParaCancelar} onOpenChange={(open) => { if (!open) setPropostaParaCancelar(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar proposta?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A proposta <strong>{propostaParaCancelar}</strong> será marcada como <strong>Cancelada</strong>.{' '}
+              Atenção: uma importação futura poderá sobrescrever este status com o valor vindo da planilha.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancelarProposta}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Confirmar cancelamento
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

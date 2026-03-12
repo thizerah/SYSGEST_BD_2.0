@@ -78,6 +78,7 @@ interface DataContextType {
   importMetas: (metas: Meta[], append?: boolean) => ImportResult;
   importVendasMeta: (vendasMeta: VendaMeta[], append?: boolean) => ImportResult;
   importBaseData: (baseData: BaseData[], append?: boolean) => ImportResult;
+  updateVendaMetaStatus: (numeroProposta: string, novoStatus: string) => Promise<void>;
   setLastImportInfo: (info: LastImportInfo | null) => void;
   clearData: () => void;
   loading: boolean;
@@ -1426,6 +1427,33 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateVendaMetaStatus = async (numeroProposta: string, novoStatus: string): Promise<void> => {
+    const uid = donoUserId ?? user?.id;
+    if (!uid) throw new Error('Usuário não autenticado');
+
+    const { error } = await supabase
+      .from('vendas_meta')
+      .update({ status_proposta: novoStatus, imported_at: new Date().toISOString() })
+      .eq('user_id', uid)
+      .eq('numero_proposta', numeroProposta);
+
+    if (error) throw error;
+
+    setVendasMeta(prev => {
+      const updated = prev.map(v =>
+        v.numero_proposta === numeroProposta ? { ...v, status_proposta: novoStatus } : v
+      );
+      return updated;
+    });
+    saveToLocalStorage(
+      STORAGE_KEYS.VENDAS_META,
+      vendasMeta.map(v =>
+        v.numero_proposta === numeroProposta ? { ...v, status_proposta: novoStatus } : v
+      ),
+      true
+    );
+  };
+
   const importBaseData = (novoBaseData: BaseData[], append: boolean = false): ImportResult => {
     setLoading(true);
     
@@ -2723,6 +2751,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       importMetas,
       importVendasMeta,
       importBaseData,
+      updateVendaMetaStatus,
       setLastImportInfo,
       clearData, 
       loading,
