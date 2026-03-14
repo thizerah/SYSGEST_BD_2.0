@@ -44,22 +44,31 @@ export function DesempenhoCategoriaTrendTable({
   const mapearTipoParaQuadro = (categoria: string): string => {
     switch (categoria) {
       case 'pos_pago':
+      case 'seguros_pos':
         return 'POS';
       case 'flex_conforto':
         return 'PRE';
       case 'nova_parabolica':
         return 'NP';
       case 'fibra':
-        return 'FIBRA';
-      case 'sky_mais':
-        return 'SKY+';
-      case 'seguros_pos':
-        return 'POS';
       case 'seguros_fibra':
         return 'FIBRA';
+      case 'movel':
+        return 'MÓVEL';
+      case 'sky_mais':
+        return 'SKY+';
       default:
         return 'OUTROS';
     }
+  };
+
+  // Helper que resolve o tipo diretamente a partir do VendaMeta
+  const getTipoParaQuadro = (vendaMeta: VendaMeta): string => {
+    const cat = ((vendaMeta as Record<string, unknown>).categoria as string || '').toLowerCase().trim();
+    if (cat === 'fibra' || cat === 'seguros_fibra') return 'FIBRA';
+    if (cat === 'movel') return 'MÓVEL';
+    if (cat === 'nova_parabolica') return 'NP';
+    return mapearTipoParaQuadro(mapearCategoriaVenda ? mapearCategoriaVenda(vendaMeta) : cat);
   };
 
   // Função para verificar produtos diferenciais
@@ -149,12 +158,18 @@ export function DesempenhoCategoriaTrendTable({
           vendaMeta.mes === mesComparacao && vendaMeta.ano === periodo.ano
         );
       } else {
-        return vendasFiltradas.some(venda => {
+        const temVendasHistoricas = vendasFiltradas.some(venda => {
           if (!venda.data_habilitacao) return false;
           const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
           const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
           return mesHabilitacao === periodo.mes.substring(0, 3) && anoHabilitacao === periodo.ano;
         });
+        const temVendasNovas = vendasMetaFiltradas.some(vm => {
+          const cat = ((vm as Record<string, unknown>).categoria as string || '').toLowerCase();
+          return vm.mes === mesComparacao && vm.ano === periodo.ano &&
+            (cat === 'fibra' || cat === 'movel' || cat === 'nova_parabolica');
+        });
+        return temVendasHistoricas || temVendasNovas;
       }
     });
 
@@ -166,7 +181,7 @@ export function DesempenhoCategoriaTrendTable({
       tendencia?: { direction: 'up' | 'down' | 'neutral', percentage: number };
     }>>();
 
-    const categorias = ['POS', 'PRE', 'NP', 'SKY+', 'CARTAO_CREDITO', 'DIGITAL_PEC_PIX', 'S_COBRANCA', 'SEGURO_POS'];
+    const categorias = ['POS', 'PRE', 'NP', 'SKY+', 'FIBRA', 'MÓVEL', 'CARTAO_CREDITO', 'DIGITAL_PEC_PIX', 'S_COBRANCA', 'SEGURO_POS'];
     categorias.forEach(categoria => {
       categoriasConsolidadas.set(categoria, new Map());
     });
@@ -183,6 +198,8 @@ export function DesempenhoCategoriaTrendTable({
         PRE: 0,
         NP: 0,
         'SKY+': 0,
+        FIBRA: 0,
+        'MÓVEL': 0,
         CARTAO_CREDITO: 0,
         DIGITAL_PEC_PIX: 0,
         S_COBRANCA: 0,
@@ -190,70 +207,55 @@ export function DesempenhoCategoriaTrendTable({
       };
 
       if (ehMesAtual) {
-        const vendasMetaDoPeriodo = vendasMetaFiltradas.filter(vendaMeta => {
-          return vendaMeta.mes === mesComparacao && vendaMeta.ano === periodo.ano;
-        });
-
-        vendasMetaDoPeriodo.forEach(vendaMeta => {
-          const categoria = mapearCategoriaVenda ? mapearCategoriaVenda(vendaMeta) : vendaMeta.categoria;
-          const tipo = mapearTipoParaQuadro(categoria);
-          
-          if (tipo in quantidadePorCategoria) {
-            quantidadePorCategoria[tipo as keyof typeof quantidadePorCategoria] += 1;
-          }
-
-          const produtosDiferenciais = verificarProdutosSecundarios(vendaMeta.produtos_secundarios, vendaMeta.forma_pagamento);
-          
-          if (produtosDiferenciais.temCartaoCredito) {
-            quantidadePorCategoria.CARTAO_CREDITO += 1;
-          }
-          
-          if (produtosDiferenciais.temDigitalPecPix) {
-            quantidadePorCategoria.DIGITAL_PEC_PIX += 1;
-          }
-          
-          if (produtosDiferenciais.temSCobranca) {
-            quantidadePorCategoria.S_COBRANCA += 1;
-          }
-          
-          if (produtosDiferenciais.temSeguroPOS && categoria === 'pos_pago') {
-            quantidadePorCategoria.SEGURO_POS += 1;
-          }
-        });
+        vendasMetaFiltradas
+          .filter(vm => vm.mes === mesComparacao && vm.ano === periodo.ano)
+          .forEach(vendaMeta => {
+            const tipo = getTipoParaQuadro(vendaMeta);
+            if (tipo in quantidadePorCategoria) {
+              quantidadePorCategoria[tipo as keyof typeof quantidadePorCategoria] += 1;
+            }
+            const produtosDiferenciais = verificarProdutosSecundarios(vendaMeta.produtos_secundarios, vendaMeta.forma_pagamento);
+            if (produtosDiferenciais.temCartaoCredito) quantidadePorCategoria.CARTAO_CREDITO += 1;
+            if (produtosDiferenciais.temDigitalPecPix) quantidadePorCategoria.DIGITAL_PEC_PIX += 1;
+            if (produtosDiferenciais.temSCobranca) quantidadePorCategoria.S_COBRANCA += 1;
+            const cat = ((vendaMeta as Record<string, unknown>).categoria as string || '').toLowerCase();
+            if (produtosDiferenciais.temSeguroPOS && (cat === 'pos_pago' || cat === 'pos')) quantidadePorCategoria.SEGURO_POS += 1;
+          });
       } else {
-        const vendasDoPeriodo = vendasFiltradas.filter(venda => {
-          if (!venda.data_habilitacao) return false;
-          const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
-          const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
-          return mesHabilitacao === periodo.mes.substring(0, 3) && anoHabilitacao === periodo.ano;
-        });
+        // POS/PRE históricos
+        vendasFiltradas
+          .filter(venda => {
+            if (!venda.data_habilitacao) return false;
+            const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
+            const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
+            return mesHabilitacao === periodo.mes.substring(0, 3) && anoHabilitacao === periodo.ano;
+          })
+          .forEach(venda => {
+            const categoria = mapearCategoriaVenda ? mapearCategoriaVenda(venda) : venda.agrupamento_produto;
+            const tipoQuadro = mapearTipoParaQuadro(categoria);
+            if (tipoQuadro in quantidadePorCategoria) {
+              quantidadePorCategoria[tipoQuadro as keyof typeof quantidadePorCategoria] += 1;
+            }
+            const produtosDiferenciais = verificarProdutosSecundarios(venda.produtos_secundarios, venda.forma_pagamento);
+            if (produtosDiferenciais.temCartaoCredito) quantidadePorCategoria.CARTAO_CREDITO += 1;
+            if (produtosDiferenciais.temDigitalPecPix) quantidadePorCategoria.DIGITAL_PEC_PIX += 1;
+            if (produtosDiferenciais.temSCobranca) quantidadePorCategoria.S_COBRANCA += 1;
+            if (produtosDiferenciais.temSeguroPOS && categoria === 'pos_pago') quantidadePorCategoria.SEGURO_POS += 1;
+          });
 
-        vendasDoPeriodo.forEach(venda => {
-          const categoria = mapearCategoriaVenda ? mapearCategoriaVenda(venda) : venda.agrupamento_produto;
-          const tipoQuadro = mapearTipoParaQuadro(categoria);
-          
-          if (tipoQuadro in quantidadePorCategoria) {
-            quantidadePorCategoria[tipoQuadro as keyof typeof quantidadePorCategoria] += 1;
-          }
-
-          const produtosDiferenciais = verificarProdutosSecundarios(venda.produtos_secundarios, venda.forma_pagamento);
-          
-          if (produtosDiferenciais.temCartaoCredito) {
-            quantidadePorCategoria.CARTAO_CREDITO += 1;
-          }
-          
-          if (produtosDiferenciais.temDigitalPecPix) {
-            quantidadePorCategoria.DIGITAL_PEC_PIX += 1;
-          }
-          
-          if (produtosDiferenciais.temSCobranca) {
-            quantidadePorCategoria.S_COBRANCA += 1;
-          }
-          
-          if (produtosDiferenciais.temSeguroPOS && categoria === 'pos_pago') {
-            quantidadePorCategoria.SEGURO_POS += 1;
-          }
-        });
+        // FIBRA/MÓVEL/NP para meses anteriores
+        vendasMetaFiltradas
+          .filter(vm => {
+            const cat = ((vm as Record<string, unknown>).categoria as string || '').toLowerCase();
+            return vm.mes === mesComparacao && vm.ano === periodo.ano &&
+              (cat === 'fibra' || cat === 'movel' || cat === 'nova_parabolica');
+          })
+          .forEach(vendaMeta => {
+            const tipo = getTipoParaQuadro(vendaMeta);
+            if (tipo in quantidadePorCategoria) {
+              quantidadePorCategoria[tipo as keyof typeof quantidadePorCategoria] += 1;
+            }
+          });
       }
 
       const periodoKey = `${periodo.mes.substring(0, 3)}/${periodo.ano}`;
@@ -310,6 +312,8 @@ export function DesempenhoCategoriaTrendTable({
           PRE: 0,
           NP: 0,
           'SKY+': 0,
+          FIBRA: 0,
+          'MÓVEL': 0,
           CARTAO_CREDITO: 0,
           DIGITAL_PEC_PIX: 0,
           S_COBRANCA: 0,
@@ -317,50 +321,65 @@ export function DesempenhoCategoriaTrendTable({
         };
 
         if (ehMesAtual) {
-          const vendasMetaDoPeriodo = vendasMetaFiltradas.filter(vendaMeta => {
-            if (vendaMeta.mes !== mesComparacao || vendaMeta.ano !== periodo.ano) return false;
-            const id = vendaMeta.vendedor;
-            const vendaExistente = vendas.find(v => v.id_vendedor === id);
-            const nomeVendedor = vendaExistente?.nome_proprietario && vendaExistente.nome_proprietario !== id 
-              ? vendaExistente.nome_proprietario 
-              : id;
-            return nomeVendedor === vendedor;
-          });
-
-          vendasMetaDoPeriodo.forEach(vendaMeta => {
-            const categoria = mapearCategoriaVenda ? mapearCategoriaVenda(vendaMeta) : vendaMeta.categoria;
-            const tipo = mapearTipoParaQuadro(categoria);
-            if (tipo in quantidadePorCategoria) {
-              quantidadePorCategoria[tipo as keyof typeof quantidadePorCategoria] += 1;
-            }
-
-            const produtosDiferenciais = verificarProdutosSecundarios(vendaMeta.produtos_secundarios, vendaMeta.forma_pagamento);
-            if (produtosDiferenciais.temCartaoCredito) quantidadePorCategoria.CARTAO_CREDITO += 1;
-            if (produtosDiferenciais.temDigitalPecPix) quantidadePorCategoria.DIGITAL_PEC_PIX += 1;
-            if (produtosDiferenciais.temSCobranca) quantidadePorCategoria.S_COBRANCA += 1;
-            if (produtosDiferenciais.temSeguroPOS && categoria === 'pos_pago') quantidadePorCategoria.SEGURO_POS += 1;
-          });
+          vendasMetaFiltradas
+            .filter(vendaMeta => {
+              if (vendaMeta.mes !== mesComparacao || vendaMeta.ano !== periodo.ano) return false;
+              const id = vendaMeta.vendedor;
+              const vendaExistente = vendas.find(v => v.id_vendedor === id);
+              const nomeVendedor = vendaExistente?.nome_proprietario && vendaExistente.nome_proprietario !== id
+                ? vendaExistente.nome_proprietario
+                : (vendaMeta as Record<string, unknown>).nome_proprietario as string || id;
+              return nomeVendedor === vendedor || vendaMeta.vendedor === vendedor;
+            })
+            .forEach(vendaMeta => {
+              const tipo = getTipoParaQuadro(vendaMeta);
+              if (tipo in quantidadePorCategoria) {
+                quantidadePorCategoria[tipo as keyof typeof quantidadePorCategoria] += 1;
+              }
+              const produtosDiferenciais = verificarProdutosSecundarios(vendaMeta.produtos_secundarios, vendaMeta.forma_pagamento);
+              if (produtosDiferenciais.temCartaoCredito) quantidadePorCategoria.CARTAO_CREDITO += 1;
+              if (produtosDiferenciais.temDigitalPecPix) quantidadePorCategoria.DIGITAL_PEC_PIX += 1;
+              if (produtosDiferenciais.temSCobranca) quantidadePorCategoria.S_COBRANCA += 1;
+              const cat = ((vendaMeta as Record<string, unknown>).categoria as string || '').toLowerCase();
+              if (produtosDiferenciais.temSeguroPOS && (cat === 'pos_pago' || cat === 'pos')) quantidadePorCategoria.SEGURO_POS += 1;
+            });
         } else {
-          const vendasDoPeriodo = vendasFiltradas.filter(venda => {
-            if (!venda.data_habilitacao || venda.nome_proprietario !== vendedor) return false;
-            const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
-            const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
-            return mesHabilitacao === periodo.mes.substring(0, 3) && anoHabilitacao === periodo.ano;
-          });
+          // POS/PRE históricos
+          vendasFiltradas
+            .filter(venda => {
+              if (!venda.data_habilitacao || venda.nome_proprietario !== vendedor) return false;
+              const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
+              const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
+              return mesHabilitacao === periodo.mes.substring(0, 3) && anoHabilitacao === periodo.ano;
+            })
+            .forEach(venda => {
+              const categoria = mapearCategoriaVenda ? mapearCategoriaVenda(venda) : venda.agrupamento_produto;
+              const tipoQuadro = mapearTipoParaQuadro(categoria);
+              if (tipoQuadro in quantidadePorCategoria) {
+                quantidadePorCategoria[tipoQuadro as keyof typeof quantidadePorCategoria] += 1;
+              }
+              const produtosDiferenciais = verificarProdutosSecundarios(venda.produtos_secundarios, venda.forma_pagamento);
+              if (produtosDiferenciais.temCartaoCredito) quantidadePorCategoria.CARTAO_CREDITO += 1;
+              if (produtosDiferenciais.temDigitalPecPix) quantidadePorCategoria.DIGITAL_PEC_PIX += 1;
+              if (produtosDiferenciais.temSCobranca) quantidadePorCategoria.S_COBRANCA += 1;
+              if (produtosDiferenciais.temSeguroPOS && categoria === 'pos_pago') quantidadePorCategoria.SEGURO_POS += 1;
+            });
 
-          vendasDoPeriodo.forEach(venda => {
-            const categoria = mapearCategoriaVenda ? mapearCategoriaVenda(venda) : venda.agrupamento_produto;
-            const tipoQuadro = mapearTipoParaQuadro(categoria);
-            if (tipoQuadro in quantidadePorCategoria) {
-              quantidadePorCategoria[tipoQuadro as keyof typeof quantidadePorCategoria] += 1;
-            }
-
-            const produtosDiferenciais = verificarProdutosSecundarios(venda.produtos_secundarios, venda.forma_pagamento);
-            if (produtosDiferenciais.temCartaoCredito) quantidadePorCategoria.CARTAO_CREDITO += 1;
-            if (produtosDiferenciais.temDigitalPecPix) quantidadePorCategoria.DIGITAL_PEC_PIX += 1;
-            if (produtosDiferenciais.temSCobranca) quantidadePorCategoria.S_COBRANCA += 1;
-            if (produtosDiferenciais.temSeguroPOS && categoria === 'pos_pago') quantidadePorCategoria.SEGURO_POS += 1;
-          });
+          // FIBRA/MÓVEL/NP para meses anteriores
+          vendasMetaFiltradas
+            .filter(vm => {
+              const cat = ((vm as Record<string, unknown>).categoria as string || '').toLowerCase();
+              if (vm.mes !== mesComparacao || vm.ano !== periodo.ano) return false;
+              if (!(cat === 'fibra' || cat === 'movel' || cat === 'nova_parabolica')) return false;
+              const nomeVendedor = (vm as Record<string, unknown>).nome_proprietario as string || vm.vendedor || '';
+              return nomeVendedor === vendedor || vm.vendedor === vendedor;
+            })
+            .forEach(vendaMeta => {
+              const tipo = getTipoParaQuadro(vendaMeta);
+              if (tipo in quantidadePorCategoria) {
+                quantidadePorCategoria[tipo as keyof typeof quantidadePorCategoria] += 1;
+              }
+            });
         }
 
         const quantidadeTotal = Object.values(quantidadePorCategoria).reduce((sum, qtd) => sum + qtd, 0);
@@ -390,7 +409,7 @@ export function DesempenhoCategoriaTrendTable({
         }
         const dadosPorCategoria = vendedoresDataPorCategoria.get(vendedor)!;
 
-        const categoriasParaVendedor = ['POS', 'PRE', 'NP', 'SKY+', 'CARTAO_CREDITO', 'DIGITAL_PEC_PIX', 'S_COBRANCA', 'SEGURO_POS'];
+        const categoriasParaVendedor = ['POS', 'PRE', 'NP', 'SKY+', 'FIBRA', 'MÓVEL', 'CARTAO_CREDITO', 'DIGITAL_PEC_PIX', 'S_COBRANCA', 'SEGURO_POS'];
         categoriasParaVendedor.forEach(catKey => {
           if (!dadosPorCategoria.has(catKey)) {
             dadosPorCategoria.set(catKey, new Map());
@@ -415,15 +434,33 @@ export function DesempenhoCategoriaTrendTable({
     return { periodos: periodosFormatados, categoriasConsolidadas, vendedoresData, vendedoresDataPorCategoria };
   }, [filtroMesHabilitacao, filtroAnoHabilitacao, vendasFiltradas, vendasMetaFiltradas, mapearCategoriaVenda, vendedoresUnicos, vendas]);
 
+  // Opções para o MultiSelect de vendedores
+  const opcoesVendedores = useMemo(() => {
+    return vendedoresUnicos.map(vendedor => ({
+      label: vendedor,
+      value: vendedor
+    }));
+  }, [vendedoresUnicos]);
+
+  // Filtrar vendedores baseado na seleção (se vazio, mostrar todos)
+  const vendedoresFiltrados = useMemo(() => {
+    if (vendedoresSelecionados.length === 0) {
+      return vendedoresUnicos;
+    }
+    return vendedoresUnicos.filter(v => vendedoresSelecionados.includes(v));
+  }, [vendedoresUnicos, vendedoresSelecionados]);
+
   const categorias = [
-    { key: 'POS', label: 'POS', color: 'text-green-700 bg-green-50/30' },
-    { key: 'PRE', label: 'PRE', color: 'text-blue-700 bg-blue-50/30' },
-    { key: 'NP', label: 'NP', color: 'text-orange-700 bg-orange-50/30' },
-    { key: 'SKY+', label: 'SKY+', color: 'text-indigo-700 bg-indigo-50/30' },
+    { key: 'POS', label: 'PÓS-PAGO', color: 'text-green-700 bg-green-50/30' },
+    { key: 'PRE', label: 'FLEX/CONFORTO', color: 'text-blue-700 bg-blue-50/30' },
+    { key: 'NP', label: 'NOVA PARABÓLICA', color: 'text-orange-700 bg-orange-50/30' },
+    { key: 'SKY+', label: 'SKY MAIS', color: 'text-indigo-700 bg-indigo-50/30' },
+    { key: 'FIBRA', label: 'FIBRA', color: 'text-cyan-700 bg-cyan-50/30' },
+    { key: 'MÓVEL', label: 'MÓVEL', color: 'text-purple-700 bg-purple-50/30' },
     { key: 'CARTAO_CREDITO', label: 'Cartão Crédito', color: 'text-amber-700 bg-amber-50/30' },
     { key: 'DIGITAL_PEC_PIX', label: 'Digital/PEC/PIX', color: 'text-emerald-700 bg-emerald-50/30' },
     { key: 'S_COBRANCA', label: 'S Cobrança', color: 'text-red-700 bg-red-50/30' },
-    { key: 'SEGURO_POS', label: 'Seguro POS', color: 'text-purple-700 bg-purple-50/30' }
+    { key: 'SEGURO_POS', label: 'Seguro POS', color: 'text-rose-700 bg-rose-50/30' }
   ];
 
   if (filtroMesHabilitacao.length < 2 || filtroAnoHabilitacao.length === 0) {
@@ -455,22 +492,6 @@ export function DesempenhoCategoriaTrendTable({
   }
 
   const { periodos, categoriasConsolidadas, vendedoresData, vendedoresDataPorCategoria } = tableData;
-
-  // Opções para o MultiSelect de vendedores
-  const opcoesVendedores = useMemo(() => {
-    return vendedoresUnicos.map(vendedor => ({
-      label: vendedor,
-      value: vendedor
-    }));
-  }, [vendedoresUnicos]);
-
-  // Filtrar vendedores baseado na seleção (se vazio, mostrar todos)
-  const vendedoresFiltrados = useMemo(() => {
-    if (vendedoresSelecionados.length === 0) {
-      return vendedoresUnicos; // Mostrar todos quando não há seleção específica
-    }
-    return vendedoresUnicos.filter(v => vendedoresSelecionados.includes(v));
-  }, [vendedoresUnicos, vendedoresSelecionados]);
 
   // Função helper para renderizar quantidade com tendência
   const renderizarQuantidadeComTendencia = (

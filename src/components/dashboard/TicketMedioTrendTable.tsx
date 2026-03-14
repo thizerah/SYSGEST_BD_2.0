@@ -49,11 +49,26 @@ export function TicketMedioTrendTable({
         return 'PRE';
       case 'nova_parabolica':
         return 'NP';
+      case 'fibra':
+      case 'seguros_fibra':
+        return 'FIBRA';
+      case 'movel':
+        return 'MÓVEL';
       case 'sky_mais':
         return 'SKY+';
       default:
         return 'OUTROS';
     }
+  };
+
+  // Helper que resolve o tipo diretamente a partir do VendaMeta,
+  // lidando com os registros de FIBRA/MÓVEL/NP criados em VendedorDesempenhoContent
+  const getTipoParaQuadro = (vendaMeta: VendaMeta): string => {
+    const cat = ((vendaMeta as Record<string, unknown>).categoria as string || '').toLowerCase().trim();
+    if (cat === 'fibra' || cat === 'seguros_fibra') return 'FIBRA';
+    if (cat === 'movel') return 'MÓVEL';
+    if (cat === 'nova_parabolica') return 'NP';
+    return mapearTipoParaQuadro(mapearCategoriaVenda(vendaMeta));
   };
 
   // Obter vendedores únicos
@@ -122,12 +137,18 @@ export function TicketMedioTrendTable({
           vendaMeta.mes === mesComparacao && vendaMeta.ano === periodo.ano
         );
       } else {
-        return vendasFiltradas.some(venda => {
+        const temVendasHistoricas = vendasFiltradas.some(venda => {
           if (!venda.data_habilitacao) return false;
           const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
           const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
           return mesHabilitacao === periodo.mes.substring(0, 3) && anoHabilitacao === periodo.ano;
         });
+        const temVendasNovas = vendasMetaFiltradas.some(vm => {
+          const cat = ((vm as Record<string, unknown>).categoria as string || '').toLowerCase();
+          return vm.mes === mesComparacao && vm.ano === periodo.ano &&
+            (cat === 'fibra' || cat === 'movel' || cat === 'nova_parabolica');
+        });
+        return temVendasHistoricas || temVendasNovas;
       }
     });
 
@@ -139,7 +160,7 @@ export function TicketMedioTrendTable({
       tendencia?: { direction: 'up' | 'down' | 'neutral', percentage: number };
     }>>();
 
-    const categorias = ['Total', 'POS', 'PRE', 'NP', 'SKY+'];
+    const categorias = ['Total', 'POS', 'PRE', 'NP', 'SKY+', 'FIBRA', 'MÓVEL'];
     categorias.forEach(categoria => {
       categoriasConsolidadas.set(categoria, new Map());
     });
@@ -155,42 +176,55 @@ export function TicketMedioTrendTable({
         POS: { valor: 0, quantidade: 0 },
         PRE: { valor: 0, quantidade: 0 },
         NP: { valor: 0, quantidade: 0 },
-        'SKY+': { valor: 0, quantidade: 0 }
+        'SKY+': { valor: 0, quantidade: 0 },
+        FIBRA: { valor: 0, quantidade: 0 },
+        'MÓVEL': { valor: 0, quantidade: 0 }
       };
 
       if (ehMesAtual) {
-        const vendasMetaDoPeriodo = vendasMetaFiltradas.filter(vendaMeta => {
-          return vendaMeta.mes === mesComparacao && vendaMeta.ano === periodo.ano;
-        });
-
-        vendasMetaDoPeriodo.forEach(vendaMeta => {
-          const categoria = mapearCategoriaVenda(vendaMeta);
-          const tipo = mapearTipoParaQuadro(categoria);
-          
-          if (metricasPorTipo[tipo as keyof typeof metricasPorTipo]) {
-            const valorArredondado = Math.round(vendaMeta.valor * 100) / 100;
-            metricasPorTipo[tipo as keyof typeof metricasPorTipo].valor += valorArredondado;
-            metricasPorTipo[tipo as keyof typeof metricasPorTipo].quantidade += 1;
-          }
-        });
+        vendasMetaFiltradas
+          .filter(vm => vm.mes === mesComparacao && vm.ano === periodo.ano)
+          .forEach(vendaMeta => {
+            const tipo = getTipoParaQuadro(vendaMeta);
+            if (tipo in metricasPorTipo) {
+              const valorArredondado = Math.round((vendaMeta.valor ?? 0) * 100) / 100;
+              metricasPorTipo[tipo as keyof typeof metricasPorTipo].valor += valorArredondado;
+              metricasPorTipo[tipo as keyof typeof metricasPorTipo].quantidade += 1;
+            }
+          });
       } else {
-        const vendasDoPeriodo = vendasFiltradas.filter(venda => {
-          if (!venda.data_habilitacao) return false;
-          const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
-          const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
-          return mesHabilitacao === periodo.mes.substring(0, 3) && anoHabilitacao === periodo.ano;
-        });
+        // POS/PRE históricos
+        vendasFiltradas
+          .filter(venda => {
+            if (!venda.data_habilitacao) return false;
+            const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
+            const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
+            return mesHabilitacao === periodo.mes.substring(0, 3) && anoHabilitacao === periodo.ano;
+          })
+          .forEach(venda => {
+            const tipo = mapearTipoParaQuadro(mapearCategoriaVenda(venda));
+            if (tipo in metricasPorTipo) {
+              const valorArredondado = Math.round((venda.valor || 0) * 100) / 100;
+              metricasPorTipo[tipo as keyof typeof metricasPorTipo].valor += valorArredondado;
+              metricasPorTipo[tipo as keyof typeof metricasPorTipo].quantidade += 1;
+            }
+          });
 
-        vendasDoPeriodo.forEach(venda => {
-          const categoria = mapearCategoriaVenda(venda);
-          const tipo = mapearTipoParaQuadro(categoria);
-          
-          if (metricasPorTipo[tipo as keyof typeof metricasPorTipo]) {
-            const valorArredondado = Math.round((venda.valor || 0) * 100) / 100;
-            metricasPorTipo[tipo as keyof typeof metricasPorTipo].valor += valorArredondado;
-            metricasPorTipo[tipo as keyof typeof metricasPorTipo].quantidade += 1;
-          }
-        });
+        // FIBRA/MÓVEL/NP para meses anteriores
+        vendasMetaFiltradas
+          .filter(vm => {
+            const cat = ((vm as Record<string, unknown>).categoria as string || '').toLowerCase();
+            return vm.mes === mesComparacao && vm.ano === periodo.ano &&
+              (cat === 'fibra' || cat === 'movel' || cat === 'nova_parabolica');
+          })
+          .forEach(vendaMeta => {
+            const tipo = getTipoParaQuadro(vendaMeta);
+            if (tipo in metricasPorTipo) {
+              const valorArredondado = Math.round((vendaMeta.valor ?? 0) * 100) / 100;
+              metricasPorTipo[tipo as keyof typeof metricasPorTipo].valor += valorArredondado;
+              metricasPorTipo[tipo as keyof typeof metricasPorTipo].quantidade += 1;
+            }
+          });
       }
 
       const valorTotal = Object.values(metricasPorTipo).reduce((sum, tipo) => sum + tipo.valor, 0);
@@ -201,6 +235,8 @@ export function TicketMedioTrendTable({
       const ticketMedioPRE = metricasPorTipo.PRE.quantidade > 0 ? metricasPorTipo.PRE.valor / metricasPorTipo.PRE.quantidade : 0;
       const ticketMedioNP = metricasPorTipo.NP.quantidade > 0 ? metricasPorTipo.NP.valor / metricasPorTipo.NP.quantidade : 0;
       const ticketMedioSKY = metricasPorTipo['SKY+'].quantidade > 0 ? metricasPorTipo['SKY+'].valor / metricasPorTipo['SKY+'].quantidade : 0;
+      const ticketMedioFIBRA = metricasPorTipo.FIBRA.quantidade > 0 ? metricasPorTipo.FIBRA.valor / metricasPorTipo.FIBRA.quantidade : 0;
+      const ticketMedioMOVEL = metricasPorTipo['MÓVEL'].quantidade > 0 ? metricasPorTipo['MÓVEL'].valor / metricasPorTipo['MÓVEL'].quantidade : 0;
 
       const periodoKey = `${periodo.mes.substring(0, 3)}/${periodo.ano}`;
 
@@ -253,6 +289,22 @@ export function TicketMedioTrendTable({
           categoriasConsolidadas.get('SKY+')!.get(periodosFormatados[periodoIndex - 1])?.valor || 0
         ) : undefined
       });
+
+      categoriasConsolidadas.get('FIBRA')!.set(periodoKey, {
+        valor: Number(ticketMedioFIBRA.toFixed(2)),
+        tendencia: periodoIndex > 0 ? calcularTendencia(
+          ticketMedioFIBRA,
+          categoriasConsolidadas.get('FIBRA')!.get(periodosFormatados[periodoIndex - 1])?.valor || 0
+        ) : undefined
+      });
+
+      categoriasConsolidadas.get('MÓVEL')!.set(periodoKey, {
+        valor: Number(ticketMedioMOVEL.toFixed(2)),
+        tendencia: periodoIndex > 0 ? calcularTendencia(
+          ticketMedioMOVEL,
+          categoriasConsolidadas.get('MÓVEL')!.get(periodosFormatados[periodoIndex - 1])?.valor || 0
+        ) : undefined
+      });
     });
 
     // Dados por vendedor: vendedores como linhas, períodos como colunas (total)
@@ -284,46 +336,65 @@ export function TicketMedioTrendTable({
           POS: { valor: 0, quantidade: 0 },
           PRE: { valor: 0, quantidade: 0 },
           NP: { valor: 0, quantidade: 0 },
-          'SKY+': { valor: 0, quantidade: 0 }
+          'SKY+': { valor: 0, quantidade: 0 },
+          FIBRA: { valor: 0, quantidade: 0 },
+          'MÓVEL': { valor: 0, quantidade: 0 }
         };
 
         if (ehMesAtual) {
-          const vendasMetaDoPeriodo = vendasMetaFiltradas.filter(vendaMeta => {
-            if (vendaMeta.mes !== mesComparacao || vendaMeta.ano !== periodo.ano) return false;
-            const id = vendaMeta.vendedor;
-            const vendaExistente = vendas.find(v => v.id_vendedor === id);
-            const nomeVendedor = vendaExistente?.nome_proprietario && vendaExistente.nome_proprietario !== id 
-              ? vendaExistente.nome_proprietario 
-              : id;
-            return nomeVendedor === vendedor;
-          });
-
-          vendasMetaDoPeriodo.forEach(vendaMeta => {
-            const categoria = mapearCategoriaVenda(vendaMeta);
-            const tipo = mapearTipoParaQuadro(categoria);
-            if (metricasPorTipo[tipo as keyof typeof metricasPorTipo]) {
-              const valorArredondado = Math.round(vendaMeta.valor * 100) / 100;
-              metricasPorTipo[tipo as keyof typeof metricasPorTipo].valor += valorArredondado;
-              metricasPorTipo[tipo as keyof typeof metricasPorTipo].quantidade += 1;
-            }
-          });
+          vendasMetaFiltradas
+            .filter(vendaMeta => {
+              if (vendaMeta.mes !== mesComparacao || vendaMeta.ano !== periodo.ano) return false;
+              const id = vendaMeta.vendedor;
+              const vendaExistente = vendas.find(v => v.id_vendedor === id);
+              const nomeVendedor = vendaExistente?.nome_proprietario && vendaExistente.nome_proprietario !== id
+                ? vendaExistente.nome_proprietario
+                : (vendaMeta as Record<string, unknown>).nome_proprietario as string || id;
+              return nomeVendedor === vendedor || vendaMeta.vendedor === vendedor;
+            })
+            .forEach(vendaMeta => {
+              const tipo = getTipoParaQuadro(vendaMeta);
+              if (tipo in metricasPorTipo) {
+                const valorArredondado = Math.round((vendaMeta.valor ?? 0) * 100) / 100;
+                metricasPorTipo[tipo as keyof typeof metricasPorTipo].valor += valorArredondado;
+                metricasPorTipo[tipo as keyof typeof metricasPorTipo].quantidade += 1;
+              }
+            });
         } else {
-          const vendasDoPeriodo = vendasFiltradas.filter(venda => {
-            if (!venda.data_habilitacao || venda.nome_proprietario !== vendedor) return false;
-            const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
-            const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
-            return mesHabilitacao === periodo.mes.substring(0, 3) && anoHabilitacao === periodo.ano;
-          });
+          // POS/PRE históricos
+          vendasFiltradas
+            .filter(venda => {
+              if (!venda.data_habilitacao || venda.nome_proprietario !== vendedor) return false;
+              const mesHabilitacao = extrairMesHabilitacao(venda.data_habilitacao);
+              const anoHabilitacao = extrairAnoHabilitacao(venda.data_habilitacao);
+              return mesHabilitacao === periodo.mes.substring(0, 3) && anoHabilitacao === periodo.ano;
+            })
+            .forEach(venda => {
+              const tipo = mapearTipoParaQuadro(mapearCategoriaVenda(venda));
+              if (tipo in metricasPorTipo) {
+                const valorArredondado = Math.round((venda.valor || 0) * 100) / 100;
+                metricasPorTipo[tipo as keyof typeof metricasPorTipo].valor += valorArredondado;
+                metricasPorTipo[tipo as keyof typeof metricasPorTipo].quantidade += 1;
+              }
+            });
 
-          vendasDoPeriodo.forEach(venda => {
-            const categoria = mapearCategoriaVenda(venda);
-            const tipo = mapearTipoParaQuadro(categoria);
-            if (metricasPorTipo[tipo as keyof typeof metricasPorTipo]) {
-              const valorArredondado = Math.round((venda.valor || 0) * 100) / 100;
-              metricasPorTipo[tipo as keyof typeof metricasPorTipo].valor += valorArredondado;
-              metricasPorTipo[tipo as keyof typeof metricasPorTipo].quantidade += 1;
-            }
-          });
+          // FIBRA/MÓVEL/NP para meses anteriores
+          vendasMetaFiltradas
+            .filter(vm => {
+              const cat = ((vm as Record<string, unknown>).categoria as string || '').toLowerCase();
+              if (vm.mes !== mesComparacao || vm.ano !== periodo.ano) return false;
+              if (!(cat === 'fibra' || cat === 'movel' || cat === 'nova_parabolica')) return false;
+              const nomeVendedor = (vm as Record<string, unknown>).nome_proprietario as string || vm.vendedor || '';
+              return nomeVendedor === vendedor || vm.vendedor === vendedor;
+            })
+            .forEach(vendaMeta => {
+              const tipo = getTipoParaQuadro(vendaMeta);
+              if (tipo in metricasPorTipo) {
+                const valorArredondado = Math.round((vendaMeta.valor ?? 0) * 100) / 100;
+                metricasPorTipo[tipo as keyof typeof metricasPorTipo].valor += valorArredondado;
+                metricasPorTipo[tipo as keyof typeof metricasPorTipo].quantidade += 1;
+              }
+            });
         }
 
         const valorTotal = Object.values(metricasPorTipo).reduce((sum, tipo) => sum + tipo.valor, 0);
@@ -355,7 +426,7 @@ export function TicketMedioTrendTable({
         }
         const dadosPorCategoria = vendedoresDataPorCategoria.get(vendedor)!;
 
-        const categoriasParaVendedor = ['POS', 'PRE', 'NP', 'SKY+'];
+        const categoriasParaVendedor = ['POS', 'PRE', 'NP', 'SKY+', 'FIBRA', 'MÓVEL'];
         categoriasParaVendedor.forEach(catKey => {
           if (!dadosPorCategoria.has(catKey)) {
             dadosPorCategoria.set(catKey, new Map());
@@ -366,6 +437,8 @@ export function TicketMedioTrendTable({
         const ticketMedioPRE = metricasPorTipo.PRE.quantidade > 0 ? metricasPorTipo.PRE.valor / metricasPorTipo.PRE.quantidade : 0;
         const ticketMedioNP = metricasPorTipo.NP.quantidade > 0 ? metricasPorTipo.NP.valor / metricasPorTipo.NP.quantidade : 0;
         const ticketMedioSKY = metricasPorTipo['SKY+'].quantidade > 0 ? metricasPorTipo['SKY+'].valor / metricasPorTipo['SKY+'].quantidade : 0;
+        const ticketMedioFIBRA = metricasPorTipo.FIBRA.quantidade > 0 ? metricasPorTipo.FIBRA.valor / metricasPorTipo.FIBRA.quantidade : 0;
+        const ticketMedioMOVEL = metricasPorTipo['MÓVEL'].quantidade > 0 ? metricasPorTipo['MÓVEL'].valor / metricasPorTipo['MÓVEL'].quantidade : 0;
 
         dadosPorCategoria.get('POS')!.set(periodoKey, {
           valor: Number(ticketMedioPOS.toFixed(2)),
@@ -398,6 +471,22 @@ export function TicketMedioTrendTable({
             dadosPorCategoria.get('SKY+')!.get(periodosFormatados[periodoIndex - 1])?.valor || 0
           ) : undefined
         });
+
+        dadosPorCategoria.get('FIBRA')!.set(periodoKey, {
+          valor: Number(ticketMedioFIBRA.toFixed(2)),
+          tendencia: periodoIndex > 0 ? calcularTendencia(
+            ticketMedioFIBRA,
+            dadosPorCategoria.get('FIBRA')!.get(periodosFormatados[periodoIndex - 1])?.valor || 0
+          ) : undefined
+        });
+
+        dadosPorCategoria.get('MÓVEL')!.set(periodoKey, {
+          valor: Number(ticketMedioMOVEL.toFixed(2)),
+          tendencia: periodoIndex > 0 ? calcularTendencia(
+            ticketMedioMOVEL,
+            dadosPorCategoria.get('MÓVEL')!.get(periodosFormatados[periodoIndex - 1])?.valor || 0
+          ) : undefined
+        });
       });
 
       vendedoresData.set(vendedor, dadosVendedor);
@@ -405,6 +494,22 @@ export function TicketMedioTrendTable({
 
     return { periodos: periodosFormatados, categoriasConsolidadas, vendedoresData, vendedoresDataPorCategoria };
   }, [filtroMesHabilitacao, filtroAnoHabilitacao, vendasFiltradas, vendasMetaFiltradas, mapearCategoriaVenda, vendedoresUnicos, vendas]);
+
+  // Opções para o MultiSelect de vendedores
+  const opcoesVendedores = useMemo(() => {
+    return vendedoresUnicos.map(vendedor => ({
+      label: vendedor,
+      value: vendedor
+    }));
+  }, [vendedoresUnicos]);
+
+  // Filtrar vendedores baseado na seleção (se vazio, mostrar todos)
+  const vendedoresFiltrados = useMemo(() => {
+    if (vendedoresSelecionados.length === 0) {
+      return vendedoresUnicos;
+    }
+    return vendedoresUnicos.filter(v => vendedoresSelecionados.includes(v));
+  }, [vendedoresUnicos, vendedoresSelecionados]);
 
   if (filtroMesHabilitacao.length < 2 || filtroAnoHabilitacao.length === 0) {
     return (
@@ -435,22 +540,6 @@ export function TicketMedioTrendTable({
   }
 
   const { periodos, categoriasConsolidadas, vendedoresData, vendedoresDataPorCategoria } = tableData;
-
-  // Opções para o MultiSelect de vendedores
-  const opcoesVendedores = useMemo(() => {
-    return vendedoresUnicos.map(vendedor => ({
-      label: vendedor,
-      value: vendedor
-    }));
-  }, [vendedoresUnicos]);
-
-  // Filtrar vendedores baseado na seleção (se vazio, mostrar todos)
-  const vendedoresFiltrados = useMemo(() => {
-    if (vendedoresSelecionados.length === 0) {
-      return vendedoresUnicos; // Mostrar todos quando não há seleção específica
-    }
-    return vendedoresUnicos.filter(v => vendedoresSelecionados.includes(v));
-  }, [vendedoresUnicos, vendedoresSelecionados]);
 
   // Função helper para renderizar valor com tendência
   const renderizarValorComTendencia = (
@@ -506,10 +595,12 @@ export function TicketMedioTrendTable({
 
   const categorias = [
     { key: 'Total', label: 'Total', color: 'text-gray-700' },
-    { key: 'POS', label: 'POS', color: 'text-green-700' },
-    { key: 'PRE', label: 'PRE', color: 'text-blue-700' },
-    { key: 'NP', label: 'NP', color: 'text-orange-700' },
-    { key: 'SKY+', label: 'SKY+', color: 'text-indigo-700' }
+    { key: 'POS', label: 'PÓS-PAGO', color: 'text-green-700' },
+    { key: 'PRE', label: 'FLEX/CONFORTO', color: 'text-blue-700' },
+    { key: 'NP', label: 'NOVA PARABÓLICA', color: 'text-orange-700' },
+    { key: 'SKY+', label: 'SKY MAIS', color: 'text-indigo-700' },
+    { key: 'FIBRA', label: 'FIBRA', color: 'text-cyan-700' },
+    { key: 'MÓVEL', label: 'MÓVEL', color: 'text-purple-700' }
   ];
 
   return (

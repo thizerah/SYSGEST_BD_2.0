@@ -9,24 +9,11 @@ interface UseBaseMetricsProps {
 
 export function useBaseMetrics({ baseData, selectedMonth, selectedYear }: UseBaseMetricsProps): BaseMetrics | null {
   return useMemo(() => {
-    console.log('[useBaseMetrics] Debug:', {
-      baseDataLength: baseData?.length || 0,
-      selectedMonth,
-      selectedYear,
-      baseDataSample: baseData?.[0]
-    });
-    
-    if (!baseData || baseData.length === 0) {
-      console.log('[useBaseMetrics] Retornando null - dados BASE não disponíveis');
-      return null;
-    }
+    if (!baseData || baseData.length === 0) return null;
 
-    // Função para converter mês string para número
+    // Converte campo 'mes' (string ou número) para número
     const mesParaNumero = (mes: string | number): number => {
-      // Se já for número, retorna o número
       if (typeof mes === 'number') return mes;
-      
-      // Se for string, tenta converter
       const meses: Record<string, number> = {
         'janeiro': 1, 'jan': 1, '1': 1,
         'fevereiro': 2, 'fev': 2, 'feb': 2, '2': 2,
@@ -39,25 +26,25 @@ export function useBaseMetrics({ baseData, selectedMonth, selectedYear }: UseBas
         'setembro': 9, 'set': 9, 'sep': 9, '9': 9,
         'outubro': 10, 'out': 10, 'oct': 10, '10': 10,
         'novembro': 11, 'nov': 11, 'november': 11, '11': 11,
-        'dezembro': 12, 'dez': 12, 'dec': 12, 'december': 12, '12': 12
+        'dezembro': 12, 'dez': 12, 'dec': 12, 'december': 12, '12': 12,
       };
-
-      const mesString = String(mes).toLowerCase().trim();
-      const resultado = meses[mesString] || parseInt(mesString) || 0;
-      
-      console.log('[useBaseMetrics] Conversão mês:', mes, '=>', resultado);
-      return resultado;
+      return meses[String(mes).toLowerCase().trim()] || parseInt(String(mes)) || 0;
     };
 
-    // Converter dados para incluir número do mês e ordenar por data
-    const dadosComMesNumero = baseData.map(item => ({
-      ...item,
-      mesNumero: mesParaNumero(item.mes)
-    })).sort((a, b) => a.mesNumero - b.mesNumero);
+    // Normaliza todos os itens e ordena por ANO primeiro, depois por mês
+    const dados = baseData
+      .map(item => ({ ...item, mesNumero: mesParaNumero(item.mes) }))
+      .sort((a, b) => a.ano !== b.ano ? a.ano - b.ano : a.mesNumero - b.mesNumero);
 
-    console.log('[useBaseMetrics] Dados convertidos:', dadosComMesNumero);
+    // Função para verificar se o registro tem dados válidos (não zerado)
+    const dadosValidos = (d: (typeof dados)[number]): boolean =>
+      d.base_tv > 0 || d.base_fibra > 0 || d.alianca > 0;
 
-    // Encontrar o mês atual (baseado nos filtros ou último mês disponível)
+    // Busca uma entrada pelo mês + ano exatos
+    const findEntry = (m: number, a: number) =>
+      dados.find(d => d.mesNumero === m && d.ano === a);
+
+    // Determinar o ponto de partida (mês/ano selecionado ou último disponível)
     let mesAtual: number;
     let anoAtual: number;
 
@@ -65,135 +52,100 @@ export function useBaseMetrics({ baseData, selectedMonth, selectedYear }: UseBas
       mesAtual = selectedMonth;
       anoAtual = selectedYear;
     } else {
-      // Usar o último mês disponível nos dados
-      const ultimoRegistro = dadosComMesNumero[dadosComMesNumero.length - 1];
-      mesAtual = ultimoRegistro.mesNumero;
-      anoAtual = ultimoRegistro.ano; // CORREÇÃO: Usar o ano dos dados ao invés do ano atual
+      const ultimo = dados[dados.length - 1];
+      mesAtual = ultimo.mesNumero;
+      anoAtual = ultimo.ano;
     }
 
-    console.log('[useBaseMetrics] Procurando por mês:', mesAtual, 'ano:', anoAtual);
+    // Tentar encontrar dados do mês/ano solicitado
+    let dadosAtual = findEntry(mesAtual, anoAtual);
+    let usandoMesAnteriorFlag = false;
 
-    // Função para verificar se os dados são válidos (não zerados)
-    const dadosValidos = (dados: BaseData & { mesNumero: number }): boolean => {
-      return dados && (dados.base_tv > 0 || dados.base_fibra > 0 || dados.alianca > 0);
-    };
-
-    // Encontrar dados do mês atual
-    let dadosAtual = dadosComMesNumero.find(item => item.mesNumero === mesAtual);
-    
-    // Se não encontrar dados para o mês específico OU se os dados estão zerados, tentar mês anterior primeiro
-    if ((!dadosAtual || !dadosValidos(dadosAtual)) && dadosComMesNumero.length > 0) {
-      // Calcular mês anterior
+    // Se não encontrou ou dados estão zerados → tenta o mês anterior (com ano correto)
+    if (!dadosAtual || !dadosValidos(dadosAtual)) {
       const mesAnterior = mesAtual === 1 ? 12 : mesAtual - 1;
-      const dadosAnterior = dadosComMesNumero.find(item => item.mesNumero === mesAnterior);
-      
-      if (dadosAnterior && dadosValidos(dadosAnterior)) {
-        console.log('[useBaseMetrics] Mês', mesAtual, 'não encontrado ou zerado. Usando mês anterior:', mesAnterior);
-        dadosAtual = dadosAnterior;
-        mesAtual = dadosAnterior.mesNumero; // Atualizar o mesAtual para o cálculo de tendências
+      const anoAnterior = mesAtual === 1 ? anoAtual - 1 : anoAtual;
+      const entradaAnterior = findEntry(mesAnterior, anoAnterior);
+
+      if (entradaAnterior && dadosValidos(entradaAnterior)) {
+        dadosAtual = entradaAnterior;
+        mesAtual = mesAnterior;   // atualiza mês E ano para o fallback
+        anoAtual = anoAnterior;
+        usandoMesAnteriorFlag = true;
       } else {
-        // Se mês anterior também não existir ou estiver zerado, usar último mês disponível com dados válidos
-        const ultimoMesValido = dadosComMesNumero.reverse().find(item => dadosValidos(item));
-        if (ultimoMesValido) {
-          console.log('[useBaseMetrics] Mês anterior também não encontrado ou zerado. Usando último mês válido disponível:', ultimoMesValido.mesNumero);
-          dadosAtual = ultimoMesValido;
-          mesAtual = ultimoMesValido.mesNumero; // Atualizar o mesAtual para o cálculo de tendências
-          // Reverter a ordem de volta
-          dadosComMesNumero.reverse();
-        } else {
-          // Se nenhum dado válido for encontrado, reverter a ordem e continuar
-          dadosComMesNumero.reverse();
+        // Último recurso: entrada mais recente com dados válidos
+        const ultimoValido = [...dados].reverse().find(d => dadosValidos(d));
+        if (ultimoValido) {
+          dadosAtual = ultimoValido;
+          mesAtual = ultimoValido.mesNumero;
+          anoAtual = ultimoValido.ano;
+          usandoMesAnteriorFlag = true;
         }
       }
     }
-    
-    console.log('[useBaseMetrics] Dados encontrados para mês atual:', dadosAtual);
-    
-    if (!dadosAtual || !dadosValidos(dadosAtual)) {
-      console.log('[useBaseMetrics] Nenhum dado BASE válido disponível');
-      return null;
-    }
 
-    // Calcular média dos últimos 3 meses
-    const calcularMedia3M = (campo: 'base_tv' | 'base_fibra' | 'alianca'): number => {
-      // Pegar os últimos 3 registros disponíveis (independente do mês)
-      const ultimos3Meses = dadosComMesNumero.slice(-3);
-      
-      if (ultimos3Meses.length === 0) return 0;
-      
-      const soma = ultimos3Meses.reduce((acc, item) => acc + item[campo], 0);
-      return soma / ultimos3Meses.length;
-    };
+    if (!dadosAtual || !dadosValidos(dadosAtual)) return null;
 
-    // Calcular tendência (comparar com mês anterior)
-    const calcularTendencia = (atual: number, campo: 'base_tv' | 'base_fibra' | 'alianca'): { 
-      tendencia: 'positiva' | 'negativa' | 'estavel'; 
-      percentual: number; 
-      diferencaQuantidade: number;
-    } => {
-      const mesAnterior = mesAtual === 1 ? 12 : mesAtual - 1;
-      const dadosAnterior = dadosComMesNumero.find(item => item.mesNumero === mesAnterior);
-      
-      if (!dadosAnterior) {
-        return { tendencia: 'estavel', percentual: 0, diferencaQuantidade: 0 };
-      }
-      
-      const valorAnterior = dadosAnterior[campo];
+    // Mês de referência para comparação de tendência (usa mesAtual/anoAtual já corrigidos)
+    const mesComp = mesAtual === 1 ? 12 : mesAtual - 1;
+    const anoComp = mesAtual === 1 ? anoAtual - 1 : anoAtual;
+    const dadosComp = findEntry(mesComp, anoComp);
+
+    // Calcular tendência com filtro de ano correto
+    const calcularTendencia = (
+      atual: number,
+      campo: 'base_tv' | 'base_fibra' | 'alianca',
+    ): { tendencia: 'positiva' | 'negativa' | 'estavel'; percentual: number; diferencaQuantidade: number } => {
+      if (!dadosComp) return { tendencia: 'estavel', percentual: 0, diferencaQuantidade: 0 };
+
+      const valorAnterior = dadosComp[campo];
       const diferencaQuantidade = atual - valorAnterior;
-      
-      if (valorAnterior === 0) {
-        return { tendencia: 'estavel', percentual: 0, diferencaQuantidade };
-      }
-      
+
+      if (valorAnterior === 0) return { tendencia: 'estavel', percentual: 0, diferencaQuantidade };
+
       const percentual = (diferencaQuantidade / valorAnterior) * 100;
-      
-      if (percentual > 0.1) { // Mudança para detectar qualquer crescimento positivo
-        return { tendencia: 'positiva', percentual, diferencaQuantidade };
-      } else if (percentual < -0.1) { // Mudança para detectar qualquer queda
-        return { tendencia: 'negativa', percentual, diferencaQuantidade };
-      } else {
-        return { tendencia: 'estavel', percentual, diferencaQuantidade };
-      }
+
+      if (percentual > 0.1) return { tendencia: 'positiva', percentual, diferencaQuantidade };
+      if (percentual < -0.1) return { tendencia: 'negativa', percentual, diferencaQuantidade };
+      return { tendencia: 'estavel', percentual, diferencaQuantidade };
     };
 
-    // Calcular métricas para TV
-    const tendenciaTV = calcularTendencia(dadosAtual.base_tv, 'base_tv');
-    const media3mTV = calcularMedia3M('base_tv');
+    // Média dos últimos 3 meses disponíveis (ordem cronológica correta após sort por ano+mês)
+    const calcularMedia3M = (campo: 'base_tv' | 'base_fibra' | 'alianca'): number => {
+      const ultimos3 = dados.slice(-3);
+      if (ultimos3.length === 0) return 0;
+      return ultimos3.reduce((acc, d) => acc + d[campo], 0) / ultimos3.length;
+    };
 
-    // Calcular métricas para FIBRA
-    const tendenciaFibra = calcularTendencia(dadosAtual.base_fibra, 'base_fibra');
-    const media3mFibra = calcularMedia3M('base_fibra');
-
-    // Calcular métricas para ALIANÇA
-    const tendenciaAlianca = calcularTendencia(dadosAtual.alianca, 'alianca');
-    const media3mAlianca = calcularMedia3M('alianca');
+    const tendenciaTV     = calcularTendencia(dadosAtual.base_tv,    'base_tv');
+    const tendenciaFibra  = calcularTendencia(dadosAtual.base_fibra, 'base_fibra');
+    const tendenciaAlianca = calcularTendencia(dadosAtual.alianca,   'alianca');
 
     return {
       tv: {
         atual: dadosAtual.base_tv,
         tendencia: tendenciaTV.tendencia,
-        media3m: Math.round(media3mTV),
+        media3m: Math.round(calcularMedia3M('base_tv')),
         percentualTendencia: tendenciaTV.percentual,
-        diferencaQuantidade: tendenciaTV.diferencaQuantidade
+        diferencaQuantidade: tendenciaTV.diferencaQuantidade,
       },
       fibra: {
         atual: dadosAtual.base_fibra,
         tendencia: tendenciaFibra.tendencia,
-        media3m: Math.round(media3mFibra),
+        media3m: Math.round(calcularMedia3M('base_fibra')),
         percentualTendencia: tendenciaFibra.percentual,
-        diferencaQuantidade: tendenciaFibra.diferencaQuantidade
+        diferencaQuantidade: tendenciaFibra.diferencaQuantidade,
       },
       alianca: {
         atual: dadosAtual.alianca,
         tendencia: tendenciaAlianca.tendencia,
-        media3m: Math.round(media3mAlianca),
+        media3m: Math.round(calcularMedia3M('alianca')),
         percentualTendencia: tendenciaAlianca.percentual,
-        diferencaQuantidade: tendenciaAlianca.diferencaQuantidade
+        diferencaQuantidade: tendenciaAlianca.diferencaQuantidade,
       },
-      // Informações sobre o período dos dados
       mesUtilizado: mesAtual,
       mesOriginal: selectedMonth || new Date().getMonth() + 1,
-      usandoMesAnterior: selectedMonth && selectedMonth !== mesAtual
+      usandoMesAnterior: usandoMesAnteriorFlag,
     };
   }, [baseData, selectedMonth, selectedYear]);
-} 
+}

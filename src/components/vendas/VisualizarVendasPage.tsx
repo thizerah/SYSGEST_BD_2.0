@@ -660,14 +660,14 @@ export function VisualizarVendasPage() {
           </div>
         </CardHeader>
         <CardContent className="pt-4">
-          <div className="flex flex-wrap items-center gap-4 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-4 items-end">
             <div className="flex flex-col gap-1.5">
               <Label>Mês</Label>
               <Select
                 value={filtroMes}
                 onValueChange={setFiltroMes}
               >
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Selecione o mês" />
                 </SelectTrigger>
                 <SelectContent>
@@ -683,7 +683,7 @@ export function VisualizarVendasPage() {
                 value={filtroAno}
                 onValueChange={setFiltroAno}
               >
-                <SelectTrigger className="w-[100px]">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Selecione o ano" />
                 </SelectTrigger>
                 <SelectContent>
@@ -704,7 +704,7 @@ export function VisualizarVendasPage() {
                     setFiltroStatus('__todos__');
                   }}
                 >
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Vendedor" />
                   </SelectTrigger>
                   <SelectContent>
@@ -725,7 +725,7 @@ export function VisualizarVendasPage() {
                   setFiltroStatus('__todos__');
                 }}
               >
-                <SelectTrigger className="w-[180px]">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Tipo" />
                 </SelectTrigger>
                 <SelectContent>
@@ -739,7 +739,7 @@ export function VisualizarVendasPage() {
             <div className="flex flex-col gap-1.5">
               <Label>Status</Label>
               <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-                <SelectTrigger className="w-[180px]">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -750,8 +750,8 @@ export function VisualizarVendasPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-1.5 justify-end">
-              <Button variant="outline" size="sm" onClick={limparFiltros} className="shrink-0 h-9">
+            <div className="flex flex-col justify-end">
+              <Button variant="outline" size="sm" onClick={limparFiltros} className="w-full h-9">
                 <FilterX className="h-4 w-4 mr-1" />
                 Limpar filtros
               </Button>

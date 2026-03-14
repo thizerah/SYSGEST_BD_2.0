@@ -68,6 +68,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { ServiceOrder, User, VALID_STATUS, Venda, PrimeiroPagamento, Meta, VendaMeta, BaseData, TODOS_MATERIAIS } from "@/types";
 import { useAuth } from "@/context/auth";
+import { fetchEquipe, type EquipeRow } from "@/lib/equipe";
 
 // Função para consolidar materiais de OSs duplicadas
 function consolidateMaterials(orders: ServiceOrder[]): ServiceOrder[] {
@@ -263,10 +264,11 @@ import { VendasMetaCleaner } from "@/components/dashboard/VendasMetaCleaner";
 
 // Componente para o conteúdo da guia Metas
 function MetasTabContent() {
-  const { metas, vendas, vendasMeta, calculateMetaMetrics, updateVendaMetaStatus } = useData();
+  const { metas, vendas, vendasMeta, propostasUnificadas, calculateMetaMetrics, updateVendaMetaStatus } = useData();
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [activeMetasTab, setActiveMetasTab] = useState("dashboard");
+  const [filtroCategoriaProdutos, setFiltroCategoriaProdutos] = useState<Set<string>>(new Set());
 
   // Debug: Log dos dados disponíveis
   // Logs removidos para melhor performance - ativar apenas se necessário para debug
@@ -283,26 +285,18 @@ function MetasTabContent() {
     return s === 'FINALIZADA' || s.includes('FINALIZADA') || s === 'HABILITADO' || s.includes('HABILITADO') || s === 'FINALIZADO' || s.includes('FINALIZADO');
   };
 
-  // Função auxiliar para buscar vendas da fonte correta baseada no período (apenas status finalizada) — usada nos quadros
+  // Buscar propostas unificadas do período com status finalizada — usada nos quadros de métricas
   const buscarVendasDoPeriodo = (mes: number, ano: number) => {
-    const hoje = new Date();
-    const isCurrentMonth = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
-    
-    if (isCurrentMonth) {
-      return vendasMeta.filter(
-        venda => venda.mes === mes && venda.ano === ano && isStatusFinalizada(venda.status_proposta)
-      );
-    } else {
-      return vendas.filter(venda => {
-        if (!venda.data_habilitacao) return false;
-        if (!isStatusFinalizada(venda.status_proposta)) return false;
-        const dataVenda = new Date(venda.data_habilitacao);
-        return dataVenda.getMonth() + 1 === mes && dataVenda.getFullYear() === ano;
-      });
-    }
+    return propostasUnificadas.filter(p => {
+      if (p.mes !== mes || p.ano !== ano) return false;
+      if (!isStatusFinalizada(p.status_proposta)) return false;
+      // Nova Parabólica: excluir RECARGA_ESTOQUE dos quadros de meta
+      if (p.origem === 'nova_parabolica' && p.info_recarga === 'RECARGA_ESTOQUE') return false;
+      return true;
+    });
   };
 
-  // Buscar todas as vendas do período (sem filtro de status) — usada no detalhamento de propostas
+  // Buscar todas as propostas do período (sem filtro de status) — usada no detalhamento de propostas
   const buscarTodasVendasDoPeriodo = (mes: number, ano: number) => {
     const hoje = new Date();
     const isCurrentMonth = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
@@ -310,16 +304,12 @@ function MetasTabContent() {
       const mesAnterior = mes === 1 ? 12 : mes - 1;
       const anoAnterior = mes === 1 ? ano - 1 : ano;
       const isAguardando = (s: string | undefined) => (s ?? '').toUpperCase().includes('AGUARDANDO');
-      return vendasMeta.filter(venda =>
-        (venda.mes === mes && venda.ano === ano) ||
-        (venda.mes === mesAnterior && venda.ano === anoAnterior && isAguardando(venda.status_proposta))
+      return propostasUnificadas.filter(p =>
+        (p.mes === mes && p.ano === ano) ||
+        (p.mes === mesAnterior && p.ano === anoAnterior && isAguardando(p.status_proposta))
       );
     }
-    return vendas.filter(venda => {
-      if (!venda.data_habilitacao) return false;
-      const dataVenda = new Date(venda.data_habilitacao);
-      return dataVenda.getMonth() + 1 === mes && dataVenda.getFullYear() === ano;
-    });
+    return propostasUnificadas.filter(p => p.mes === mes && p.ano === ano);
   };
 
   // Função auxiliar para calcular dias úteis (sem domingos) de um mês
@@ -429,6 +419,32 @@ function MetasTabContent() {
           percentual: 0
         },
         produtos: ['SEGUROS POS']
+      },
+      'FIBRA': {
+        mesAtual: {
+          meta: 0,
+          vendas: 0,
+          percentual: 0
+        },
+        mesAnterior: {
+          meta: 0,
+          vendas: 0,
+          percentual: 0
+        },
+        produtos: ['FIBRA']
+      },
+      'MÓVEL': {
+        mesAtual: {
+          meta: 0,
+          vendas: 0,
+          percentual: 0
+        },
+        mesAnterior: {
+          meta: 0,
+          vendas: 0,
+          percentual: 0
+        },
+        produtos: ['MÓVEL']
       }
     };
     
@@ -803,7 +819,7 @@ function MetasTabContent() {
           })()}
 
           {/* Grid 2 colunas: Tendência de Meta | Vendas por status (fontes maiores) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
             {/* Card de Tendência de Meta */}
           {(() => {
             const tendencia = calcularTendenciaMeta();
@@ -843,8 +859,8 @@ function MetasTabContent() {
               );
                               
                               return (
-                <Card className="shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30 min-w-0">
-                  <CardHeader className="pb-3 pt-4 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
+                <Card className="shadow-lg border-2 border-blue-100 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30 min-w-0 h-full flex flex-col">
+                  <CardHeader className="pb-3 pt-4 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg shrink-0">
                     <CardTitle className="text-xl flex items-center gap-2">
                       <TrendingUp className="h-6 w-6" />
                       Tendência de Meta
@@ -853,8 +869,8 @@ function MetasTabContent() {
                       Comparação entre períodos equivalentes
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto">
+                  <CardContent className="p-0 flex-1 flex flex-col min-h-0">
+                    <div className="overflow-x-auto flex-1">
                       <table className="w-full min-w-[320px]">
                         <thead>
                           <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
@@ -944,24 +960,27 @@ function MetasTabContent() {
                 if (!t) return 'NÃO INFORMADO';
                 return t;
               };
-              // Mesma métrica do quadro Tendência: agrupar por categoria (POS, PRE, NP, SKY+, FIBRA, OUTROS)
+              // Agrupar por categoria com suporte a todas as origens (case-insensitive)
               const mapearCategoriaStatus = (categoria: string): string => {
-                if (categoria.includes('PÓS-PAGO') || categoria.includes('POS')) return 'POS';
-                if (categoria.includes('PRÉ-PAGO') || categoria.includes('PRE') || categoria.includes('FLEX') || categoria.includes('CONFORTO')) return 'PRE';
-                if (categoria.includes('NOVA PARABÓLICA') || categoria.includes('NP')) return 'NP';
-                if (categoria.includes('FIBRA') || categoria.includes('BL-DGO')) return 'FIBRA';
-                if (categoria.includes('SKY MAIS') || categoria.includes('DGO')) return 'SKY+';
+                const cat = categoria.toUpperCase().trim();
+                if (cat === 'POS_PAGO' || cat === 'POS' || cat.includes('PÓS-PAGO') || cat.includes('POS-PAGO')) return 'POS';
+                if (cat === 'FLEX_CONFORTO' || cat === 'PRE' || cat.includes('PRÉ-PAGO') || cat.includes('FLEX') || cat.includes('CONFORTO')) return 'PRE';
+                if (cat === 'NOVA_PARABOLICA' || cat === 'NP' || cat.includes('NOVA PARABÓLICA') || cat.includes('NOVA_PAR')) return 'NP';
+                if (cat === 'FIBRA' || cat.includes('BL-DGO')) return 'FIBRA';
+                if (cat === 'MOVEL' || cat === 'CELULAR' || cat.includes('MÓVEL')) return 'MÓVEL';
+                if (cat === 'SKY_MAIS' || cat === 'SKY+' || cat.includes('SKY MAIS') || (cat.includes('DGO') && !cat.includes('BL-DGO'))) return 'SKY+';
                 return 'OUTROS';
               };
               const categoriaParaLabel: Record<string, string> = {
                 POS: 'PÓS-PAGO',
                 PRE: 'FLEX/CONFORTO',
                 NP: 'NOVA PARABÓLICA',
-                'SKY+': 'SKY MAIS',
                 FIBRA: 'FIBRA',
+                'MÓVEL': 'MÓVEL',
+                'SKY+': 'SKY MAIS',
                 OUTROS: 'OUTROS'
               };
-              const ordemCategorias = ['POS', 'PRE', 'NP', 'SKY+', 'FIBRA', 'OUTROS'];
+              const ordemCategorias = ['POS', 'PRE', 'NP', 'FIBRA', 'MÓVEL', 'SKY+', 'OUTROS'];
               // Primeira letra maiúscula, resto minúscula
               const primeiraMaiuscula = (str: string): string =>
                 str.length === 0 ? str : str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
@@ -1016,8 +1035,8 @@ function MetasTabContent() {
                 );
               }
               return (
-                <Card className="shadow-lg border-2 border-amber-100 bg-gradient-to-br from-white via-amber-50/20 to-orange-50/20 min-w-0">
-                  <CardHeader className="pb-3 pt-4 px-4 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-t-lg">
+                <Card className="shadow-lg border-2 border-amber-100 bg-gradient-to-br from-white via-amber-50/20 to-orange-50/20 min-w-0 h-full flex flex-col">
+                  <CardHeader className="pb-3 pt-4 px-4 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-t-lg shrink-0">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <CardTitle className="text-xl flex items-center gap-2">
@@ -1031,8 +1050,8 @@ function MetasTabContent() {
                       <LastImportInfoPopover />
                     </div>
                   </CardHeader>
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto overflow-y-auto max-h-[340px]">
+                  <CardContent className="p-0 flex-1 flex flex-col min-h-0">
+                    <div className="overflow-x-auto overflow-y-auto flex-1">
                       <table className="w-full border-collapse">
                         <thead className="sticky top-0 z-20">
                           <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200 shadow-sm">
@@ -1117,9 +1136,75 @@ function MetasTabContent() {
                   </CardDescription>
                 </CardHeader>
               <CardContent className="p-0">
+                {/* Toggles de segmento */}
                 {(() => {
-                  // Filtrar vendas do período selecionado
-                  const vendasDoPeriodo = buscarVendasDoPeriodo(selectedMonth || 0, selectedYear || 0);
+                  const SEGMENTOS: { key: string; label: string; cor: string; corAtivo: string }[] = [
+                    { key: 'POS',   label: 'PÓS',         cor: 'border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100',    corAtivo: 'bg-blue-600 text-white border-blue-600' },
+                    { key: 'PRE',   label: 'PRÉ/FLEX',    cor: 'border-yellow-300 text-yellow-700 bg-yellow-50 hover:bg-yellow-100', corAtivo: 'bg-yellow-500 text-white border-yellow-500' },
+                    { key: 'NP',    label: 'N.PARAB.',    cor: 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100',  corAtivo: 'bg-green-600 text-white border-green-600' },
+                    { key: 'FIBRA', label: 'FIBRA',       cor: 'border-cyan-300 text-cyan-700 bg-cyan-50 hover:bg-cyan-100',     corAtivo: 'bg-cyan-600 text-white border-cyan-600' },
+                    { key: 'MÓVEL', label: 'MÓVEL',       cor: 'border-violet-300 text-violet-700 bg-violet-50 hover:bg-violet-100', corAtivo: 'bg-violet-600 text-white border-violet-600' },
+                    { key: 'SKY+',  label: 'SKY MAIS',   cor: 'border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100', corAtivo: 'bg-indigo-600 text-white border-indigo-600' },
+                  ];
+                  const toggleSegmento = (key: string) => {
+                    setFiltroCategoriaProdutos(prev => {
+                      const next = new Set(prev);
+                      if (next.has(key)) next.delete(key);
+                      else next.add(key);
+                      return next;
+                    });
+                  };
+                  return (
+                    <div className="flex flex-wrap gap-1.5 px-3 pt-3 pb-2">
+                      {SEGMENTOS.map(seg => {
+                        const ativo = filtroCategoriaProdutos.has(seg.key);
+                        return (
+                          <button
+                            key={seg.key}
+                            onClick={() => toggleSegmento(seg.key)}
+                            className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition-all duration-150 select-none ${ativo ? seg.corAtivo : seg.cor}`}
+                          >
+                            {seg.label}
+                          </button>
+                        );
+                      })}
+                      {filtroCategoriaProdutos.size > 0 && (
+                        <button
+                          onClick={() => setFiltroCategoriaProdutos(new Set())}
+                          className="text-[10px] font-bold px-2.5 py-1 rounded-full border border-gray-300 text-gray-500 bg-gray-50 hover:bg-gray-100 transition-all duration-150"
+                        >
+                          ✕ Limpar
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  // Neste quadro contabilizamos TODA a Nova Parabólica (inclusive RECARGA_ESTOQUE),
+                  // por isso filtramos diretamente sem a exclusão de NP da função buscarVendasDoPeriodo.
+                  const mes = selectedMonth || 0;
+                  const ano = selectedYear || 0;
+                  const todasVendasDoPeriodo = propostasUnificadas.filter(p => {
+                    if (p.mes !== mes || p.ano !== ano) return false;
+                    if (!isStatusFinalizada(p.status_proposta)) return false;
+                    return true;
+                  });
+
+                  // Mapear categoria para chave de toggle
+                  const mapearCatToggle = (categoria: string): string => {
+                    const cat = (categoria || '').toUpperCase().trim();
+                    if (cat === 'POS_PAGO' || cat === 'POS' || cat.includes('PÓS-PAGO')) return 'POS';
+                    if (cat === 'FLEX_CONFORTO' || cat === 'PRE' || cat.includes('FLEX') || cat.includes('CONFORTO')) return 'PRE';
+                    if (cat === 'NOVA_PARABOLICA' || cat === 'NP' || cat.includes('NOVA PARABÓLICA')) return 'NP';
+                    if (cat === 'FIBRA' || cat.includes('BL-DGO')) return 'FIBRA';
+                    if (cat === 'MOVEL' || cat === 'CELULAR' || cat.includes('MÓVEL')) return 'MÓVEL';
+                    if (cat === 'SKY_MAIS' || cat.includes('SKY MAIS') || cat === 'DGO') return 'SKY+';
+                    return '';
+                  };
+
+                  const vendasDoPeriodo = filtroCategoriaProdutos.size > 0
+                    ? todasVendasDoPeriodo.filter(v => filtroCategoriaProdutos.has(mapearCatToggle(v.categoria || '')))
+                    : todasVendasDoPeriodo;
                   
                 // Função para normalizar forma de pagamento
                 const normalizarFormaPagamento = (forma: string | undefined): string => {
@@ -1143,23 +1228,11 @@ function MetasTabContent() {
                   return formaUpper;
                 };
 
-                // Mapear categorias para valor dos produtos
-                  const mapearCategoria = (categoria: string): string => {
-                    if (categoria.includes('PÓS-PAGO') || categoria.includes('POS')) return 'POS';
-                    if (categoria.includes('PRÉ-PAGO') || categoria.includes('PRE')) return 'PRE';
-                    if (categoria.includes('NOVA PARABÓLICA') || categoria.includes('NP')) return 'NP';
-                    if (categoria.includes('FIBRA') || categoria.includes('BL-DGO')) return 'FIBRA';
-                    if (categoria.includes('SKY MAIS') || categoria.includes('DGO')) return 'SKY+';
-                    return 'OUTROS';
-                  };
-                  
                 // Agrupar por produto, forma de pagamento e valor
                 const dadosPorProduto = vendasDoPeriodo.reduce((acc, venda) => {
-                  const produto = (('produto' in venda ? venda.produto : venda.produto_principal) || 'NÃO INFORMADO').toUpperCase();
-                  const forma = normalizarFormaPagamento('forma_pagamento' in venda ? venda.forma_pagamento : '');
-                     const categoria = ('categoria' in venda ? venda.categoria : venda.agrupamento_produto) || '';
-                  const categoriaMapeada = mapearCategoria(categoria);
-                     const valor = ('valor' in venda ? (venda as Venda).valor : 0) || 0;
+                  const produto = (venda.produto || 'NÃO INFORMADO').toUpperCase();
+                  const forma = normalizarFormaPagamento(venda.forma_pagamento);
+                  const valor = venda.valor || 0;
                   
                   if (!acc[produto]) {
                     acc[produto] = {
@@ -1183,10 +1256,10 @@ function MetasTabContent() {
                 
                 // Calcular totais por forma de pagamento
                 const totaisPorForma = vendasDoPeriodo.reduce((acc, venda) => {
-                  const forma = normalizarFormaPagamento('forma_pagamento' in venda ? venda.forma_pagamento : '');
+                  const forma = normalizarFormaPagamento(venda.forma_pagamento);
                   acc[forma] = (acc[forma] || 0) + 1;
-                     return acc;
-                   }, {} as Record<string, number>);
+                  return acc;
+                }, {} as Record<string, number>);
                   
                 const totalGeral = vendasDoPeriodo.length;
                 
@@ -1195,10 +1268,7 @@ function MetasTabContent() {
                   .sort(([,a], [,b]) => b - a);
                   
                 // Calcular valor total geral (de TODAS as vendas, não apenas top 10)
-                const valorTotalGeral = vendasDoPeriodo.reduce((sum, venda) => {
-                  const valor = ('valor' in venda ? (venda as Venda).valor : 0) || 0;
-                  return sum + valor;
-                }, 0);
+                const valorTotalGeral = vendasDoPeriodo.reduce((sum, venda) => sum + (venda.valor || 0), 0);
                   
                   return (
                   <div className="overflow-x-auto">
@@ -1328,37 +1398,42 @@ function MetasTabContent() {
                        pos_pago: number;
                        flex_conforto: number;
                        nova_parabolica: number;
+                       fibra: number;
+                       movel: number;
                        sky_mais: number;
                      }
                      
                      const vendasPorCidade: Record<string, VendaPorCidade> = {};
                      
                      vendasDoPeriodo.forEach(venda => {
-                       // Usar o campo cidade da venda
-                       const cidade = ('cidade' in venda ? venda.cidade : venda.cidade) || 'Não informado';
+                       const cidade = venda.cidade || 'Não informado';
                        
                        if (!vendasPorCidade[cidade]) {
                          vendasPorCidade[cidade] = { 
                            total: 0, 
                            pos_pago: 0, 
                            flex_conforto: 0, 
-                           nova_parabolica: 0, 
+                           nova_parabolica: 0,
+                           fibra: 0,
+                           movel: 0,
                            sky_mais: 0 
                          };
                        }
                        vendasPorCidade[cidade].total++;
                        
-                       // Categorizar por tipo específico baseado no Agrupamento do Produto
-                       const agrupamento = (('categoria' in venda ? venda.categoria : venda.agrupamento_produto) || '').toUpperCase().trim();
+                       const agrupamento = (venda.categoria || '').toUpperCase().trim();
                        
-                    // Usar a mesma lógica de mapeamento do quadro de valores (sem FIBRA)
-                       if (agrupamento.includes('PÓS-PAGO') || agrupamento.includes('POS')) {
+                       if (agrupamento === 'POS_PAGO' || agrupamento === 'POS' || agrupamento.includes('PÓS-PAGO')) {
                          vendasPorCidade[cidade].pos_pago++;
-                       } else if (agrupamento.includes('PRÉ-PAGO') || agrupamento.includes('PRE')) {
+                       } else if (agrupamento === 'FLEX_CONFORTO' || agrupamento === 'PRE' || agrupamento.includes('FLEX') || agrupamento.includes('CONFORTO')) {
                          vendasPorCidade[cidade].flex_conforto++;
-                       } else if (agrupamento.includes('NOVA PARABÓLICA') || agrupamento.includes('NP')) {
+                       } else if (agrupamento === 'NOVA_PARABOLICA' || agrupamento === 'NP' || agrupamento.includes('NOVA PARABÓLICA')) {
                          vendasPorCidade[cidade].nova_parabolica++;
-                       } else if (agrupamento.includes('SKY MAIS') || agrupamento.includes('DGO')) {
+                       } else if (agrupamento === 'FIBRA' || agrupamento.includes('BL-DGO')) {
+                         vendasPorCidade[cidade].fibra++;
+                       } else if (agrupamento === 'MOVEL' || agrupamento.includes('MÓVEL') || agrupamento === 'CELULAR') {
+                         vendasPorCidade[cidade].movel++;
+                       } else if (agrupamento === 'SKY_MAIS' || agrupamento.includes('SKY MAIS') || agrupamento === 'DGO') {
                          vendasPorCidade[cidade].sky_mais++;
                        }
                      });
@@ -1371,11 +1446,13 @@ function MetasTabContent() {
                          pos_pago: dados.pos_pago,
                          flex_conforto: dados.flex_conforto,
                          nova_parabolica: dados.nova_parabolica,
+                         fibra: dados.fibra,
+                         movel: dados.movel,
                          sky_mais: dados.sky_mais,
                          percentual: (dados.total / (metaMetrics?.total_vendas || 1)) * 100
                        }))
                        .sort((a, b) => b.total - a.total)
-                       .slice(0, 10); // Top 10
+                       .slice(0, 10);
 
                      return cidadesArray.length > 0 ? (
                     <div className="overflow-x-auto">
@@ -1396,6 +1473,12 @@ function MetasTabContent() {
                             </th>
                             <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
                               NP
+                            </th>
+                            <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                              FIBRA
+                            </th>
+                            <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+                              MÓVEL
                             </th>
                             <th className="text-center py-2 px-3 text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
                               SKY+
@@ -1423,22 +1506,32 @@ function MetasTabContent() {
                               </td>
                               <td className="py-2 px-3 text-center">
                                 <span className="text-xs font-semibold text-blue-600">
-                               {item.pos_pago}
+                               {item.pos_pago || '-'}
                                 </span>
                               </td>
                               <td className="py-2 px-3 text-center">
                                 <span className="text-xs font-semibold text-purple-600">
-                               {item.flex_conforto}
+                               {item.flex_conforto || '-'}
                                 </span>
                               </td>
                               <td className="py-2 px-3 text-center">
                                 <span className="text-xs font-semibold text-orange-600">
-                               {item.nova_parabolica}
+                               {item.nova_parabolica || '-'}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="text-xs font-semibold text-cyan-700">
+                               {item.fibra || '-'}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="text-xs font-semibold text-violet-600">
+                               {item.movel || '-'}
                                 </span>
                               </td>
                               <td className="py-2 px-3 text-center">
                                 <span className="text-xs font-semibold text-cyan-600">
-                               {item.sky_mais}
+                               {item.sky_mais || '-'}
                                 </span>
                               </td>
                               <td className="py-2 px-3 text-center">
@@ -1567,9 +1660,9 @@ function MetasTabContent() {
                     {/* Cards Individuais */}
                     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
                       {(() => {
-                        // Organizar categorias (removido FIBRA e SEGUROS FIBRA)
+                        // Organizar categorias
                         const categoriasFiltradas = metaMetrics.categorias.filter(c => 
-                          ['PÓS-PAGO', 'FLEX/CONFORTO', 'NOVA PARABÓLICA', 'SKY+', 'SKY MAIS', 'SEGUROS POS'].includes(c.categoria)
+                          ['PÓS-PAGO', 'FLEX/CONFORTO', 'NOVA PARABÓLICA', 'SKY+', 'SKY MAIS', 'SEGUROS POS', 'FIBRA', 'MÓVEL'].includes(c.categoria)
                         );
 
                         // Função para mapear nomes de categorias
@@ -1840,39 +1933,32 @@ function MetasDetalhamentoContent({
     return buscarVendasDoPeriodo(selectedMonth, selectedYear);
   }, [selectedMonth, selectedYear, buscarVendasDoPeriodo]);
 
-  // Verificar se é VendaMeta (tem campo 'categoria') ou Venda (tem 'produto_principal')
-  const isVendaMeta = useCallback((venda: any): boolean => {
-    return 'categoria' in venda;
-  }, []);
-
-  // Mapear categoria do produto
+  // Mapear categoria do produto (PropostaUnificada já tem campo 'categoria')
   const mapearCategoria = useCallback((venda: any): string => {
-    // Se é VendaMeta, já tem o campo categoria
-    if (isVendaMeta(venda)) {
-      return venda.categoria || 'OUTROS';
-    }
-    
-    // Se é Venda normal, mapear pelo produto
-    const produto = venda.produto_principal || '';
-    const agrupamento = venda.agrupamento_produto || '';
-    
-    if (produto.includes('PÓS-PAGO') || agrupamento.includes('POS')) {
-      return 'POS';
-    }
-    if (produto.includes('FLEX') || produto.includes('CONFORTO')) {
-      return 'FLEX';
-    }
-    if (produto.includes('PARABÓLICA')) {
-      return 'PAY TV';
-    }
-    if (produto.includes('SKY MAIS') || agrupamento.includes('SKY MAIS')) {
-      return 'OUT';
-    }
-    if (produto.includes('SEGUROS') || agrupamento.includes('SEGUROS')) {
-      return 'SEG';
-    }
-    return 'OUTROS';
-  }, [isVendaMeta]);
+    const raw = (venda.categoria || '').toLowerCase().trim();
+    const displayMap: Record<string, string> = {
+      'pos_pago': 'PÓS-PAGO',
+      'pos': 'PÓS-PAGO',
+      'flex_conforto': 'FLEX/CONFORTO',
+      'pre': 'FLEX/CONFORTO',
+      'flex': 'FLEX/CONFORTO',
+      'fibra': 'FIBRA',
+      'bl-dgo': 'FIBRA',
+      'movel': 'MÓVEL',
+      'celular': 'MÓVEL',
+      'nova_parabolica': 'NOVA PARABÓLICA',
+      'np': 'NOVA PARABÓLICA',
+      'sky_mais': 'SKY MAIS',
+      'sky+': 'SKY MAIS',
+      'dgo': 'SKY MAIS',
+      'seguros_pos': 'SEGUROS POS',
+      'seg': 'SEGUROS POS',
+      'seguros_fibra': 'SEGUROS FIBRA',
+    };
+    if (displayMap[raw]) return displayMap[raw];
+    if (!raw) return 'OUTROS';
+    return raw.toUpperCase();
+  }, []);
 
   // Função para gerar link do WhatsApp
   const gerarLinkWhatsApp = useCallback((telefone: string, nomeFantasia: string, produto: string) => {
@@ -1894,27 +1980,20 @@ function MetasDetalhamentoContent({
     return `https://wa.me/55${telefoneLimpo}?text=${mensagemCodificada}`;
   }, []);
 
-  // Função para obter o nome do vendedor - SEMPRE usa nome_proprietario (igual Permanência)
+  // Função para obter o nome do vendedor (PropostaUnificada usa nome_cliente)
   const getNomeVendedor = useCallback((venda: any): string => {
-    // Tanto VendaMeta quanto Venda usam nome_proprietario (igual Permanência)
-    return venda.nome_proprietario || '';
+    return venda.nome_cliente || venda.nome_proprietario || '';
   }, []);
 
-  // Função para obter a data de habilitação (campo diferente em cada tipo)
+  // Função para obter a data de habilitação (PropostaUnificada usa data_venda)
   const getDataHabilitacao = useCallback((venda: any): string => {
-    if (isVendaMeta(venda)) {
-      return venda.data_venda || '';
-    }
-    return venda.data_habilitacao || '';
-  }, [isVendaMeta]);
+    return venda.data_venda || venda.data_habilitacao || '';
+  }, []);
 
-  // Função para obter o produto (campo diferente em cada tipo)
+  // Função para obter o produto (PropostaUnificada usa produto)
   const getProduto = useCallback((venda: any): string => {
-    if (isVendaMeta(venda)) {
-      return venda.produto || '';
-    }
-    return venda.produto_principal || '';
-  }, [isVendaMeta]);
+    return venda.produto || venda.produto_principal || '';
+  }, []);
 
   // Função para obter a forma de pagamento
   const getForma = useCallback((venda: any): string => {
@@ -1945,17 +2024,17 @@ function MetasDetalhamentoContent({
       const termo = termoBusca.toLowerCase();
       resultado = resultado.filter(venda => {
         const numeroProposta = venda.numero_proposta?.toString().toLowerCase() || "";
-        const nomeFantasia = venda.nome_fantasia?.toLowerCase() || "";
+        const nomeCliente = (venda.nome_cliente || venda.nome_fantasia || '').toLowerCase();
         const produtoPrincipal = getProduto(venda).toLowerCase();
-        const nomeProprietario = getNomeVendedor(venda).toLowerCase();
-        const telefoneCelular = venda.telefone_celular?.toLowerCase() || "";
+        const nomeVendedor = getNomeVendedor(venda).toLowerCase();
+        const telefone = (venda.telefone || venda.telefone_celular || '').toLowerCase();
         const cpf = venda.cpf?.toString().toLowerCase() || "";
         
         return numeroProposta.includes(termo) ||
-               nomeFantasia.includes(termo) ||
+               nomeCliente.includes(termo) ||
                produtoPrincipal.includes(termo) ||
-               nomeProprietario.includes(termo) ||
-               telefoneCelular.includes(termo) ||
+               nomeVendedor.includes(termo) ||
+               telefone.includes(termo) ||
                cpf.includes(termo);
       });
     }
@@ -2202,8 +2281,8 @@ function MetasDetalhamentoContent({
       return [
         venda.numero_proposta || '',
         venda.cpf || '',
-        venda.nome_fantasia || '',
-        venda.telefone_celular || '',
+        (venda as any).nome_cliente || (venda as any).nome_fantasia || '',
+        (venda as any).telefone || (venda as any).telefone_celular || '',
         venda.cidade || '',
         venda.bairro || '',
         categoria || '',
@@ -2600,8 +2679,9 @@ function MetasDetalhamentoContent({
                   <TableHeader>
                     <TableRow className="bg-gradient-to-r from-slate-100 to-gray-100 border-b-2 border-slate-200">
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider sticky left-0 bg-slate-100 z-10">Proposta</TableHead>
-                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">CPF/CNPJ</TableHead>
-                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Nome Fantasia</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Origem</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">CPF</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Cliente</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Telefone</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Cidade</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Bairro</TableHead>
@@ -2622,19 +2702,21 @@ function MetasDetalhamentoContent({
                       .map((venda, index) => {
                         const categoria = mapearCategoria(venda);
                         const corCategoria = 
-                          categoria === 'POS' ? 'bg-blue-100 text-blue-800 border-blue-300' :
-                          categoria === 'FLEX' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
-                          categoria === 'PAY TV' ? 'bg-green-100 text-green-800 border-green-300' :
-                          categoria === 'OUT' ? 'bg-purple-100 text-purple-800 border-purple-300' :
-                          categoria === 'SEG' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                          categoria === 'PÓS-PAGO' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                          categoria === 'FLEX/CONFORTO' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+                          categoria === 'NOVA PARABÓLICA' ? 'bg-green-100 text-green-800 border-green-300' :
+                          categoria === 'FIBRA' ? 'bg-cyan-100 text-cyan-800 border-cyan-300' :
+                          categoria === 'MÓVEL' ? 'bg-purple-100 text-purple-800 border-purple-300' :
+                          categoria === 'SKY MAIS' ? 'bg-indigo-100 text-indigo-800 border-indigo-300' :
+                          categoria.startsWith('SEGUROS') ? 'bg-amber-100 text-amber-800 border-amber-300' :
                           'bg-gray-100 text-gray-800 border-gray-300';
 
                         const nomeVendedor = getNomeVendedor(venda);
                         const dataHabilitacao = getDataHabilitacao(venda);
                         const produto = getProduto(venda);
                         const forma = getForma(venda);
-                        const nomeFantasia = venda.nome_fantasia || 'Cliente';
-                        const telefone = venda.telefone_celular || '';
+                        const nomeFantasia = (venda as any).nome_cliente || (venda as any).nome_fantasia || 'Cliente';
+                        const telefone = (venda as any).telefone || (venda as any).telefone_celular || '';
                         const linkWhatsApp = gerarLinkWhatsApp(telefone, nomeFantasia, produto);
 
                         return (
@@ -2647,14 +2729,32 @@ function MetasDetalhamentoContent({
                             <TableCell className="text-xs p-3 font-bold text-indigo-700 sticky left-0 bg-inherit z-10">
                               {venda.numero_proposta || '-'}
                             </TableCell>
+                            <TableCell className="text-xs p-3">
+                              {(() => {
+                                const origem = (venda as any).origem as string | undefined;
+                                const origemMap: Record<string, { label: string; color: string }> = {
+                                  fibra: { label: 'FIBRA', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+                                  movel: { label: 'MÓVEL', color: 'bg-purple-100 text-purple-700 border-purple-300' },
+                                  nova_parabolica: { label: 'N.PARAB.', color: 'bg-green-100 text-green-700 border-green-300' },
+                                  venda_meta: { label: 'META', color: 'bg-orange-100 text-orange-700 border-orange-300' },
+                                  venda: { label: 'PERM.', color: 'bg-gray-100 text-gray-700 border-gray-300' },
+                                };
+                                const info = origemMap[origem ?? ''] ?? { label: origem ?? '-', color: 'bg-gray-100 text-gray-600 border-gray-200' };
+                                return (
+                                  <Badge className={`${info.color} font-bold text-xs px-2 py-0.5 border rounded-full`}>
+                                    {info.label}
+                                  </Badge>
+                                );
+                              })()}
+                            </TableCell>
                             <TableCell className="text-xs p-3 text-gray-700 font-mono">
                               {venda.cpf || '-'}
                             </TableCell>
-                            <TableCell className="text-xs p-3 text-gray-900 font-medium" title={venda.nome_fantasia || '-'}>
-                              {venda.nome_fantasia || '-'}
+                            <TableCell className="text-xs p-3 text-gray-900 font-medium" title={nomeFantasia || '-'}>
+                              {nomeFantasia || '-'}
                             </TableCell>
                             <TableCell className="text-xs p-3 text-gray-700 font-mono">
-                              {venda.telefone_celular || '-'}
+                              {telefone || '-'}
                             </TableCell>
                             <TableCell className="text-xs p-3 text-gray-700">
                               {venda.cidade || '-'}
@@ -2841,7 +2941,7 @@ interface MetricsOverviewProps {
 
 export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOverviewProps) {
   const data = useData();
-  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs, vendas, vendasMeta, baseData, calculateThreeMonthAverage } = data;
+  const { calculateTimeMetrics, calculateReopeningMetrics, serviceOrders, technicians, getReopeningPairs, vendas, vendasMeta, baseData, calculateThreeMonthAverage, vendasFibra, vendasMovel, vendasNovaParabolica, planosFibra, planosMovel } = data;
   const { user } = useAuth();
   const { getSetting, updateSetting } = useSystemSettings();
 
@@ -5998,8 +6098,8 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                 <CardContent className="p-3">
                   <div className={`grid grid-cols-1 gap-3 ${
                     selectedYear && parseInt(selectedYear) >= 2026 
-                      ? 'md:grid-cols-2'  // 2026+: 2 colunas
-                      : 'md:grid-cols-3'  // 2025-: 3 colunas
+                      ? 'md:grid-cols-3'  // 2026+: 3 colunas (AT TV | Ponto Principal TV | Base FIBRA)
+                      : 'md:grid-cols-3'  // 2025-: 3 colunas (AT TV | AT FIBRA | Ponto Principal TV)
                   }`}>
                     {/* Coluna 1: Assistência Técnica TV */}
                   {(() => {
@@ -6371,7 +6471,7 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                     );
                   })()}
                   
-                    {/* Coluna 2 ou 3: Ponto Principal TV (depende do ano) */}
+                    {/* Coluna 2: Ponto Principal TV */}
                   {(() => {
                     // Obter o percentual de TA para Ponto Principal TV
                       const metricsPPTV = Object.entries(timeMetrics.servicesByType)
@@ -6512,11 +6612,275 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                         </div>
                     );
                   })()}
+
+                  {/* Coluna 3: Base de Clientes FIBRA — apenas 2026+ */}
+                  {selectedYear && parseInt(selectedYear) >= 2026 && (() => {
+                    const anoNum = parseInt(selectedYear);
+                    const mesNum = selectedMonth ? parseInt(selectedMonth) : new Date().getMonth() + 1;
+
+                    // Converte o campo 'mes' (string ou número) para número
+                    const mesParaNum = (m: string | number): number => {
+                      const map: Record<string, number> = {
+                        'janeiro': 1, 'jan': 1, 'fevereiro': 2, 'fev': 2,
+                        'março': 3, 'mar': 3, 'marco': 3,
+                        'abril': 4, 'abr': 4, 'maio': 5, 'mai': 5,
+                        'junho': 6, 'jun': 6, 'julho': 7, 'jul': 7,
+                        'agosto': 8, 'ago': 8, 'setembro': 9, 'set': 9,
+                        'outubro': 10, 'out': 10, 'novembro': 11, 'nov': 11,
+                        'dezembro': 12, 'dez': 12,
+                      };
+                      if (typeof m === 'number') return m;
+                      return map[String(m).toLowerCase().trim()] || parseInt(String(m)) || 0;
+                    };
+
+                    // Busca entrada apenas pelo mês + ano exatos (sem fallback de ano)
+                    const findBase = (m: number, a: number) =>
+                      baseData.find(b => mesParaNum(b.mes) === m && b.ano === a);
+
+                    // Entrada do mês atual; se base_fibra = 0 ou não existir, usa o mês anterior
+                    let entrada = findBase(mesNum, anoNum);
+                    let usandoAnterior = false;
+
+                    if (!entrada || entrada.base_fibra === 0) {
+                      const mesPrev = mesNum === 1 ? 12 : mesNum - 1;
+                      const anoPrev = mesNum === 1 ? anoNum - 1 : anoNum;
+                      const entradaPrev = findBase(mesPrev, anoPrev);
+                      if (entradaPrev && entradaPrev.base_fibra > 0) {
+                        entrada = entradaPrev;
+                        usandoAnterior = true;
+                      }
+                    }
+
+                    if (!entrada || entrada.base_fibra === 0) {
+                      return (
+                        <div className="border-2 border-cyan-200 bg-gradient-to-br from-white to-cyan-50/50 rounded-lg shadow-sm flex flex-col">
+                          <div className="bg-gradient-to-r from-cyan-500 to-teal-500 p-2 rounded-t-lg">
+                            <h3 className="text-sm font-bold text-center text-white">🌐 Base de Clientes FIBRA</h3>
+                            <p className="text-[10px] text-center text-cyan-100 mt-0.5">Não SKY · Projeção de receita recorrente</p>
+                          </div>
+                          <div className="flex-1 flex items-center justify-center p-4">
+                            <p className="text-xs text-gray-500 text-center">Dados BASE não disponíveis</p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const mesEntrada = mesParaNum(entrada.mes);
+                    const anoEntrada = entrada.ano;
+
+                    // Usa alianca_fibra quando disponível, senão cai para alianca geral
+                    const aliancaFibra = (entrada.alianca_fibra && entrada.alianca_fibra > 0)
+                      ? entrada.alianca_fibra
+                      : entrada.alianca;
+                    const baseFibra = entrada.base_fibra;
+                    const projecaoAtual = baseFibra * aliancaFibra;
+
+                    // Mês anterior para tendência (relativo à entrada utilizada)
+                    const mesTrend = mesEntrada === 1 ? 12 : mesEntrada - 1;
+                    const anoTrend = mesEntrada === 1 ? anoEntrada - 1 : anoEntrada;
+                    const entradaAnterior = findBase(mesTrend, anoTrend);
+                    const baseFibraAnterior = entradaAnterior?.base_fibra ?? 0;
+                    const aliancaAnterior = (entradaAnterior?.alianca_fibra && entradaAnterior.alianca_fibra > 0)
+                      ? entradaAnterior.alianca_fibra
+                      : (entradaAnterior?.alianca ?? 0);
+                    const projecaoAnterior = baseFibraAnterior * aliancaAnterior;
+
+                    const diferencaQtd = baseFibra - baseFibraAnterior;
+                    const diferencaValor = projecaoAtual - projecaoAnterior;
+                    const diferencaPercentual = projecaoAnterior > 0 ? (diferencaValor / projecaoAnterior) * 100 : 0;
+
+                    const tendenciaCor = diferencaQtd > 0 ? 'text-green-600' : diferencaQtd < 0 ? 'text-red-600' : 'text-gray-600';
+                    const tendenciaIcon = diferencaQtd > 0 ? '↗️' : diferencaQtd < 0 ? '↘️' : '➡️';
+
+                    const mesesNomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+                    const mesLabel = usandoAnterior
+                      ? `📅 Dados de ${mesesNomes[mesEntrada - 1]}/${anoEntrada} (mês anterior)`
+                      : null;
+
+                    return (
+                      <div className="border-2 border-cyan-300 bg-gradient-to-br from-white to-cyan-50/50 rounded-lg shadow-sm hover:shadow-md transition-all">
+                        <div className="bg-gradient-to-r from-cyan-500 to-teal-500 border-b-2 p-2 rounded-t-lg">
+                          <h3 className="text-sm font-bold text-center text-white">🌐 Base de Clientes FIBRA</h3>
+                          <p className="text-[10px] text-center text-cyan-100 mt-0.5">Não SKY · Projeção de receita recorrente</p>
+                        </div>
+                        <div className="p-3 space-y-3">
+                          {mesLabel && (
+                            <p className="text-[10px] text-amber-600 text-center font-medium">{mesLabel}</p>
+                          )}
+
+                          {/* Métricas principais */}
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="text-center bg-cyan-50 rounded-lg p-2 border border-cyan-200">
+                              <p className="text-[9px] text-gray-600 mb-0.5">Base Atual</p>
+                              <p className="text-lg font-bold text-cyan-800">{baseFibra.toLocaleString('pt-BR')}</p>
+                              {baseFibraAnterior > 0 && (
+                                <div className={`text-[10px] font-medium flex items-center justify-center gap-0.5 mt-0.5 ${tendenciaCor}`}>
+                                  <span>{tendenciaIcon}</span>
+                                  <span>{diferencaQtd >= 0 ? '+' : ''}{diferencaQtd.toLocaleString('pt-BR')} cli.</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-center bg-teal-50 rounded-lg p-2 border border-teal-200">
+                              <p className="text-[9px] text-gray-600 mb-0.5">Aliança/cli.</p>
+                              <p className="text-lg font-bold text-teal-800">
+                                {aliancaFibra.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </p>
+                              <p className="text-[9px] text-gray-500 mt-0.5">por cliente</p>
+                            </div>
+                            <div className="text-center bg-green-50 rounded-lg p-2 border border-green-200">
+                              <p className="text-[9px] text-gray-600 mb-0.5">Projeção Total</p>
+                              <p className="text-base font-bold text-green-800">
+                                {projecaoAtual.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </p>
+                              <p className="text-[9px] text-gray-500 mt-0.5">base × aliança</p>
+                            </div>
+                          </div>
+
+                          {/* Tendência vs mês anterior */}
+                          {projecaoAnterior > 0 && (
+                            <div className="pt-2 border-t border-gray-200">
+                              <p className="text-[10px] text-gray-600 text-center mb-1">vs Mês Anterior</p>
+                              <div className={`text-xs font-semibold flex items-center justify-center gap-1 ${
+                                diferencaValor > 0 ? 'text-green-600' : diferencaValor < 0 ? 'text-red-600' : 'text-gray-600'
+                              }`}>
+                                <span>{diferencaValor > 0 ? '↗️' : diferencaValor < 0 ? '↘️' : '➡️'}</span>
+                                <span>
+                                  {diferencaValor > 0 ? '+' : ''}{diferencaPercentual.toFixed(1)}%
+                                  {' '}({diferencaValor > 0 ? '+' : ''}{diferencaValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   
                     </div>
                 </CardContent>
               </Card>
               
+            {/* Quadro Projeção Variável — FIBRA */}
+            {(() => {
+              if (!selectedMonth || !selectedYear) return null;
+              const mes = parseInt(selectedMonth, 10);
+              const ano = parseInt(selectedYear, 10);
+              const isStatus = (s: string | undefined) => {
+                const u = (s ?? '').toUpperCase().trim();
+                return u === 'FINALIZADO' || u === 'FINALIZADA';
+              };
+              const vendasFibraDoMes = vendasFibra.filter(v => {
+                const dataRef = v.data_venda || v.data_cadastro;
+                if (!dataRef || !isStatus(v.status_proposta)) return false;
+                const d = new Date(dataRef);
+                return d.getMonth() + 1 === mes && d.getFullYear() === ano;
+              });
+              const totalFibra = vendasFibraDoMes.reduce((sum, v) => {
+                const plano = planosFibra.find(p => p.id === v.plano_fibra_id);
+                return sum + (plano?.preco_mensal ?? 0);
+              }, 0);
+              const qtd = vendasFibraDoMes.length;
+
+              return (
+                <Card className="shadow-lg border-2 border-blue-200 mb-4">
+                  <CardHeader className="pb-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <span className="text-white font-bold">📶</span>
+                      Projeção Variável — FIBRA
+                    </CardTitle>
+                    <CardDescription className="text-blue-100 text-xs">
+                      Comissão por vendas finalizadas no período · Valor de face do plano
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    {qtd === 0 ? (
+                      <p className="text-sm text-gray-500 text-center py-4">Nenhuma venda FIBRA finalizada no período.</p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center bg-blue-50 rounded-lg p-3 border border-blue-200">
+                          <div className="text-2xl font-bold text-blue-700">{qtd}</div>
+                          <div className="text-xs text-gray-600 mt-1">Vendas finalizadas</div>
+                        </div>
+                        <div className="text-center bg-indigo-50 rounded-lg p-3 border border-indigo-200">
+                          <div className="text-2xl font-bold text-indigo-700">
+                            {(totalFibra / (qtd || 1)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1">Ticket médio por plano</div>
+                        </div>
+                        <div className="text-center bg-green-50 rounded-lg p-3 border border-green-200">
+                          <div className="text-2xl font-bold text-green-700">
+                            {totalFibra.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1">Total valor de face</div>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {/* Quadro Projeção Variável — MÓVEL */}
+            {(() => {
+              if (!selectedMonth || !selectedYear) return null;
+              const mes = parseInt(selectedMonth, 10);
+              const ano = parseInt(selectedYear, 10);
+              const isStatus = (s: string | undefined) => {
+                const u = (s ?? '').toUpperCase().trim();
+                return u === 'FINALIZADO' || u === 'FINALIZADA';
+              };
+              const vendasMovelDoMes = vendasMovel.filter(v => {
+                const dataRef = v.data_venda || v.data_cadastro;
+                if (!dataRef || !isStatus(v.status_proposta)) return false;
+                const d = new Date(dataRef);
+                return d.getMonth() + 1 === mes && d.getFullYear() === ano;
+              });
+              const totalMovelFace = vendasMovelDoMes.reduce((sum, v) => {
+                const plano = planosMovel.find(p => p.id === v.plano_movel_id);
+                return sum + (plano?.preco_mensal ?? 0);
+              }, 0);
+              const totalMovelComissao = totalMovelFace * 2.2;
+              const qtd = vendasMovelDoMes.length;
+
+              return (
+                <Card className="shadow-lg border-2 border-purple-200 mb-4">
+                  <CardHeader className="pb-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-t-lg">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <span className="text-white font-bold">📱</span>
+                      Projeção Variável — MÓVEL
+                    </CardTitle>
+                    <CardDescription className="text-purple-100 text-xs">
+                      Comissão = 220% do valor do plano · Vendas finalizadas no período
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    {qtd === 0 ? (
+                      <p className="text-sm text-gray-500 text-center py-4">Nenhuma venda MÓVEL finalizada no período.</p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center bg-purple-50 rounded-lg p-3 border border-purple-200">
+                          <div className="text-2xl font-bold text-purple-700">{qtd}</div>
+                          <div className="text-xs text-gray-600 mt-1">Vendas finalizadas</div>
+                        </div>
+                        <div className="text-center bg-pink-50 rounded-lg p-3 border border-pink-200">
+                          <div className="text-2xl font-bold text-pink-700">
+                            {totalMovelFace.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1">Total valor de face</div>
+                        </div>
+                        <div className="text-center bg-green-50 rounded-lg p-3 border border-green-200">
+                          <div className="text-2xl font-bold text-green-700">
+                            {totalMovelComissao.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1">Comissão (220%)</div>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
             {/* Novo quadro modernizado de Bonificações */}
             <div className="mb-6">
               <BonificacoesVendas 
@@ -14172,7 +14536,36 @@ function VendedorPermanenciaContent() {
 // Componente para o conteúdo da subguia Desempenho
 function VendedorDesempenhoContent() {
   const dataContext = useData();
-  const { vendas, vendasMeta, mapearCategoriaVenda } = dataContext;
+  const { vendas, vendasMeta, vendasFibra, vendasMovel, vendasNovaParabolica, planosFibra, planosMovel, mapearCategoriaVenda } = dataContext;
+  const { user, authExtras } = useAuth();
+  const donoUserId = authExtras?.donoUserId ?? user?.id ?? '';
+
+  // Carregar equipe para normalização de nomes de vendedores
+  const [equipe, setEquipe] = useState<EquipeRow[]>([]);
+  useEffect(() => {
+    if (!donoUserId) return;
+    fetchEquipe(donoUserId).then(setEquipe).catch(() => {});
+  }, [donoUserId]);
+
+  // Mapa id_vendedor → nome_completo (fonte de verdade para normalização)
+  const mapaVendedorPorId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of equipe) {
+      const id = (e.id_vendedor || '').trim();
+      if (id) m.set(id, e.nome_completo);
+    }
+    return m;
+  }, [equipe]);
+
+  // Retorna nome_completo via id_vendedor; se não encontrar, usa o fallback original
+  const nomePadronizado = useCallback(
+    (idVendedor: string | undefined | null, vendedorOriginal: string): string => {
+      const id = (idVendedor || '').trim();
+      if (id && mapaVendedorPorId.has(id)) return mapaVendedorPorId.get(id)!;
+      return vendedorOriginal || '—';
+    },
+    [mapaVendedorPorId]
+  );
 
   // Estados para filtros de Mês e Ano de Habilitação
   const [filtroMesHabilitacao, setFiltroMesHabilitacao] = useState<string[]>([]);
@@ -14222,18 +14615,100 @@ function VendedorDesempenhoContent() {
 
   // Filtrar vendas meta baseado nos filtros de mês e ano 
   const vendasMetaFiltradas = useMemo(() => {
-    return vendasMeta.filter(vendaMeta => {
-      // Extrair mês e ano da venda meta
+    const mesesNomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+    // Vendas meta originais filtradas
+    const metasFiltradas = vendasMeta.filter(vendaMeta => {
       const mesVendaMeta = extrairMesVendaMeta(vendaMeta.mes);
       const anoVendaMeta = vendaMeta.ano;
-
-      // Verificar se está nos filtros selecionados
       const mesMatch = filtroMesHabilitacao.length === 0 || filtroMesHabilitacao.includes(mesVendaMeta);
       const anoMatch = filtroAnoHabilitacao.length === 0 || filtroAnoHabilitacao.includes(anoVendaMeta.toString());
-
       return mesMatch && anoMatch;
     });
-  }, [vendasMeta, filtroMesHabilitacao, filtroAnoHabilitacao, extrairMesVendaMeta]);
+
+    // Helper para extrair mes/ano de uma data string e verificar se passa no filtro
+    const passaFiltro = (dataStr: string | undefined): boolean => {
+      if (!dataStr) return false;
+      const d = new Date(dataStr);
+      if (isNaN(d.getTime())) return false;
+      const mesNome = mesesNomes[d.getMonth()];
+      const ano = d.getFullYear().toString();
+      const mesMatch = filtroMesHabilitacao.length === 0 || filtroMesHabilitacao.includes(mesNome);
+      const anoMatch = filtroAnoHabilitacao.length === 0 || filtroAnoHabilitacao.includes(ano);
+      return mesMatch && anoMatch;
+    };
+
+    // Converter vendas FIBRA para VendaMeta-like
+    const fibraComoMeta: VendaMeta[] = vendasFibra
+      .filter(v => passaFiltro(v.data_venda || v.data_cadastro))
+      .map(v => {
+        const plano = planosFibra.find(p => p.id === v.plano_fibra_id);
+        const dataRef = v.data_venda || v.data_cadastro || '';
+        const d = new Date(dataRef);
+        return {
+          numero_proposta: v.id || `fibra-${v.cpf_cnpj}`,
+          valor: plano?.preco_mensal ?? 0,
+          data_venda: dataRef,
+          vendedor: v.vendedor || '',
+          nome_proprietario: v.vendedor || '',
+          categoria: 'fibra',
+          produto: plano?.nome || v.plano_fibra_nome || 'FIBRA',
+          mes: isNaN(d.getTime()) ? 0 : d.getMonth() + 1,
+          ano: isNaN(d.getTime()) ? 0 : d.getFullYear(),
+          status_proposta: v.status_proposta,
+          cidade: v.cidade,
+          bairro: v.bairro,
+        } as VendaMeta;
+      });
+
+    // Converter vendas MÓVEL para VendaMeta-like
+    const movelComoMeta: VendaMeta[] = vendasMovel
+      .filter(v => passaFiltro(v.data_venda || v.data_cadastro))
+      .map(v => {
+        const plano = planosMovel.find(p => p.id === v.plano_movel_id);
+        const dataRef = v.data_venda || v.data_cadastro || '';
+        const d = new Date(dataRef);
+        return {
+          numero_proposta: v.id || `movel-${v.cpf}`,
+          valor: plano?.preco_mensal ?? 0,
+          data_venda: dataRef,
+          vendedor: v.vendedor || '',
+          nome_proprietario: v.vendedor || '',
+          categoria: 'movel',
+          produto: plano?.nome || v.plano_movel_nome || 'MÓVEL',
+          mes: isNaN(d.getTime()) ? 0 : d.getMonth() + 1,
+          ano: isNaN(d.getTime()) ? 0 : d.getFullYear(),
+          status_proposta: v.status_proposta,
+          cidade: v.cidade,
+          bairro: v.bairro,
+        } as VendaMeta;
+      });
+
+    // Converter vendas Nova Parabólica para VendaMeta-like
+    const npComoMeta: VendaMeta[] = vendasNovaParabolica
+      .filter(v => passaFiltro(v.data_venda))
+      .map(v => {
+        const d = new Date(v.data_venda);
+        return {
+          numero_proposta: v.id || v.numero_proposta || `np-${v.data_venda}`,
+          valor: v.valor ?? 0,
+          data_venda: v.data_venda,
+          vendedor: v.vendedor || '',
+          nome_proprietario: v.vendedor || '',
+          categoria: 'nova_parabolica',
+          produto: 'Nova Parabólica',
+          mes: isNaN(d.getTime()) ? 0 : d.getMonth() + 1,
+          ano: isNaN(d.getTime()) ? 0 : d.getFullYear(),
+          status_proposta: v.status_proposta,
+          cidade: v.cidade,
+          bairro: v.bairro,
+          forma_pagamento: v.forma_pagamento,
+        } as VendaMeta;
+      });
+
+    return [...metasFiltradas, ...fibraComoMeta, ...movelComoMeta, ...npComoMeta];
+  }, [vendasMeta, vendasFibra, vendasMovel, vendasNovaParabolica, planosFibra, planosMovel, filtroMesHabilitacao, filtroAnoHabilitacao, extrairMesVendaMeta]);
 
   // Obter meses únicos (vendas + vendas meta)
   const mesesHabilitacaoUnicos = useMemo(() => {
@@ -14252,6 +14727,17 @@ function VendedorDesempenhoContent() {
       const mesVendaMeta = extrairMesVendaMeta(vendaMeta.mes);
       valores.add(mesVendaMeta);
     });
+
+    // Adicionar meses de fibra, móvel e NP
+    const mesesNomesLocal = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    [...vendasFibra.map(v => v.data_venda || v.data_cadastro),
+     ...vendasMovel.map(v => v.data_venda || v.data_cadastro),
+     ...vendasNovaParabolica.map(v => v.data_venda)].forEach(dataStr => {
+      if (!dataStr) return;
+      const d = new Date(dataStr);
+      if (!isNaN(d.getTime())) valores.add(mesesNomesLocal[d.getMonth()]);
+    });
     
     // Ordenar por ordem natural dos meses
     const ordenMeses = [
@@ -14259,7 +14745,7 @@ function VendedorDesempenhoContent() {
       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
     ];
     return ordenMeses.filter(mes => valores.has(mes));
-  }, [vendas, vendasMeta, extrairMesHabilitacao, extrairMesVendaMeta]);
+  }, [vendas, vendasMeta, vendasFibra, vendasMovel, vendasNovaParabolica, extrairMesHabilitacao, extrairMesVendaMeta]);
 
   // Obter anos únicos (vendas + vendas meta)
   const anosHabilitacaoUnicos = useMemo(() => {
@@ -14277,9 +14763,18 @@ function VendedorDesempenhoContent() {
     vendasMeta.forEach(vendaMeta => {
       valores.add(vendaMeta.ano);
     });
+
+    // Adicionar anos de fibra, móvel e NP
+    [...vendasFibra.map(v => v.data_venda || v.data_cadastro),
+     ...vendasMovel.map(v => v.data_venda || v.data_cadastro),
+     ...vendasNovaParabolica.map(v => v.data_venda)].forEach(dataStr => {
+      if (!dataStr) return;
+      const d = new Date(dataStr);
+      if (!isNaN(d.getTime())) valores.add(d.getFullYear());
+    });
     
     return Array.from(valores).sort((a, b) => a - b);
-  }, [vendas, vendasMeta, extrairAnoHabilitacao]);
+  }, [vendas, vendasMeta, vendasFibra, vendasMovel, vendasNovaParabolica, extrairAnoHabilitacao]);
 
   // Opções para os filtros de Mês e Ano de Habilitação
   const mesOptions = useMemo(() => mesesHabilitacaoUnicos.map(mes => ({
@@ -14318,19 +14813,19 @@ function VendedorDesempenhoContent() {
   const mapearTipoParaQuadro = useCallback((categoria: string): string => {
     switch (categoria) {
       case 'pos_pago':
+      case 'seguros_pos':
         return 'POS';
       case 'flex_conforto':
         return 'PRE';
       case 'nova_parabolica':
         return 'NP';
       case 'fibra':
+      case 'seguros_fibra':
         return 'FIBRA';
+      case 'movel':
+        return 'MÓVEL';
       case 'sky_mais':
         return 'SKY+';
-      case 'seguros_pos':
-        return 'POS'; // Seguros POS somam com POS
-      case 'seguros_fibra':
-        return 'FIBRA'; // Seguros FIBRA somam com FIBRA
       default:
         return 'OUTROS';
     }
@@ -14340,90 +14835,49 @@ function VendedorDesempenhoContent() {
   const calcularTicketMedioVendedor = useMemo(() => {
     if (vendasFiltradas.length === 0 && vendasMetaFiltradas.length === 0) return [];
 
-    // Mapear vendas por vendedor
-    const vendedoresMap = new Map<string, {
-      id_vendedor: string;
-      nome_vendedor: string;
-      valores: {
-        total: number;
-        POS: number;
-        PRE: number;
-        NP: number;
-        FIBRA: number;
-        'SKY+': number;
-      };
-    }>();
+    const STATUS_FINALIZADO = ['FINALIZADA', 'FINALIZADO', 'HABILITADO'];
+    const ehFinalizado = (s: string | undefined) =>
+      STATUS_FINALIZADO.includes((s || '').trim().toUpperCase());
 
-    // Helper para adicionar vendedor ao map
-    const adicionarVendedor = (id: string, nome?: string) => {
-      if (!vendedoresMap.has(id)) {
-        vendedoresMap.set(id, {
-          id_vendedor: id,
-          nome_vendedor: nome || id,
-          valores: {
-            total: 0,
-            POS: 0,
-            PRE: 0,
-            NP: 0,
-            FIBRA: 0,
-            'SKY+': 0
-          }
+    const vendasFinalizadas = vendasFiltradas.filter(v => ehFinalizado(v.status_proposta));
+    const vendasMetaFinalizadas = vendasMetaFiltradas.filter(v => ehFinalizado(v.status_proposta));
+
+    type ValoresVendedor = { total: number; POS: number; PRE: number; NP: number; FIBRA: number; 'MÓVEL': number; 'SKY+': number };
+    const vendedoresMap = new Map<string, { id_vendedor: string; nome_vendedor: string; valores: ValoresVendedor }>();
+
+    const adicionarVendedor = (chave: string) => {
+      if (!vendedoresMap.has(chave)) {
+        vendedoresMap.set(chave, {
+          id_vendedor: chave,
+          nome_vendedor: chave,
+          valores: { total: 0, POS: 0, PRE: 0, NP: 0, FIBRA: 0, 'MÓVEL': 0, 'SKY+': 0 }
         });
       }
     };
 
-    // Processar vendas de permanência (meses anteriores) - usar dados filtrados
-    vendasFiltradas.forEach(venda => {
-      const id = venda.id_vendedor;
+    vendasFinalizadas.forEach(venda => {
+      const chave = nomePadronizado(venda.id_vendedor, venda.nome_proprietario);
       const valor = venda.valor || 0;
-      const categoria = mapearCategoriaVenda(venda);
-      const tipo = mapearTipoParaQuadro(categoria);
-
-      // Usar o nome do proprietário como fallback ou apenas o ID
-      const nomeVendedor = venda.nome_proprietario && venda.nome_proprietario !== id 
-        ? venda.nome_proprietario 
-        : id;
-
-      adicionarVendedor(id, nomeVendedor);
-
-      const vendedorData = vendedoresMap.get(id)!;
-      vendedorData.valores.total += valor;
-      
-      // Adicionar ao tipo específico
-      if (tipo === 'POS' || tipo === 'PRE' || tipo === 'NP' || tipo === 'FIBRA' || tipo === 'SKY+') {
-        vendedorData.valores[tipo as keyof typeof vendedorData.valores] += valor;
-      }
+      const tipo = mapearTipoParaQuadro(mapearCategoriaVenda(venda));
+      adicionarVendedor(chave);
+      const d = vendedoresMap.get(chave)!;
+      d.valores.total += valor;
+      if (tipo in d.valores) d.valores[tipo as keyof ValoresVendedor] += valor;
     });
 
-    // Processar vendas meta (mês atual) - usar dados filtrados
-    vendasMetaFiltradas.forEach(vendaMeta => {
-      const id = vendaMeta.vendedor;
+    vendasMetaFinalizadas.forEach(vendaMeta => {
+      const nomeProprietario = (vendaMeta as Record<string, unknown>).nome_proprietario as string | undefined;
+      const chave = nomePadronizado(vendaMeta.vendedor, nomeProprietario ?? vendaMeta.vendedor);
       const valor = vendaMeta.valor || 0;
-      const categoria = mapearCategoriaVenda(vendaMeta);
-      const tipo = mapearTipoParaQuadro(categoria);
-
-      // Tentar buscar o nome nas vendas existentes ou usar o ID
-      const vendaExistente = vendas.find(v => v.id_vendedor === id);
-      const nomeVendedor = vendaExistente?.nome_proprietario && vendaExistente.nome_proprietario !== id 
-        ? vendaExistente.nome_proprietario 
-        : id;
-
-      adicionarVendedor(id, nomeVendedor);
-
-      const vendedorData = vendedoresMap.get(id)!;
-      vendedorData.valores.total += valor;
-      
-      // Adicionar ao tipo específico
-      if (tipo === 'POS' || tipo === 'PRE' || tipo === 'NP' || tipo === 'FIBRA' || tipo === 'SKY+') {
-        vendedorData.valores[tipo as keyof typeof vendedorData.valores] += valor;
-      }
+      const tipo = mapearTipoParaQuadro(mapearCategoriaVenda(vendaMeta));
+      adicionarVendedor(chave);
+      const d = vendedoresMap.get(chave)!;
+      d.valores.total += valor;
+      if (tipo in d.valores) d.valores[tipo as keyof ValoresVendedor] += valor;
     });
 
-    // Retornar ordenado por valor total (maior para menor)
-    return Array.from(vendedoresMap.values()).sort((a, b) => 
-      b.valores.total - a.valores.total
-    );
-  }, [vendasFiltradas, vendasMetaFiltradas, vendas, mapearCategoriaVenda, mapearTipoParaQuadro]);
+    return Array.from(vendedoresMap.values()).sort((a, b) => b.valores.total - a.valores.total);
+  }, [vendasFiltradas, vendasMetaFiltradas, nomePadronizado, mapearCategoriaVenda, mapearTipoParaQuadro]);
 
   // Calcular totais gerais
   const totaisGerais = useMemo(() => {
@@ -14433,60 +14887,36 @@ function VendedorDesempenhoContent() {
       PRE: totais.PRE + vendedor.valores.PRE,
       NP: totais.NP + vendedor.valores.NP,
       FIBRA: totais.FIBRA + vendedor.valores.FIBRA,
+      'MÓVEL': totais['MÓVEL'] + vendedor.valores['MÓVEL'],
       'SKY+': totais['SKY+'] + vendedor.valores['SKY+']
-    }), {
-      total: 0,
-      POS: 0,
-      PRE: 0,
-      NP: 0,
-      FIBRA: 0,
-      'SKY+': 0
-    });
+    }), { total: 0, POS: 0, PRE: 0, NP: 0, FIBRA: 0, 'MÓVEL': 0, 'SKY+': 0 });
   }, [calcularTicketMedioVendedor]);
 
   // Calcular quantidade de vendas por vendedor (combinando vendas permanência + vendas meta)
   const calcularQuantidadeVendasVendedor = useMemo(() => {
     if (vendasFiltradas.length === 0 && vendasMetaFiltradas.length === 0) return [];
 
-    // Mapear vendas por vendedor (contagem)
-    const vendedoresMap = new Map<string, {
-      id_vendedor: string;
-      nome_vendedor: string;
-      quantidades: {
-        total: number;
-        POS: number;
-        PRE: number;
-        NP: number;
-        FIBRA: number;
-        'SKY+': number;
-        // --- PRODUTOS DIFERENCIAIS ---
-        'CARTAO_CREDITO': number;
-        'DIGITAL_PEC_PIX': number;
-        'S_COBRANCA': number;
-        'SEGURO_POS': number;
-        'SEGURO_FIBRA': number;
-      };
-    }>();
+    const STATUS_FINALIZADO = ['FINALIZADA', 'FINALIZADO', 'HABILITADO'];
+    const ehFinalizado = (s: string | undefined) =>
+      STATUS_FINALIZADO.includes((s || '').trim().toUpperCase());
 
-    // Helper para adicionar vendedor ao map
-    const adicionarVendedor = (id: string, nome?: string) => {
-      if (!vendedoresMap.has(id)) {
-        vendedoresMap.set(id, {
-          id_vendedor: id,
-          nome_vendedor: nome || id,
+    const vendasFinalizadas = vendasFiltradas.filter(v => ehFinalizado(v.status_proposta));
+    const vendasMetaFinalizadas = vendasMetaFiltradas.filter(v => ehFinalizado(v.status_proposta));
+
+    type QtdVendedor = {
+      total: number; POS: number; PRE: number; NP: number; FIBRA: number; 'MÓVEL': number; 'SKY+': number;
+      CARTAO_CREDITO: number; DIGITAL_PEC_PIX: number; S_COBRANCA: number; SEGURO_POS: number; SEGURO_FIBRA: number;
+    };
+    const vendedoresMap = new Map<string, { id_vendedor: string; nome_vendedor: string; quantidades: QtdVendedor }>();
+
+    const adicionarVendedor = (chave: string) => {
+      if (!vendedoresMap.has(chave)) {
+        vendedoresMap.set(chave, {
+          id_vendedor: chave,
+          nome_vendedor: chave,
           quantidades: {
-            total: 0,
-            POS: 0,
-            PRE: 0,
-            NP: 0,
-            FIBRA: 0,
-            'SKY+': 0,
-            // --- PRODUTOS DIFERENCIAIS ---
-            'CARTAO_CREDITO': 0,
-            'DIGITAL_PEC_PIX': 0,
-            'S_COBRANCA': 0,
-            'SEGURO_POS': 0,
-            'SEGURO_FIBRA': 0
+            total: 0, POS: 0, PRE: 0, NP: 0, FIBRA: 0, 'MÓVEL': 0, 'SKY+': 0,
+            CARTAO_CREDITO: 0, DIGITAL_PEC_PIX: 0, S_COBRANCA: 0, SEGURO_POS: 0, SEGURO_FIBRA: 0
           }
         });
       }
@@ -14516,25 +14946,19 @@ function VendedorDesempenhoContent() {
       };
     };
 
-    // Processar vendas de permanência (meses anteriores) - contagem - usar dados filtrados
-    vendasFiltradas.forEach(venda => {
-      const id = venda.id_vendedor;
+    // Processar vendas de permanência (meses anteriores) - contagem - somente Finalizado
+    vendasFinalizadas.forEach(venda => {
+      const chave = nomePadronizado(venda.id_vendedor, venda.nome_proprietario);
       const categoria = mapearCategoriaVenda(venda);
       const tipo = mapearTipoParaQuadro(categoria);
 
-      // Usar o nome do proprietário como fallback ou apenas o ID
-      const nomeVendedor = venda.nome_proprietario && venda.nome_proprietario !== id 
-        ? venda.nome_proprietario 
-        : id;
+      adicionarVendedor(chave);
 
-      adicionarVendedor(id, nomeVendedor);
-
-      const vendedorData = vendedoresMap.get(id)!;
-      vendedorData.quantidades.total += 1; // Contar +1 venda
+      const vendedorData = vendedoresMap.get(chave)!;
+      vendedorData.quantidades.total += 1;
       
-      // Adicionar ao tipo específico
-      if (tipo === 'POS' || tipo === 'PRE' || tipo === 'NP' || tipo === 'FIBRA' || tipo === 'SKY+') {
-        vendedorData.quantidades[tipo as keyof typeof vendedorData.quantidades] += 1;
+      if (tipo in vendedorData.quantidades) {
+        vendedorData.quantidades[tipo as keyof QtdVendedor] += 1;
       }
 
       // Verificar produtos diferenciais nas vendas de permanência (agora também contém esses campos)
@@ -14564,26 +14988,20 @@ function VendedorDesempenhoContent() {
       }
     });
 
-    // Processar vendas meta (mês atual) - contagem - usar dados filtrados
-    vendasMetaFiltradas.forEach(vendaMeta => {
-      const id = vendaMeta.vendedor;
+    // Processar vendas meta (mês atual) - contagem - somente Finalizado
+    vendasMetaFinalizadas.forEach(vendaMeta => {
+      const nomeProprietario = (vendaMeta as Record<string, unknown>).nome_proprietario as string | undefined;
+      const chave = nomePadronizado(vendaMeta.vendedor, nomeProprietario ?? vendaMeta.vendedor);
       const categoria = mapearCategoriaVenda(vendaMeta);
       const tipo = mapearTipoParaQuadro(categoria);
 
-      // Tentar buscar o nome nas vendas existentes ou usar o ID
-      const vendaExistente = vendas.find(v => v.id_vendedor === id);
-      const nomeVendedor = vendaExistente?.nome_proprietario && vendaExistente.nome_proprietario !== id 
-        ? vendaExistente.nome_proprietario 
-        : id;
+      adicionarVendedor(chave);
 
-      adicionarVendedor(id, nomeVendedor);
-
-      const vendedorData = vendedoresMap.get(id)!;
-      vendedorData.quantidades.total += 1; // Contar +1 venda
+      const vendedorData = vendedoresMap.get(chave)!;
+      vendedorData.quantidades.total += 1;
       
-      // Adicionar ao tipo específico
-      if (tipo === 'POS' || tipo === 'PRE' || tipo === 'NP' || tipo === 'FIBRA' || tipo === 'SKY+') {
-        vendedorData.quantidades[tipo as keyof typeof vendedorData.quantidades] += 1;
+      if (tipo in vendedorData.quantidades) {
+        vendedorData.quantidades[tipo as keyof QtdVendedor] += 1;
       }
 
       // Verificar produtos diferenciais nas vendas meta usando produtos_secundarios e forma_pagamento
@@ -14615,7 +15033,7 @@ function VendedorDesempenhoContent() {
     return Array.from(vendedoresMap.values()).sort((a, b) => 
       b.quantidades.total - a.quantidades.total
     );
-  }, [vendasFiltradas, vendasMetaFiltradas, vendas, mapearCategoriaVenda, mapearTipoParaQuadro]);
+  }, [vendasFiltradas, vendasMetaFiltradas, nomePadronizado, mapearCategoriaVenda, mapearTipoParaQuadro]);
 
   // Calcular totais gerais de quantidade
   const totaisGeraisQuantidade = useMemo(() => {
@@ -14625,25 +15043,25 @@ function VendedorDesempenhoContent() {
       PRE: totais.PRE + vendedor.quantidades.PRE,
       NP: totais.NP + vendedor.quantidades.NP,
       FIBRA: totais.FIBRA + vendedor.quantidades.FIBRA,
+      'MÓVEL': totais['MÓVEL'] + vendedor.quantidades['MÓVEL'],
       'SKY+': totais['SKY+'] + vendedor.quantidades['SKY+'],
-      // --- PRODUTOS DIFERENCIAIS ---
-      'CARTAO_CREDITO': totais['CARTAO_CREDITO'] + vendedor.quantidades.CARTAO_CREDITO,
-      'DIGITAL_PEC_PIX': totais['DIGITAL_PEC_PIX'] + vendedor.quantidades.DIGITAL_PEC_PIX,
-      'S_COBRANCA': totais['S_COBRANCA'] + vendedor.quantidades.S_COBRANCA,
-      'SEGURO_POS': totais['SEGURO_POS'] + vendedor.quantidades.SEGURO_POS,
-      'SEGURO_FIBRA': totais['SEGURO_FIBRA'] + vendedor.quantidades.SEGURO_FIBRA
+      CARTAO_CREDITO: totais.CARTAO_CREDITO + vendedor.quantidades.CARTAO_CREDITO,
+      DIGITAL_PEC_PIX: totais.DIGITAL_PEC_PIX + vendedor.quantidades.DIGITAL_PEC_PIX,
+      S_COBRANCA: totais.S_COBRANCA + vendedor.quantidades.S_COBRANCA,
+      SEGURO_POS: totais.SEGURO_POS + vendedor.quantidades.SEGURO_POS,
+      SEGURO_FIBRA: totais.SEGURO_FIBRA + vendedor.quantidades.SEGURO_FIBRA
     }), {
       total: 0,
       POS: 0,
       PRE: 0,
       NP: 0,
       FIBRA: 0,
+      'MÓVEL': 0,
       'SKY+': 0,
-      // --- PRODUTOS DIFERENCIAIS ---
-      'CARTAO_CREDITO': 0,
-      'DIGITAL_PEC_PIX': 0,
-      'S_COBRANCA': 0,
-      'SEGURO_POS': 0,
+      CARTAO_CREDITO: 0,
+      DIGITAL_PEC_PIX: 0,
+      S_COBRANCA: 0,
+      SEGURO_POS: 0,
       'SEGURO_FIBRA': 0
     });
   }, [calcularQuantidadeVendasVendedor]);
@@ -14783,116 +15201,44 @@ function VendedorDesempenhoContent() {
                     <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
                       <TableHead className="font-bold text-xs py-2 px-3 sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50 border-r-2 border-gray-300 min-w-[160px]">VENDEDOR</TableHead>
                       <TableHead className="font-bold text-xs py-2 px-2 text-right">Total</TableHead>
-                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-green-700 bg-green-50/30">POS</TableHead>
-                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-blue-700 bg-blue-50/30">PRE</TableHead>
-                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-purple-700 bg-purple-50/30">NP</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-green-700 bg-green-50/30">PÓS-PAGO</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-blue-700 bg-blue-50/30">FLEX</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-orange-700 bg-orange-50/30">NOVA PAR.</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-cyan-700 bg-cyan-50/30">FIBRA</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-purple-700 bg-purple-50/30">MÓVEL</TableHead>
                       <TableHead className="font-bold text-xs py-2 px-2 text-right text-indigo-700 bg-indigo-50/30">SKY+</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {calcularTicketMedioVendedor.map((vendedor, index) => (
+                    {calcularTicketMedioVendedor.map((vendedor, index) => {
+                      const fmt = (v: number) => v > 0 ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }) : 'R$ 0,00';
+                      return (
                       <TableRow 
                         key={vendedor.id_vendedor} 
                         className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
                       >
                         <TableCell className="font-semibold text-xs py-2 px-3 sticky left-0 z-10 bg-inherit border-r-2 border-gray-200 min-w-[160px]">
-                          <div className="whitespace-nowrap">
-                            {vendedor.id_vendedor}
-                            {vendedor.nome_vendedor !== vendedor.id_vendedor && (
-                              <span className="text-gray-600 ml-1 font-normal">
-                                - {vendedor.nome_vendedor}
-                              </span>
-                            )}
-                          </div>
+                          <div className="whitespace-nowrap">{vendedor.nome_vendedor}</div>
                         </TableCell>
-                        <TableCell className="text-right font-bold text-xs py-2 px-2">
-                          {vendedor.valores.total.toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          })}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 text-green-700 font-medium">
-                          {vendedor.valores.POS > 0 ? vendedor.valores.POS.toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          }) : 'R$ 0,00'}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 text-blue-700 font-medium">
-                          {vendedor.valores.PRE > 0 ? vendedor.valores.PRE.toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          }) : 'R$ 0,00'}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 text-purple-700 font-medium">
-                          {vendedor.valores.NP > 0 ? vendedor.valores.NP.toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          }) : 'R$ 0,00'}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 text-indigo-700 font-medium">
-                          {vendedor.valores['SKY+'] > 0 ? vendedor.valores['SKY+'].toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          }) : 'R$ 0,00'}
-                        </TableCell>
+                        <TableCell className="text-right font-bold text-xs py-2 px-2">{fmt(vendedor.valores.total)}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-green-700 font-medium">{fmt(vendedor.valores.POS)}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-blue-700 font-medium">{fmt(vendedor.valores.PRE)}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-orange-700 font-medium">{fmt(vendedor.valores.NP)}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-cyan-700 font-medium">{fmt(vendedor.valores.FIBRA)}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-purple-700 font-medium">{fmt(vendedor.valores['MÓVEL'])}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-indigo-700 font-medium">{fmt(vendedor.valores['SKY+'])}</TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                   <TableFooter>
                     <TableRow className="bg-gradient-to-r from-emerald-100 to-green-100 border-t-2 border-emerald-300 font-bold">
-                      <TableCell className="font-bold text-emerald-900 text-xs py-2 px-3 sticky left-0 z-10 bg-gradient-to-r from-emerald-100 to-green-100 border-r-2 border-emerald-300">
-                        TOTAL GERAL
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-emerald-900 text-sm py-2 px-2">
-                        {totaisGerais.total.toLocaleString('pt-BR', {
-                          style: 'currency',
-                          currency: 'BRL',
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-green-800 text-sm py-2 px-2 bg-green-50/50">
-                        {totaisGerais.POS.toLocaleString('pt-BR', {
-                          style: 'currency',
-                          currency: 'BRL',
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-blue-800 text-sm py-2 px-2 bg-blue-50/50">
-                        {totaisGerais.PRE.toLocaleString('pt-BR', {
-                          style: 'currency',
-                          currency: 'BRL',
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-purple-800 text-sm py-2 px-2 bg-purple-50/50">
-                        {totaisGerais.NP.toLocaleString('pt-BR', {
-                          style: 'currency',
-                          currency: 'BRL',
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-indigo-800 text-sm py-2 px-2 bg-indigo-50/50">
-                        {totaisGerais['SKY+'].toLocaleString('pt-BR', {
-                          style: 'currency',
-                          currency: 'BRL',
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </TableCell>
+                      <TableCell className="font-bold text-emerald-900 text-xs py-2 px-3 sticky left-0 z-10 bg-gradient-to-r from-emerald-100 to-green-100 border-r-2 border-emerald-300">TOTAL GERAL</TableCell>
+                      {[totaisGerais.total, totaisGerais.POS, totaisGerais.PRE, totaisGerais.NP, totaisGerais.FIBRA, totaisGerais['MÓVEL'], totaisGerais['SKY+']].map((v, i) => (
+                        <TableCell key={i} className="text-right font-bold text-sm py-2 px-2">
+                          {v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 })}
+                        </TableCell>
+                      ))}
                     </TableRow>
                   </TableFooter>
                 </Table>
@@ -14926,15 +15272,16 @@ function VendedorDesempenhoContent() {
                     <TableRow className="bg-gradient-to-r from-gray-100 to-gray-50 border-b-2 border-gray-300">
                       <TableHead className="font-bold text-xs py-2 px-3 sticky left-0 z-10 bg-gradient-to-r from-gray-100 to-gray-50 border-r-2 border-gray-300 min-w-[160px]">VENDEDOR</TableHead>
                       <TableHead className="font-bold text-xs py-2 px-2 text-right">Total</TableHead>
-                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-green-700 bg-green-50/30">POS</TableHead>
-                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-blue-700 bg-blue-50/30">PRE</TableHead>
-                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-purple-700 bg-purple-50/30">NP</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-green-700 bg-green-50/30">PÓS-PAGO</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-blue-700 bg-blue-50/30">FLEX</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-orange-700 bg-orange-50/30">NOVA PAR.</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-cyan-700 bg-cyan-50/30">FIBRA</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right text-purple-700 bg-purple-50/30">MÓVEL</TableHead>
                       <TableHead className="font-bold text-xs py-2 px-2 text-right text-indigo-700 bg-indigo-50/30">SKY+</TableHead>
-                      {/* DIVISÓRIA - PRODUTOS DIFERENCIAIS */}
-                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-orange-100 border-l-2 border-orange-300 text-orange-800">Cartão</TableHead>
-                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-orange-100 text-orange-800">Digital</TableHead>
-                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-orange-100 text-orange-800">S/Cobr</TableHead>
-                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-orange-100 text-orange-800">Seg.POS</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-amber-100 border-l-2 border-amber-300 text-amber-800">Cartão</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-amber-100 text-amber-800">Digital</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-amber-100 text-amber-800">S/Cobr</TableHead>
+                      <TableHead className="font-bold text-xs py-2 px-2 text-right bg-amber-100 text-amber-800">Seg.POS</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -14944,79 +15291,36 @@ function VendedorDesempenhoContent() {
                         className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
                       >
                         <TableCell className="font-semibold text-xs py-2 px-3 sticky left-0 z-10 bg-inherit border-r-2 border-gray-200 min-w-[160px]">
-                          <div className="whitespace-nowrap">
-                            {vendedor.id_vendedor}
-                            {vendedor.nome_vendedor !== vendedor.id_vendedor && (
-                              <span className="text-gray-600 ml-1 font-normal">
-                                - {vendedor.nome_vendedor}
-                              </span>
-                            )}
-                          </div>
+                          <div className="whitespace-nowrap">{vendedor.nome_vendedor}</div>
                         </TableCell>
-                        <TableCell className="text-right font-bold text-xs py-2 px-2">
-                          {vendedor.quantidades.total}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 text-green-700 font-medium">
-                          {vendedor.quantidades.POS || 0}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 text-blue-700 font-medium">
-                          {vendedor.quantidades.PRE || 0}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 text-purple-700 font-medium">
-                          {vendedor.quantidades.NP || 0}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 text-indigo-700 font-medium">
-                          {vendedor.quantidades['SKY+'] || 0}
-                        </TableCell>
-                        {/* PRODUTOS DIFERENCIAIS */}
-                        <TableCell className="text-right text-xs py-2 px-2 bg-orange-50/50 border-l-2 border-orange-300 text-orange-700 font-medium">
-                          {vendedor.quantidades.CARTAO_CREDITO || 0}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 bg-orange-50/50 text-orange-700 font-medium">
-                          {vendedor.quantidades.DIGITAL_PEC_PIX || 0}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 bg-orange-50/50 text-orange-700 font-medium">
-                          {vendedor.quantidades.S_COBRANCA || 0}
-                        </TableCell>
-                        <TableCell className="text-right text-xs py-2 px-2 bg-orange-50/50 text-orange-700 font-medium">
-                          {vendedor.quantidades.SEGURO_POS || 0}
-                        </TableCell>
+                        <TableCell className="text-right font-bold text-xs py-2 px-2">{vendedor.quantidades.total}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-green-700 font-medium">{vendedor.quantidades.POS || 0}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-blue-700 font-medium">{vendedor.quantidades.PRE || 0}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-orange-700 font-medium">{vendedor.quantidades.NP || 0}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-cyan-700 font-medium">{vendedor.quantidades.FIBRA || 0}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-purple-700 font-medium">{vendedor.quantidades['MÓVEL'] || 0}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 text-indigo-700 font-medium">{vendedor.quantidades['SKY+'] || 0}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 bg-amber-50/50 border-l-2 border-amber-300 text-amber-700 font-medium">{vendedor.quantidades.CARTAO_CREDITO || 0}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 bg-amber-50/50 text-amber-700 font-medium">{vendedor.quantidades.DIGITAL_PEC_PIX || 0}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 bg-amber-50/50 text-amber-700 font-medium">{vendedor.quantidades.S_COBRANCA || 0}</TableCell>
+                        <TableCell className="text-right text-xs py-2 px-2 bg-amber-50/50 text-amber-700 font-medium">{vendedor.quantidades.SEGURO_POS || 0}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                   <TableFooter>
                     <TableRow className="bg-gradient-to-r from-blue-100 to-indigo-100 border-t-2 border-blue-300 font-bold">
-                      <TableCell className="font-bold text-blue-900 text-xs py-2 px-3 sticky left-0 z-10 bg-gradient-to-r from-blue-100 to-indigo-100 border-r-2 border-blue-300">
-                        TOTAL GERAL
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-blue-900 text-sm py-2 px-2">
-                        {totaisGeraisQuantidade.total}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-green-800 text-sm py-2 px-2 bg-green-50/50">
-                        {totaisGeraisQuantidade.POS}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-blue-800 text-sm py-2 px-2 bg-blue-50/50">
-                        {totaisGeraisQuantidade.PRE}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-purple-800 text-sm py-2 px-2 bg-purple-50/50">
-                        {totaisGeraisQuantidade.NP}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-indigo-800 text-sm py-2 px-2 bg-indigo-50/50">
-                        {totaisGeraisQuantidade['SKY+']}
-                      </TableCell>
-                      {/* TOTAIS PRODUTOS DIFERENCIAIS */}
-                      <TableCell className="text-right font-bold text-orange-800 text-sm py-2 px-2 bg-orange-100 border-l-2 border-orange-300">
-                        {totaisGeraisQuantidade.CARTAO_CREDITO}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-orange-800 text-sm py-2 px-2 bg-orange-100">
-                        {totaisGeraisQuantidade.DIGITAL_PEC_PIX}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-orange-800 text-sm py-2 px-2 bg-orange-100">
-                        {totaisGeraisQuantidade.S_COBRANCA}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-orange-800 text-sm py-2 px-2 bg-orange-100">
-                        {totaisGeraisQuantidade.SEGURO_POS}
-                      </TableCell>
+                      <TableCell className="font-bold text-blue-900 text-xs py-2 px-3 sticky left-0 z-10 bg-gradient-to-r from-blue-100 to-indigo-100 border-r-2 border-blue-300">TOTAL GERAL</TableCell>
+                      <TableCell className="text-right font-bold text-blue-900 text-sm py-2 px-2">{totaisGeraisQuantidade.total}</TableCell>
+                      <TableCell className="text-right font-bold text-green-800 text-sm py-2 px-2 bg-green-50/50">{totaisGeraisQuantidade.POS}</TableCell>
+                      <TableCell className="text-right font-bold text-blue-800 text-sm py-2 px-2 bg-blue-50/50">{totaisGeraisQuantidade.PRE}</TableCell>
+                      <TableCell className="text-right font-bold text-orange-800 text-sm py-2 px-2 bg-orange-50/50">{totaisGeraisQuantidade.NP}</TableCell>
+                      <TableCell className="text-right font-bold text-cyan-800 text-sm py-2 px-2 bg-cyan-50/50">{totaisGeraisQuantidade.FIBRA}</TableCell>
+                      <TableCell className="text-right font-bold text-purple-800 text-sm py-2 px-2 bg-purple-50/50">{totaisGeraisQuantidade['MÓVEL']}</TableCell>
+                      <TableCell className="text-right font-bold text-indigo-800 text-sm py-2 px-2 bg-indigo-50/50">{totaisGeraisQuantidade['SKY+']}</TableCell>
+                      <TableCell className="text-right font-bold text-amber-800 text-sm py-2 px-2 bg-amber-100 border-l-2 border-amber-300">{totaisGeraisQuantidade.CARTAO_CREDITO}</TableCell>
+                      <TableCell className="text-right font-bold text-amber-800 text-sm py-2 px-2 bg-amber-100">{totaisGeraisQuantidade.DIGITAL_PEC_PIX}</TableCell>
+                      <TableCell className="text-right font-bold text-amber-800 text-sm py-2 px-2 bg-amber-100">{totaisGeraisQuantidade.S_COBRANCA}</TableCell>
+                      <TableCell className="text-right font-bold text-amber-800 text-sm py-2 px-2 bg-amber-100">{totaisGeraisQuantidade.SEGURO_POS}</TableCell>
                     </TableRow>
                   </TableFooter>
                 </Table>

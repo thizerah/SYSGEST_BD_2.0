@@ -421,6 +421,35 @@ export interface VendaNovaParabolica {
   status_proposta?: string;
 }
 
+/**
+ * Proposta unificada — estrutura comum para vendas de todas as origens:
+ * venda (permanência), venda_meta, fibra, movel, nova_parabolica.
+ */
+export interface PropostaUnificada {
+  id: string;
+  origem: 'venda' | 'venda_meta' | 'fibra' | 'movel' | 'nova_parabolica';
+  numero_proposta?: string;
+  data_venda: string;           // YYYY-MM-DD
+  mes: number;
+  ano: number;
+  vendedor?: string;
+  nome_cliente?: string;
+  cpf?: string;
+  telefone?: string;
+  cidade?: string;
+  bairro?: string;
+  status_proposta?: string;
+  categoria?: string;           // pos_pago | flex_conforto | nova_parabolica | fibra | movel | ...
+  produto?: string;             // nome do produto/plano
+  valor: number;                // valor de face do plano ou venda
+  forma_pagamento?: string;
+  // IDs originais para referência
+  plano_fibra_id?: string;
+  plano_movel_id?: string;
+  // Campo específico de Nova Parabólica para regra de meta
+  info_recarga?: InfoRecargaTipo | string;
+}
+
 export interface BaseData {
   mes: string;
   ano: number;

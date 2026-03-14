@@ -1,9 +1,17 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   ServiceOrder, User, SERVICE_TIME_GOALS, VALID_STATUS, ReopeningPair,
   Venda, PrimeiroPagamento, PermanenciaMetrics, VendedorMetrics,
-  Meta, VendaMeta, MetaMetrics, MetaCategoria, BaseData, LastImportInfo
+  Meta, VendaMeta, MetaMetrics, MetaCategoria, BaseData, LastImportInfo,
+  VendaFibra, VendaMovel, VendaNovaParabolica, PlanoFibra, PlanoMovel, PropostaUnificada
 } from '../types';
+import {
+  normalizarVenda,
+  normalizarVendaMeta,
+  normalizarVendaFibra,
+  normalizarVendaMovel,
+  normalizarVendaNovaParabolica,
+} from '../utils/propostas';
 import { 
   VALID_SUBTYPES, 
   ALL_VALID_SUBTYPES,
@@ -70,6 +78,12 @@ interface DataContextType {
   metas: Meta[];
   vendasMeta: VendaMeta[];
   baseData: BaseData[];
+  vendasFibra: VendaFibra[];
+  vendasMovel: VendaMovel[];
+  vendasNovaParabolica: VendaNovaParabolica[];
+  planosFibra: PlanoFibra[];
+  planosMovel: PlanoMovel[];
+  propostasUnificadas: PropostaUnificada[];
   lastImportInfo: LastImportInfo | null;
   importServiceOrders: (orders: ServiceOrder[], append?: boolean) => ImportResult;
   updateServiceOrder: (updatedOrder: ServiceOrder) => Promise<void>;
@@ -158,6 +172,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [metas, setMetas] = useState<Meta[]>([]);
   const [vendasMeta, setVendasMeta] = useState<VendaMeta[]>([]);
   const [baseData, setBaseData] = useState<BaseData[]>([]);
+  const [vendasFibra, setVendasFibra] = useState<VendaFibra[]>([]);
+  const [vendasMovel, setVendasMovel] = useState<VendaMovel[]>([]);
+  const [vendasNovaParabolica, setVendasNovaParabolica] = useState<VendaNovaParabolica[]>([]);
+  const [planosFibra, setPlanosFibra] = useState<PlanoFibra[]>([]);
+  const [planosMovel, setPlanosMovel] = useState<PlanoMovel[]>([]);
   const [loading, setLoading] = useState(false);
   const [isLoadingFromSupabase, setIsLoadingFromSupabase] = useState(false);
   const [lastServiceOrderImportSummary, setLastServiceOrderImportSummary] = useState<LastServiceOrderImportSummary | null>(null);
@@ -396,14 +415,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loadedPagamentos,
         loadedMetas,
         loadedVendasMeta,
-        loadedBaseData
+        loadedBaseData,
+        loadedVendasFibra,
+        loadedVendasMovel,
+        loadedVendasNp,
+        loadedPlanosFibra,
+        loadedPlanosMovel,
       ] = await Promise.all([
         loadAllDataWithPagination<ServiceOrder>('service_orders'),
         loadAllDataWithPagination<Venda>('vendas'),
         loadAllDataWithPagination<PrimeiroPagamento>('pagamentos'),
         loadAllDataWithPagination<Meta>('metas'),
         loadAllDataWithPagination<VendaMeta>('vendas_meta'),
-        loadAllDataWithPagination<BaseData>('base_data')
+        loadAllDataWithPagination<BaseData>('base_data'),
+        loadAllDataWithPagination<VendaFibra>('vendas_fibra'),
+        loadAllDataWithPagination<VendaMovel>('vendas_movel'),
+        loadAllDataWithPagination<VendaNovaParabolica>('vendas_nova_parabolica'),
+        loadAllDataWithPagination<PlanoFibra>('planos_fibra'),
+        loadAllDataWithPagination<PlanoMovel>('planos_movel'),
       ]);
 
       if (loadedServiceOrders.length > 0) {
@@ -486,6 +515,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           saveToLocalStorage(STORAGE_KEYS.BASE_DATA, loadedBaseData);
         }
       }
+
+      // Carregar dados comerciais (sem localStorage — sempre do Supabase)
+      setVendasFibra(loadedVendasFibra);
+      setVendasMovel(loadedVendasMovel);
+      setVendasNovaParabolica(loadedVendasNp);
+      setPlanosFibra(loadedPlanosFibra);
+      setPlanosMovel(loadedPlanosMovel);
 
       infoLog('[SUPABASE] Carregamento e sincronização concluída');
       setIsLoadingFromSupabase(false);
@@ -2344,6 +2380,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     new Set(vendas.map(venda => venda.id_vendedor))
   );
 
+  // Lista unificada de todas as propostas/vendas de todas as origens
+  const propostasUnificadas = useMemo<PropostaUnificada[]>(() => {
+    const lista: PropostaUnificada[] = [];
+    for (const v of vendas) lista.push(normalizarVenda(v));
+    for (const v of vendasMeta) lista.push(normalizarVendaMeta(v));
+    for (const v of vendasFibra) lista.push(normalizarVendaFibra(v, planosFibra));
+    for (const v of vendasMovel) lista.push(normalizarVendaMovel(v, planosMovel));
+    for (const v of vendasNovaParabolica) lista.push(normalizarVendaNovaParabolica(v));
+    return lista;
+  }, [vendas, vendasMeta, vendasFibra, vendasMovel, vendasNovaParabolica, planosFibra, planosMovel]);
+
   // Função para mapear categoria de venda baseada no "Agrupamento do Produto"
   const mapearCategoriaVenda = (venda: Venda | VendaMeta): string => {
     // Para VendaMeta, usar o campo 'categoria', para Venda usar 'agrupamento_produto'
@@ -2452,7 +2499,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return null;
     }
     
-    // Filtrar vendas do mês atual (apenas status finalizada), combinar vendas normais e vendas de meta
+    // Filtrar vendas do mês atual (apenas status finalizada), combinar todas as origens
     const vendasNormaisDoMes = vendas.filter(venda => {
       if (!isStatusFinalizadaMeta(venda.status_proposta)) return false;
       if (!venda.data_habilitacao) return false;
@@ -2484,16 +2531,53 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       return true;
     });
+
+    // Filtrar vendas FIBRA do mês (usa data_venda ou data_cadastro)
+    const vendasFibraDoMes = vendasFibra.filter(venda => {
+      if (!isStatusFinalizadaMeta(venda.status_proposta)) return false;
+      const dataRef = venda.data_venda || venda.data_cadastro;
+      if (!dataRef) return false;
+      const d = new Date(dataRef);
+      if (d.getMonth() + 1 !== mesAtual || d.getFullYear() !== anoAtual) return false;
+      if (dataLimite) {
+        const dataLimiteNorm = new Date(dataLimite);
+        dataLimiteNorm.setHours(23, 59, 59, 999);
+        return d <= dataLimiteNorm;
+      }
+      return true;
+    });
+
+    // Filtrar vendas MÓVEL do mês
+    const vendasMovelDoMes = vendasMovel.filter(venda => {
+      if (!isStatusFinalizadaMeta(venda.status_proposta)) return false;
+      const dataRef = venda.data_venda || venda.data_cadastro;
+      if (!dataRef) return false;
+      const d = new Date(dataRef);
+      if (d.getMonth() + 1 !== mesAtual || d.getFullYear() !== anoAtual) return false;
+      if (dataLimite) {
+        const dataLimiteNorm = new Date(dataLimite);
+        dataLimiteNorm.setHours(23, 59, 59, 999);
+        return d <= dataLimiteNorm;
+      }
+      return true;
+    });
+
+    // Filtrar vendas Nova Parabólica do mês
+    const vendasNpDoMes = vendasNovaParabolica.filter(venda => {
+      if (!isStatusFinalizadaMeta(venda.status_proposta)) return false;
+      if (venda.info_recarga === 'RECARGA_ESTOQUE') return false;
+      if (!venda.data_venda) return false;
+      const d = new Date(venda.data_venda);
+      if (d.getMonth() + 1 !== mesAtual || d.getFullYear() !== anoAtual) return false;
+      if (dataLimite) {
+        const dataLimiteNorm = new Date(dataLimite);
+        dataLimiteNorm.setHours(23, 59, 59, 999);
+        return d <= dataLimiteNorm;
+      }
+      return true;
+    });
     
-    debugLog(`[METAS VENDAS] Normais: ${vendasNormaisDoMes.length}, Meta: ${vendasMetaDoMes.length}`);
-    
-    // Debug: mostrar amostra das vendas de meta apenas em modo super verboso
-    if (isVerboseDebug && vendasMetaDoMes.length > 0) {
-      debugLog(`[METAS AMOSTRA]`, { 
-        primeira: vendasMetaDoMes[0],
-        temSeguro: vendasMetaDoMes.some(v => v.produtos_secundarios?.includes('FATURA PROTEGIDA'))
-      });
-    }
+    debugLog(`[METAS VENDAS] Normais: ${vendasNormaisDoMes.length}, Meta: ${vendasMetaDoMes.length}, Fibra: ${vendasFibraDoMes.length}, Móvel: ${vendasMovelDoMes.length}, NP: ${vendasNpDoMes.length}`);
     
     const vendasDoMes = [...vendasNormaisDoMes, ...vendasMetaDoMes];
     
@@ -2524,6 +2608,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       outros: 0
     };
     
+    // Contar FIBRA, MÓVEL e Nova Parabólica direto nas categorias corretas
+    vendasPorCategoria['fibra'] += vendasFibraDoMes.length;
+    vendasPorCategoria['movel'] += vendasMovelDoMes.length;
+    vendasPorCategoria['nova_parabolica'] += vendasNpDoMes.length;
+
     vendasDoMes.forEach(venda => {
       const categoria = mapearCategoriaVenda(venda);
       const agrupamento = ('agrupamento_produto' in venda 
@@ -2743,6 +2832,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       metas,
       vendasMeta,
       baseData,
+      vendasFibra,
+      vendasMovel,
+      vendasNovaParabolica,
+      planosFibra,
+      planosMovel,
+      propostasUnificadas,
       lastImportInfo,
       importServiceOrders,
       updateServiceOrder,

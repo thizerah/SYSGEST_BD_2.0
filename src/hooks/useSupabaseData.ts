@@ -7,7 +7,10 @@ import {
   PrimeiroPagamento, 
   Meta, 
   VendaMeta, 
-  BaseData 
+  BaseData,
+  VendaFibra,
+  VendaMovel,
+  VendaNovaParabolica
 } from '@/types';
 
 interface ImportResult {
@@ -34,6 +37,9 @@ export interface SupabaseDataState {
   metas: Meta[];
   vendasMeta: VendaMeta[];
   baseData: BaseData[];
+  vendasFibra: VendaFibra[];
+  vendasMovel: VendaMovel[];
+  vendasNovaParabolica: VendaNovaParabolica[];
   loading: boolean;
   syncing: boolean;
   migrationProgress: MigrationProgress | null;
@@ -49,6 +55,9 @@ export function useSupabaseData() {
     metas: [],
     vendasMeta: [],
     baseData: [],
+    vendasFibra: [],
+    vendasMovel: [],
+    vendasNovaParabolica: [],
     loading: false,
     syncing: false,
     migrationProgress: null,
@@ -191,14 +200,20 @@ export function useSupabaseData() {
         pagamentosResponse,
         metasResponse,
         vendasMetaResponse,
-        baseDataResponse
+        baseDataResponse,
+        vendasFibraResponse,
+        vendasMovelResponse,
+        vendasNpResponse
       ] = await Promise.all([
         supabase.from('service_orders').select('*').eq('user_id', uid),
         supabase.from('vendas').select('*').eq('user_id', uid),
         supabase.from('pagamentos').select('*').eq('user_id', uid),
         supabase.from('metas').select('*').eq('user_id', uid),
         supabase.from('vendas_meta').select('*').eq('user_id', uid),
-        supabase.from('base_data').select('*').eq('user_id', uid)
+        supabase.from('base_data').select('*').eq('user_id', uid),
+        supabase.from('vendas_fibra').select('*').eq('user_id', uid).order('data_cadastro', { ascending: false }),
+        supabase.from('vendas_movel').select('*').eq('user_id', uid).order('data_cadastro', { ascending: false }),
+        supabase.from('vendas_nova_parabolica').select('*').eq('user_id', uid).order('data_venda', { ascending: false })
       ]);
 
       // Verificar erros
@@ -208,7 +223,10 @@ export function useSupabaseData() {
         { name: 'pagamentos', response: pagamentosResponse },
         { name: 'metas', response: metasResponse },
         { name: 'vendas_meta', response: vendasMetaResponse },
-        { name: 'base_data', response: baseDataResponse }
+        { name: 'base_data', response: baseDataResponse },
+        { name: 'vendas_fibra', response: vendasFibraResponse },
+        { name: 'vendas_movel', response: vendasMovelResponse },
+        { name: 'vendas_nova_parabolica', response: vendasNpResponse }
       ];
 
       for (const { name, response } of responses) {
@@ -226,6 +244,9 @@ export function useSupabaseData() {
         metas: metasResponse.data || [],
         vendasMeta: vendasMetaResponse.data || [],
         baseData: baseDataResponse.data || [],
+        vendasFibra: (vendasFibraResponse.data || []) as VendaFibra[],
+        vendasMovel: (vendasMovelResponse.data || []) as VendaMovel[],
+        vendasNovaParabolica: (vendasNpResponse.data || []) as VendaNovaParabolica[],
         loading: false
       }));
 
