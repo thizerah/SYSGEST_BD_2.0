@@ -15,7 +15,8 @@ import {
   MessageCircle,
   Eye,
   Download,
-  Pencil
+  Pencil,
+  UserCircle
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useToast } from "@/hooks/use-toast";
@@ -41,6 +42,7 @@ import { ServiceOrder } from "@/types";
 import { normalizeCityName, normalizeNeighborhoodName, getDisplayStatus, isBacklogStatus } from '@/context/DataUtils';
 import { MaterialViewer } from "./MaterialViewer";
 import { EditServiceOrderModal } from "./EditServiceOrderModal";
+import { BulkEditTechnicianModal } from "./BulkEditTechnicianModal";
 
 interface ServiceOrderTableProps {
   filteredOrders?: ServiceOrder[];
@@ -65,6 +67,8 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
   const [isMaterialViewerOpen, setIsMaterialViewerOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [orderToEdit, setOrderToEdit] = useState<ServiceOrder | null>(null);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<{
@@ -730,6 +734,77 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     }
   };
 
+  // Chave única para cada OS (codigo_os + codigo_item)
+  const getOrderKey = (order: ServiceOrder) =>
+    `${order.codigo_os}-${order.codigo_item || 'default'}`;
+
+  // Lista de técnicos com id/nome/sigla para edição em lote
+  const uniqueTechniciansWithId = useMemo(() => {
+    const techMap = new Map<string, { id: string; nome: string; sigla: string }>();
+    serviceOrders
+      .filter(o => o.nome_tecnico?.trim() && o.id_tecnico?.trim())
+      .forEach(o => {
+        const nome = o.nome_tecnico.trim();
+        if (!techMap.has(nome)) {
+          techMap.set(nome, {
+            id: o.id_tecnico,
+            nome: o.nome_tecnico,
+            sigla: o.sigla_tecnico,
+          });
+        }
+      });
+    return Array.from(techMap.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [serviceOrders]);
+
+  // Ordens selecionadas para edição em lote (usar uniqueFilteredOrders para evitar duplicatas e manter consistência com a tabela)
+  const selectedOrdersForBulk = useMemo(() => {
+    return uniqueFilteredOrders.filter(o => selectedOrderIds.has(getOrderKey(o)));
+  }, [uniqueFilteredOrders, selectedOrderIds]);
+
+  const toggleSelectOrder = (order: ServiceOrder) => {
+    const key = getOrderKey(order);
+    setSelectedOrderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAllOnPage = () => {
+    const allOnPageSelected = paginatedOrders.every(o => selectedOrderIds.has(getOrderKey(o)));
+    setSelectedOrderIds(prev => {
+      const next = new Set(prev);
+      paginatedOrders.forEach(o => {
+        const key = getOrderKey(o);
+        if (allOnPageSelected) next.delete(key);
+        else next.add(key);
+      });
+      return next;
+    });
+  };
+
+  const handleClearSelection = () => {
+    setSelectedOrderIds(new Set());
+  };
+
+  const handleBulkConfirmTechnician = async (technician: { id: string; nome: string; sigla: string }) => {
+    for (const order of selectedOrdersForBulk) {
+      const updatedOrder: ServiceOrder = {
+        ...order,
+        id_tecnico: technician.id,
+        nome_tecnico: technician.nome,
+        sigla_tecnico: technician.sigla,
+      };
+      await updateServiceOrder(updatedOrder);
+    }
+    toast({
+      title: "✅ Técnico atualizado em lote",
+      description: `${selectedOrdersForBulk.length} ordem(ns) de serviço atualizada(s) com sucesso.`,
+    });
+    setSelectedOrderIds(new Set());
+  };
+
   // Função para determinar a cor do ícone do olho baseada na otimização
   const getEyeIconColor = (order: ServiceOrder) => {
     const tipoServico = order.tipo_servico;
@@ -1200,10 +1275,53 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
 
         {serviceOrders.length > 0 ? (
           <>
+            {/* Barra de ações em lote */}
+            {selectedOrderIds.size > 0 && (
+              <div className="flex items-center justify-between gap-4 mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <span className="text-sm font-medium text-blue-800">
+                  {selectedOrderIds.size} ordem(ns) selecionada(s)
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearSelection}
+                    className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Limpar seleção
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => setIsBulkEditModalOpen(true)}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <UserCircle className="h-4 w-4 mr-1" />
+                    Alterar técnico
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="border rounded-md overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-100 hover:bg-gray-100">
+                    <TableHead className="text-xs p-3 font-semibold text-gray-700 w-12">
+                      <Checkbox
+                        checked={
+                          paginatedOrders.length === 0
+                            ? false
+                            : paginatedOrders.every(o => selectedOrderIds.has(getOrderKey(o)))
+                              ? true
+                              : paginatedOrders.some(o => selectedOrderIds.has(getOrderKey(o)))
+                                ? "indeterminate"
+                                : false
+                        }
+                        onCheckedChange={toggleSelectAllOnPage}
+                        aria-label="Selecionar todas na página"
+                      />
+                    </TableHead>
                     <TableHead className="text-xs p-3 font-semibold text-gray-700">Código OS</TableHead>
                     <TableHead className="text-xs p-3 font-semibold text-gray-700">Técnico</TableHead>
                     <TableHead className="text-xs p-3 font-semibold text-gray-700">Tipo de Serviço</TableHead>
@@ -1220,7 +1338,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
                 <TableBody>
                   {paginatedOrders.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center py-8">
+                      <TableCell colSpan={12} className="text-center py-8">
                         <div className="flex flex-col items-center justify-center">
                           <Calendar className="h-8 w-8 text-muted-foreground mb-2" />
                           <p className="text-sm font-medium">Nenhuma ordem de serviço encontrada</p>
@@ -1232,6 +1350,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
                       // Criar chave única usando codigo_os + codigo_item
                       const uniqueKey = `${order.codigo_os}-${order.codigo_item || 'default'}`;
                       const hours = getHoursFromTime(order);
+                      const isSelected = selectedOrderIds.has(uniqueKey);
                       
                       return (
                       <TableRow 
@@ -1240,8 +1359,15 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
                           index % 2 === 0 
                             ? "bg-white hover:bg-gray-50" 
                             : "bg-gray-50/50 hover:bg-gray-100"
-                        }`}
+                        } ${isSelected ? "bg-blue-50/50" : ""}`}
                       >
+                        <TableCell className="text-xs p-3 w-12">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleSelectOrder(order)}
+                            aria-label={`Selecionar OS ${order.codigo_os}`}
+                          />
+                        </TableCell>
                         <TableCell className="text-xs p-3 font-semibold text-gray-900">{order.codigo_os}</TableCell>
                         <TableCell className="text-xs p-3">{order.nome_tecnico || <span className="text-muted-foreground">N/A</span>}</TableCell>
                         <TableCell className="text-xs p-3">{order.subtipo_servico || <span className="text-muted-foreground">N/A</span>}</TableCell>
@@ -1410,6 +1536,15 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
         open={isEditModalOpen}
         onOpenChange={setIsEditModalOpen}
         onSave={handleSaveOrder}
+      />
+
+      {/* Modal de edição em lote do técnico */}
+      <BulkEditTechnicianModal
+        open={isBulkEditModalOpen}
+        onOpenChange={setIsBulkEditModalOpen}
+        selectedCount={selectedOrdersForBulk.length}
+        technicians={uniqueTechniciansWithId}
+        onConfirm={handleBulkConfirmTechnician}
       />
     </Card>
   );

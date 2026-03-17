@@ -19,6 +19,12 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { 
   Loader2, 
   User, 
@@ -293,192 +299,219 @@ export function EditServiceOrderModal({
             </div>
           </div>
 
-          {/* Seção: Serviço */}
-          <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Wrench className="h-5 w-5 text-purple-600" />
-              <h3 className="text-lg font-semibold text-gray-800">Detalhes do Serviço</h3>
-            </div>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="tipo_servico" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <Wrench className="h-4 w-4 text-purple-600" />
-                  Tipo de Serviço *
-                </Label>
-                <Select 
-                  value={formData.subtipo_servico} 
-                  onValueChange={(value) => setFormData({ ...formData, subtipo_servico: value })}
-                >
-                  <SelectTrigger id="tipo_servico" className="bg-white border-purple-300 hover:border-purple-400 transition-colors">
-                    <SelectValue placeholder="Selecione o tipo de serviço" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {uniqueServiceTypes.map(type => (
-                      <SelectItem key={type} value={type}>
-                        {type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="motivo" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-purple-600" />
-                  Motivo *
-                </Label>
-                <Input
-                  id="motivo"
-                  value={formData.motivo || ''}
-                  onChange={(e) => setFormData({ ...formData, motivo: e.target.value })}
-                  placeholder="Motivo da OS"
-                  className="bg-white border-purple-300 hover:border-purple-400 transition-colors"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="acao_tomada" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-purple-600" />
-                  Ação Tomada
-                </Label>
-                <Textarea
-                  id="acao_tomada"
-                  value={formData.acao_tomada || ''}
-                  onChange={(e) => setFormData({ ...formData, acao_tomada: e.target.value })}
-                  placeholder="Descreva a ação tomada"
-                  rows={3}
-                  className="bg-white border-purple-300 hover:border-purple-400 transition-colors resize-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Seção: Cliente */}
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Building2 className="h-5 w-5 text-green-600" />
-              <h3 className="text-lg font-semibold text-gray-800">Informações do Cliente</h3>
-            </div>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="codigo_cliente" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                    <Hash className="h-4 w-4 text-green-600" />
-                    Código Cliente *
-                  </Label>
-                  <Input
-                    id="codigo_cliente"
-                    value={formData.codigo_cliente || ''}
-                    onChange={(e) => setFormData({ ...formData, codigo_cliente: e.target.value })}
-                    placeholder="Código do cliente"
-                    className="bg-white border-green-300 hover:border-green-400 transition-colors"
-                  />
+          {/* Seções recolhíveis */}
+          <Accordion type="multiple" className="space-y-3">
+            <AccordionItem
+              value="servico"
+              className="border-b-0 border border-purple-200 rounded-xl overflow-hidden bg-gradient-to-br from-purple-50 to-pink-50 shadow-sm [&[data-state=open]]:shadow-md"
+            >
+              <AccordionTrigger className="px-5 py-4 hover:no-underline hover:bg-purple-50/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-purple-200">
+                <div className="flex items-center gap-2">
+                  <Wrench className="h-5 w-5 text-purple-600" />
+                  <h3 className="text-lg font-semibold text-gray-800">Detalhes do Serviço</h3>
                 </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-5 pb-5 pt-0">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="tipo_servico" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <Wrench className="h-4 w-4 text-purple-600" />
+                      Tipo de Serviço *
+                    </Label>
+                    <Select 
+                      value={formData.subtipo_servico} 
+                      onValueChange={(value) => setFormData({ ...formData, subtipo_servico: value })}
+                    >
+                      <SelectTrigger id="tipo_servico" className="bg-white border-purple-300 hover:border-purple-400 transition-colors">
+                        <SelectValue placeholder="Selecione o tipo de serviço" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {uniqueServiceTypes.map(type => (
+                          <SelectItem key={type} value={type}>
+                            {type}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="nome_cliente" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                    <User className="h-4 w-4 text-green-600" />
-                    Nome Cliente *
-                  </Label>
-                  <Input
-                    id="nome_cliente"
-                    value={formData.nome_cliente || ''}
-                    onChange={(e) => setFormData({ ...formData, nome_cliente: e.target.value })}
-                    placeholder="Nome do cliente"
-                    className="bg-white border-green-300 hover:border-green-400 transition-colors"
-                  />
+                  <div className="space-y-2">
+                    <Label htmlFor="motivo" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-purple-600" />
+                      Motivo *
+                    </Label>
+                    <Input
+                      id="motivo"
+                      value={formData.motivo || ''}
+                      onChange={(e) => setFormData({ ...formData, motivo: e.target.value })}
+                      placeholder="Motivo da OS"
+                      className="bg-white border-purple-300 hover:border-purple-400 transition-colors"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="acao_tomada" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-purple-600" />
+                      Ação Tomada
+                    </Label>
+                    <Textarea
+                      id="acao_tomada"
+                      value={formData.acao_tomada || ''}
+                      onChange={(e) => setFormData({ ...formData, acao_tomada: e.target.value })}
+                      placeholder="Descreva a ação tomada"
+                      rows={3}
+                      className="bg-white border-purple-300 hover:border-purple-400 transition-colors resize-none"
+                    />
+                  </div>
                 </div>
-              </div>
+              </AccordionContent>
+            </AccordionItem>
 
-              <div className="space-y-2">
-                <Label htmlFor="telefone" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-green-600" />
-                  Telefone
-                </Label>
-                <Input
-                  id="telefone"
-                  value={formData.telefone_celular || ''}
-                  onChange={(e) => setFormData({ ...formData, telefone_celular: e.target.value })}
-                  placeholder="Telefone do cliente"
-                  className="bg-white border-green-300 hover:border-green-400 transition-colors"
-                />
-              </div>
-            </div>
-          </div>
+            <AccordionItem
+              value="cliente"
+              className="border-b-0 border border-green-200 rounded-xl overflow-hidden bg-gradient-to-br from-green-50 to-emerald-50 shadow-sm [&[data-state=open]]:shadow-md"
+            >
+              <AccordionTrigger className="px-5 py-4 hover:no-underline hover:bg-green-50/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-green-200">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-green-600" />
+                  <h3 className="text-lg font-semibold text-gray-800">Informações do Cliente</h3>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-5 pb-5 pt-0">
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="codigo_cliente" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                        <Hash className="h-4 w-4 text-green-600" />
+                        Código Cliente *
+                      </Label>
+                      <Input
+                        id="codigo_cliente"
+                        value={formData.codigo_cliente || ''}
+                        onChange={(e) => setFormData({ ...formData, codigo_cliente: e.target.value })}
+                        placeholder="Código do cliente"
+                        className="bg-white border-green-300 hover:border-green-400 transition-colors"
+                      />
+                    </div>
 
-          {/* Seção: Localização */}
-          <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 rounded-xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <MapPin className="h-5 w-5 text-orange-600" />
-              <h3 className="text-lg font-semibold text-gray-800">Localização</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="cidade" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <Building2 className="h-4 w-4 text-orange-600" />
-                  Cidade *
-                </Label>
-                <Input
-                  id="cidade"
-                  value={formData.cidade || ''}
-                  onChange={(e) => setFormData({ ...formData, cidade: e.target.value })}
-                  placeholder="Cidade"
-                  className="bg-white border-orange-300 hover:border-orange-400 transition-colors"
-                />
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="nome_cliente" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                        <User className="h-4 w-4 text-green-600" />
+                        Nome Cliente *
+                      </Label>
+                      <Input
+                        id="nome_cliente"
+                        value={formData.nome_cliente || ''}
+                        onChange={(e) => setFormData({ ...formData, nome_cliente: e.target.value })}
+                        placeholder="Nome do cliente"
+                        className="bg-white border-green-300 hover:border-green-400 transition-colors"
+                      />
+                    </div>
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="bairro" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-orange-600" />
-                  Bairro *
-                </Label>
-                <Input
-                  id="bairro"
-                  value={formData.bairro || ''}
-                  onChange={(e) => setFormData({ ...formData, bairro: e.target.value })}
-                  placeholder="Bairro"
-                  className="bg-white border-orange-300 hover:border-orange-400 transition-colors"
-                />
-              </div>
-            </div>
-          </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="telefone" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-green-600" />
+                      Telefone
+                    </Label>
+                    <Input
+                      id="telefone"
+                      value={formData.telefone_celular || ''}
+                      onChange={(e) => setFormData({ ...formData, telefone_celular: e.target.value })}
+                      placeholder="Telefone do cliente"
+                      className="bg-white border-green-300 hover:border-green-400 transition-colors"
+                    />
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
 
-          {/* Seção: Datas */}
-          <div className="bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200 rounded-xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Calendar className="h-5 w-5 text-cyan-600" />
-              <h3 className="text-lg font-semibold text-gray-800">Datas</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="data_criacao" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-cyan-600" />
-                  Data de Criação *
-                </Label>
-                <Input
-                  id="data_criacao"
-                  type="datetime-local"
-                  value={formData.data_criacao || ''}
-                  onChange={(e) => setFormData({ ...formData, data_criacao: e.target.value })}
-                  className="bg-white border-cyan-300 hover:border-cyan-400 transition-colors"
-                />
-              </div>
+            <AccordionItem
+              value="localizacao"
+              className="border-b-0 border border-orange-200 rounded-xl overflow-hidden bg-gradient-to-br from-orange-50 to-amber-50 shadow-sm [&[data-state=open]]:shadow-md"
+            >
+              <AccordionTrigger className="px-5 py-4 hover:no-underline hover:bg-orange-50/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-orange-200">
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5 text-orange-600" />
+                  <h3 className="text-lg font-semibold text-gray-800">Localização</h3>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-5 pb-5 pt-0">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="cidade" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-orange-600" />
+                      Cidade *
+                    </Label>
+                    <Input
+                      id="cidade"
+                      value={formData.cidade || ''}
+                      onChange={(e) => setFormData({ ...formData, cidade: e.target.value })}
+                      placeholder="Cidade"
+                      className="bg-white border-orange-300 hover:border-orange-400 transition-colors"
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="data_finalizacao" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-cyan-600" />
-                  Data de Finalização
-                </Label>
-                <Input
-                  id="data_finalizacao"
-                  type="datetime-local"
-                  value={formData.data_finalizacao || ''}
-                  onChange={(e) => setFormData({ ...formData, data_finalizacao: e.target.value })}
-                  className="bg-white border-cyan-300 hover:border-cyan-400 transition-colors"
-                />
-              </div>
-            </div>
-          </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="bairro" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-orange-600" />
+                      Bairro *
+                    </Label>
+                    <Input
+                      id="bairro"
+                      value={formData.bairro || ''}
+                      onChange={(e) => setFormData({ ...formData, bairro: e.target.value })}
+                      placeholder="Bairro"
+                      className="bg-white border-orange-300 hover:border-orange-400 transition-colors"
+                    />
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem
+              value="datas"
+              className="border-b-0 border border-cyan-200 rounded-xl overflow-hidden bg-gradient-to-br from-cyan-50 to-blue-50 shadow-sm [&[data-state=open]]:shadow-md"
+            >
+              <AccordionTrigger className="px-5 py-4 hover:no-underline hover:bg-cyan-50/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-cyan-200">
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-5 w-5 text-cyan-600" />
+                  <h3 className="text-lg font-semibold text-gray-800">Datas</h3>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-5 pb-5 pt-0">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="data_criacao" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-cyan-600" />
+                      Data de Criação *
+                    </Label>
+                    <Input
+                      id="data_criacao"
+                      type="datetime-local"
+                      value={formData.data_criacao || ''}
+                      onChange={(e) => setFormData({ ...formData, data_criacao: e.target.value })}
+                      className="bg-white border-cyan-300 hover:border-cyan-400 transition-colors"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="data_finalizacao" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-cyan-600" />
+                      Data de Finalização
+                    </Label>
+                    <Input
+                      id="data_finalizacao"
+                      type="datetime-local"
+                      value={formData.data_finalizacao || ''}
+                      onChange={(e) => setFormData({ ...formData, data_finalizacao: e.target.value })}
+                      className="bg-white border-cyan-300 hover:border-cyan-400 transition-colors"
+                    />
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
 
         <DialogFooter className="border-t pt-4 gap-3">
