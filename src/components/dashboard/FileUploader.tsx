@@ -442,6 +442,21 @@ export function FileUploader() {
     return materiais.length > 0 ? materiais : undefined;
   };
 
+  // Extrai números dos aparelhos (IRD_1 até IRD_30) do Excel - aceita IRD_1 ou ird_1 como cabeçalho
+  const processarIRDs = (row: Record<string, unknown>): Partial<Record<string, string | null>> => {
+    const irds: Record<string, string | null> = {};
+    for (let i = 1; i <= 30; i++) {
+      const keyExcel = `IRD_${i}`;
+      const keyAlt = `ird_${i}`;
+      const val = row[keyExcel] ?? row[keyAlt];
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        irds[`ird_${i}`] = String(val).trim();
+      }
+      // Não adicionar vazios - colunas no Supabase usam null por padrão
+    }
+    return irds;
+  };
+
   const processData = (data: Record<string, unknown>[]): ServiceOrder[] => {
     if (data.length === 0) {
       throw new Error("Nenhum dado encontrado para processamento");
@@ -593,7 +608,9 @@ export function FileUploader() {
         telefone_celular: row["Tel. Cel"] as string | null || null,
         
         // Processar materiais
-        materiais: processarMateriais(row)
+        materiais: processarMateriais(row),
+        // Processar números dos aparelhos (IRD_1 até IRD_30)
+        ...processarIRDs(row)
       };
       
       // Log para debug

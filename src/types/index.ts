@@ -32,6 +32,38 @@ export interface ServiceOrder {
   
   // Materiais utilizados na ordem de serviço
   materiais?: MaterialUtilizado[];
+
+  // Números dos aparelhos/decoders (IRD_1 até IRD_30 no Excel)
+  ird_1?: string | null;
+  ird_2?: string | null;
+  ird_3?: string | null;
+  ird_4?: string | null;
+  ird_5?: string | null;
+  ird_6?: string | null;
+  ird_7?: string | null;
+  ird_8?: string | null;
+  ird_9?: string | null;
+  ird_10?: string | null;
+  ird_11?: string | null;
+  ird_12?: string | null;
+  ird_13?: string | null;
+  ird_14?: string | null;
+  ird_15?: string | null;
+  ird_16?: string | null;
+  ird_17?: string | null;
+  ird_18?: string | null;
+  ird_19?: string | null;
+  ird_20?: string | null;
+  ird_21?: string | null;
+  ird_22?: string | null;
+  ird_23?: string | null;
+  ird_24?: string | null;
+  ird_25?: string | null;
+  ird_26?: string | null;
+  ird_27?: string | null;
+  ird_28?: string | null;
+  ird_29?: string | null;
+  ird_30?: string | null;
 }
 
 // Interface para materiais utilizados

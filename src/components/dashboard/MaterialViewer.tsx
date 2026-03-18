@@ -1,7 +1,8 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ServiceOrder, MATERIAIS_PADRAO } from "@/types";
-import { Eye, Package, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Eye, Package, CheckCircle, XCircle, AlertCircle, Tv } from "lucide-react";
 
 interface MaterialViewerProps {
   order: ServiceOrder;
@@ -100,7 +101,16 @@ export function MaterialViewer({ order, isOpen, onClose }: MaterialViewerProps) 
   };
   
   const statusOtimizacao = verificarOtimizacao();
-  
+
+  // Extrair aparelhos (IRDs) com valor da ordem
+  const aparelhosComValor = Array.from({ length: 30 }, (_, i) => i + 1)
+    .map((n) => {
+      const key = `ird_${n}` as keyof ServiceOrder;
+      const val = (order as Record<string, unknown>)[key];
+      return { numero: n, valor: val };
+    })
+    .filter((a) => a.valor !== undefined && a.valor !== null && String(a.valor).trim() !== "");
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto p-0">
@@ -139,6 +149,24 @@ export function MaterialViewer({ order, isOpen, onClose }: MaterialViewerProps) 
             </div>
           </div>
 
+          <Tabs defaultValue="materiais" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="materiais" className="flex items-center gap-2">
+                <Package className="h-4 w-4" />
+                Materiais
+              </TabsTrigger>
+              <TabsTrigger value="aparelhos" className="flex items-center gap-2">
+                <Tv className="h-4 w-4" />
+                Aparelhos
+                {aparelhosComValor.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs">
+                    {aparelhosComValor.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="materiais" className="space-y-4 mt-0">
           {/* Status de Otimização */}
           {statusOtimizacao && (
             <div className={`p-4 rounded-xl border-2 shadow-md ${
@@ -342,6 +370,45 @@ export function MaterialViewer({ order, isOpen, onClose }: MaterialViewerProps) 
               <p className="text-gray-600 font-medium">Nenhum material registrado para esta ordem de serviço</p>
             </div>
           )}
+            </TabsContent>
+
+            <TabsContent value="aparelhos" className="mt-0">
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1.5 bg-slate-100 rounded-lg">
+                    <Tv className="h-4 w-4 text-slate-600" />
+                  </div>
+                  <h4 className="font-semibold text-base text-gray-800">Aparelhos (IRDs)</h4>
+                </div>
+                {aparelhosComValor.length > 0 ? (
+                  <div className="space-y-2">
+                    {aparelhosComValor.map((aparelho, index) => (
+                      <div
+                        key={aparelho.numero}
+                        className={`flex justify-between items-center p-3 rounded-lg border transition-all hover:shadow-md ${
+                          index % 2 === 0 ? "bg-white border-gray-200" : "bg-gray-50/50 border-gray-200"
+                        }`}
+                      >
+                        <span className="text-sm font-medium text-gray-800">IRD {aparelho.numero}</span>
+                        <Badge
+                          variant="default"
+                          className="px-3 py-1 font-mono text-sm bg-slate-600 text-white min-w-[80px] text-center"
+                        >
+                          {String(aparelho.valor)}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">
+                    <Tv className="h-16 w-16 mx-auto mb-4 text-gray-400" />
+                    <p className="text-gray-600 font-medium">Nenhum aparelho registrado para esta ordem de serviço</p>
+                    <p className="text-sm text-gray-500 mt-1">Os números dos aparelhos (IRD_1, IRD_2, etc.) são importados do Excel operacional</p>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </DialogContent>
     </Dialog>

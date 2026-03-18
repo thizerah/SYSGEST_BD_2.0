@@ -10651,6 +10651,20 @@ function ImportData() {
     return materiais.length > 0 ? materiais : undefined;
   };
 
+  // Extrai números dos aparelhos (IRD_1 até IRD_30) do Excel - aceita IRD_1 ou ird_1 como cabeçalho
+  const processarIRDs = (row: Record<string, unknown>): Partial<Record<string, string | null>> => {
+    const irds: Record<string, string | null> = {};
+    for (let i = 1; i <= 30; i++) {
+      const keyExcel = `IRD_${i}`;
+      const keyAlt = `ird_${i}`;
+      const val = row[keyExcel] ?? row[keyAlt];
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        irds[`ird_${i}`] = String(val).trim();
+      }
+    }
+    return irds;
+  };
+
   // Função original para processar ordens de serviço
   const processData = (data: Record<string, unknown>[]): ServiceOrder[] => {
     if (data.length === 0) {
@@ -10883,7 +10897,9 @@ function ImportData() {
         telefone_celular: row["Tel. Cel"] as string | null || null,
         
         // Processar materiais
-        materiais: processarMateriais(row)
+        materiais: processarMateriais(row),
+        // Processar números dos aparelhos (IRD_1 até IRD_30)
+        ...processarIRDs(row)
       };
       
       return order;
