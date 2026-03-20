@@ -1876,6 +1876,33 @@ function MetasDetalhamentoContent({
   onUpdateVendaMetaStatus: (numeroProposta: string, novoStatus: string) => Promise<void>;
 }) {
   const { toast } = useToast();
+  const { user, authExtras } = useAuth();
+  const donoUserId = authExtras?.donoUserId ?? user?.id ?? '';
+
+  // Carregar equipe para normalização de nomes de vendedores (ID → nome)
+  const [equipe, setEquipe] = useState<EquipeRow[]>([]);
+  useEffect(() => {
+    if (!donoUserId) return;
+    fetchEquipe(donoUserId).then(setEquipe).catch(() => {});
+  }, [donoUserId]);
+
+  const mapaVendedorPorId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of equipe) {
+      const id = (e.id_vendedor || '').trim();
+      if (id) m.set(id, e.nome_completo);
+    }
+    return m;
+  }, [equipe]);
+
+  const nomePadronizado = useCallback(
+    (idVendedor: string | undefined | null, fallback: string): string => {
+      const id = (idVendedor || '').trim();
+      if (id && mapaVendedorPorId.has(id)) return mapaVendedorPorId.get(id)!;
+      return fallback || '—';
+    },
+    [mapaVendedorPorId]
+  );
 
   // Estados para cancelamento manual de proposta
   const [propostaParaCancelar, setPropostaParaCancelar] = useState<string | null>(null);
@@ -1980,10 +2007,11 @@ function MetasDetalhamentoContent({
     return `https://wa.me/55${telefoneLimpo}?text=${mensagemCodificada}`;
   }, []);
 
-  // Função para obter o nome do vendedor (PropostaUnificada usa nome_cliente)
+  // Função para obter o nome do vendedor (resolve ID via equipe para META/PERM.; FIBRA/MÓVEL/NP já têm nome)
   const getNomeVendedor = useCallback((venda: any): string => {
-    return venda.nome_cliente || venda.nome_proprietario || '';
-  }, []);
+    const vendedor = venda.vendedor || '';
+    return nomePadronizado(vendedor, vendedor);
+  }, [nomePadronizado]);
 
   // Função para obter a data de habilitação (PropostaUnificada usa data_venda)
   const getDataHabilitacao = useCallback((venda: any): string => {

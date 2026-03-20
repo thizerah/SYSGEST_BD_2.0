@@ -49,7 +49,7 @@ export function normalizarVendaMeta(v: VendaMeta): PropostaUnificada {
     mes,
     ano,
     vendedor: v.vendedor,
-    nome_cliente: v.nome_proprietario,
+    nome_cliente: v.nome_fantasia ?? '',
     cpf: v.cpf,
     telefone: v.telefone_celular,
     cidade: v.cidade,
