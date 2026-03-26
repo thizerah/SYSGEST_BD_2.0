@@ -27,6 +27,7 @@ import {
 } from "./DataUtils";
 import { ajustarTempoAtendimento } from '../utils/holidays';
 import { supabase } from '../lib/supabase';
+import { resolveStatusPropostaOnMetaImport } from '../lib/vendas-meta-status';
 import { useAuth } from './useAuth';
 
 // Sistema de logs otimizado
@@ -1408,6 +1409,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const existing = mapByProposta.get(v.numero_proposta);
           const normalized = { ...v };
           if (existing) {
+            normalized.status_proposta = resolveStatusPropostaOnMetaImport(
+              existing.status_proposta,
+              normalized.status_proposta
+            ) ?? undefined;
             mapByProposta.set(v.numero_proposta, normalized);
             const statusAntigo = existing.status_proposta ?? '';
             const statusNovo = normalized.status_proposta ?? '';

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { resolveStatusPropostaOnMetaImport } from '@/lib/vendas-meta-status';
 import { useAuth } from '@/context/useAuth';
 import { 
   ServiceOrder, 
@@ -489,6 +490,11 @@ export function useSupabaseData() {
 
       case 'vendas_meta': {
         const existingPropostas = new Set(existingData?.map((item: Record<string, unknown>) => item.numero_proposta) || []);
+        const existingByProposta = new Map<string, Record<string, unknown>>();
+        (existingData || []).forEach((item: Record<string, unknown>) => {
+          const np = item.numero_proposta as string;
+          if (np) existingByProposta.set(np, item);
+        });
         const registrosParaInserir: Record<string, unknown>[] = [];
         const registrosParaAtualizar: Record<string, unknown>[] = [];
         newData.forEach((item: Record<string, unknown>) => {
@@ -504,6 +510,11 @@ export function useSupabaseData() {
           for (const registro of sanitizedToUpdate) {
             const numeroProposta = registro.numero_proposta as string;
             const { valor, data_venda, vendedor, nome_proprietario, categoria, produto, produtos_secundarios, cidade, forma_pagamento, cpf, nome_fantasia, telefone_celular, bairro, mes, ano, status_proposta } = registro;
+            const existingRow = existingByProposta.get(numeroProposta);
+            const finalStatus = resolveStatusPropostaOnMetaImport(
+              existingRow?.status_proposta as string | undefined,
+              status_proposta as string | undefined
+            );
             const { error: updateError } = await supabase
               .from('vendas_meta')
               .update({
@@ -522,7 +533,7 @@ export function useSupabaseData() {
                 bairro: bairro ?? null,
                 mes,
                 ano,
-                status_proposta: status_proposta ?? null,
+                status_proposta: finalStatus ?? null,
                 imported_at: new Date().toISOString()
               })
               .eq('user_id', uid)

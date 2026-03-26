@@ -1,4 +1,5 @@
 import useData from "@/context/useData";
+import { VENDAS_META_STATUS_CANCELADA } from "@/lib/vendas-meta-status";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProtectedCard } from "@/components/common/ProtectedCard";
 import { Progress } from "@/components/ui/progress";
@@ -22,6 +23,7 @@ import {
   CalendarDays,
   Filter,
   Pencil,
+  Ban,
   UserPlus,
   RefreshCcw,
   Search,
@@ -2808,13 +2810,15 @@ function MetasDetalhamentoContent({
                                 </span>
                                 {atualizandoStatus === venda.numero_proposta ? (
                                   <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 shrink-0" />
-                                ) : (
+                                ) : getStatus(venda) === VENDAS_META_STATUS_CANCELADA ? null : (
                                   <button
+                                    type="button"
                                     onClick={() => setPropostaParaCancelar(venda.numero_proposta)}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded hover:bg-slate-100 shrink-0"
-                                    title="Alterar status manualmente"
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded hover:bg-red-50 shrink-0"
+                                    title="Marcar proposta como cancelada"
+                                    aria-label="Marcar proposta como cancelada"
                                   >
-                                    <Pencil className="h-3 w-3 text-slate-400 hover:text-slate-600" />
+                                    <Ban className="h-3 w-3 text-rose-500 hover:text-rose-700" />
                                   </button>
                                 )}
                               </div>
@@ -2943,7 +2947,7 @@ function MetasDetalhamentoContent({
             <AlertDialogTitle>Cancelar proposta?</AlertDialogTitle>
             <AlertDialogDescription>
               A proposta <strong>{propostaParaCancelar}</strong> será marcada como <strong>Cancelada</strong>.{' '}
-              Atenção: uma importação futura poderá sobrescrever este status com o valor vindo da planilha.
+              Importações futuras não alterarão este status para &quot;Aguardando Habilitação&quot; no mesmo número de proposta; demais campos continuam sendo atualizados pela planilha.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
