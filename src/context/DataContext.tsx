@@ -27,6 +27,11 @@ import {
 } from "./DataUtils";
 import { ajustarTempoAtendimento } from '../utils/holidays';
 import { supabase } from '../lib/supabase';
+import {
+  updateStatusVendaFibra,
+  updateStatusVendaMovel,
+  updateStatusVendaNovaParabolica,
+} from '../lib/cadastro-comercial';
 import { resolveStatusPropostaOnMetaImport } from '../lib/vendas-meta-status';
 import { useAuth } from './useAuth';
 
@@ -93,7 +98,12 @@ interface DataContextType {
   importMetas: (metas: Meta[], append?: boolean) => ImportResult;
   importVendasMeta: (vendasMeta: VendaMeta[], append?: boolean) => ImportResult;
   importBaseData: (baseData: BaseData[], append?: boolean) => ImportResult;
-  updateVendaMetaStatus: (numeroProposta: string, novoStatus: string) => Promise<void>;
+  updateVendaMetaStatus: (
+    ref:
+      | string
+      | Pick<PropostaUnificada, 'id' | 'origem' | 'numero_proposta'>,
+    novoStatus: string
+  ) => Promise<void>;
   setLastImportInfo: (info: LastImportInfo | null) => void;
   clearData: () => void;
   loading: boolean;
@@ -1468,31 +1478,75 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateVendaMetaStatus = async (numeroProposta: string, novoStatus: string): Promise<void> => {
+  const updateVendaMetaStatus = async (
+    ref: string | Pick<PropostaUnificada, 'id' | 'origem' | 'numero_proposta'>,
+    novoStatus: string
+  ): Promise<void> => {
     const uid = donoUserId ?? user?.id;
     if (!uid) throw new Error('Usuário não autenticado');
+
+    if (typeof ref === 'string') {
+      const { error } = await supabase
+        .from('vendas_meta')
+        .update({ status_proposta: novoStatus, imported_at: new Date().toISOString() })
+        .eq('user_id', uid)
+        .eq('numero_proposta', ref);
+
+      if (error) throw error;
+
+      setVendasMeta((prev) => {
+        const updated = prev.map((v) =>
+          v.numero_proposta === ref ? { ...v, status_proposta: novoStatus } : v
+        );
+        saveToLocalStorage(STORAGE_KEYS.VENDAS_META, updated, true);
+        return updated;
+      });
+      return;
+    }
+
+    const { origem, id, numero_proposta } = ref;
+
+    if (origem === 'fibra') {
+      await updateStatusVendaFibra(id, novoStatus);
+      setVendasFibra((prev) =>
+        prev.map((v) => (v.id === id ? { ...v, status_proposta: novoStatus } : v))
+      );
+      return;
+    }
+    if (origem === 'movel') {
+      await updateStatusVendaMovel(id, novoStatus);
+      setVendasMovel((prev) =>
+        prev.map((v) => (v.id === id ? { ...v, status_proposta: novoStatus } : v))
+      );
+      return;
+    }
+    if (origem === 'nova_parabolica') {
+      await updateStatusVendaNovaParabolica(id, novoStatus);
+      setVendasNovaParabolica((prev) =>
+        prev.map((v) => (v.id === id ? { ...v, status_proposta: novoStatus } : v))
+      );
+      return;
+    }
+
+    if (!numero_proposta) {
+      throw new Error('Número da proposta não informado para atualização em vendas_meta');
+    }
 
     const { error } = await supabase
       .from('vendas_meta')
       .update({ status_proposta: novoStatus, imported_at: new Date().toISOString() })
       .eq('user_id', uid)
-      .eq('numero_proposta', numeroProposta);
+      .eq('numero_proposta', numero_proposta);
 
     if (error) throw error;
 
-    setVendasMeta(prev => {
-      const updated = prev.map(v =>
-        v.numero_proposta === numeroProposta ? { ...v, status_proposta: novoStatus } : v
+    setVendasMeta((prev) => {
+      const updated = prev.map((v) =>
+        v.numero_proposta === numero_proposta ? { ...v, status_proposta: novoStatus } : v
       );
+      saveToLocalStorage(STORAGE_KEYS.VENDAS_META, updated, true);
       return updated;
     });
-    saveToLocalStorage(
-      STORAGE_KEYS.VENDAS_META,
-      vendasMeta.map(v =>
-        v.numero_proposta === numeroProposta ? { ...v, status_proposta: novoStatus } : v
-      ),
-      true
-    );
   };
 
   const importBaseData = (novoBaseData: BaseData[], append: boolean = false): ImportResult => {

@@ -68,7 +68,7 @@ import {
   ResponsiveContainer
 } from "recharts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
-import { ServiceOrder, User, VALID_STATUS, Venda, PrimeiroPagamento, Meta, VendaMeta, BaseData, TODOS_MATERIAIS } from "@/types";
+import { ServiceOrder, User, VALID_STATUS, Venda, PrimeiroPagamento, Meta, VendaMeta, BaseData, TODOS_MATERIAIS, PropostaUnificada } from "@/types";
 import { useAuth } from "@/context/auth";
 import { fetchEquipe, type EquipeRow } from "@/lib/equipe";
 
@@ -1866,6 +1866,10 @@ function MetasTabContent() {
 }
 
 // Componente para a sub-aba de Detalhamento de Propostas na guia Metas
+function chavePropostaUnificada(v: Pick<PropostaUnificada, 'id' | 'origem'>): string {
+  return `${v.origem}:${v.id}`;
+}
+
 function MetasDetalhamentoContent({ 
   selectedMonth, 
   selectedYear, 
@@ -1875,7 +1879,10 @@ function MetasDetalhamentoContent({
   selectedMonth: number | null; 
   selectedYear: number | null; 
   buscarVendasDoPeriodo: (mes: number, ano: number) => any[];
-  onUpdateVendaMetaStatus: (numeroProposta: string, novoStatus: string) => Promise<void>;
+  onUpdateVendaMetaStatus: (
+    ref: Pick<PropostaUnificada, 'id' | 'origem' | 'numero_proposta'>,
+    novoStatus: string
+  ) => Promise<void>;
 }) {
   const { toast } = useToast();
   const { user, authExtras } = useAuth();
@@ -1907,17 +1914,23 @@ function MetasDetalhamentoContent({
   );
 
   // Estados para cancelamento manual de proposta
-  const [propostaParaCancelar, setPropostaParaCancelar] = useState<string | null>(null);
+  const [propostaParaCancelar, setPropostaParaCancelar] = useState<
+    Pick<PropostaUnificada, 'id' | 'origem' | 'numero_proposta'> | null
+  >(null);
   const [atualizandoStatus, setAtualizandoStatus] = useState<string | null>(null);
 
   const handleCancelarProposta = async () => {
     if (!propostaParaCancelar) return;
-    setAtualizandoStatus(propostaParaCancelar);
+    const k = chavePropostaUnificada(propostaParaCancelar);
+    setAtualizandoStatus(k);
     try {
       await onUpdateVendaMetaStatus(propostaParaCancelar, 'Cancelada');
+      const label =
+        propostaParaCancelar.numero_proposta?.trim() ||
+        `${propostaParaCancelar.origem.toUpperCase()} · ${propostaParaCancelar.id}`;
       toast({
         title: 'Status atualizado',
-        description: `Proposta ${propostaParaCancelar} marcada como Cancelada.`,
+        description: `${label} marcado(a) como Cancelada.`,
       });
     } catch {
       toast({
@@ -2808,12 +2821,18 @@ function MetasDetalhamentoContent({
                                 <span className={`${getStatusBadgeStyle(getStatus(venda))} inline-flex items-center font-medium text-xs px-2 py-0.5 border rounded-full whitespace-nowrap pointer-events-none`}>
                                   {getStatus(venda)}
                                 </span>
-                                {atualizandoStatus === venda.numero_proposta ? (
+                                {atualizandoStatus === chavePropostaUnificada(venda) ? (
                                   <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 shrink-0" />
                                 ) : getStatus(venda) === VENDAS_META_STATUS_CANCELADA ? null : (
                                   <button
                                     type="button"
-                                    onClick={() => setPropostaParaCancelar(venda.numero_proposta)}
+                                    onClick={() =>
+                                      setPropostaParaCancelar({
+                                        id: venda.id,
+                                        origem: venda.origem,
+                                        numero_proposta: venda.numero_proposta,
+                                      })
+                                    }
                                     className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded hover:bg-red-50 shrink-0"
                                     title="Marcar proposta como cancelada"
                                     aria-label="Marcar proposta como cancelada"
@@ -2946,8 +2965,24 @@ function MetasDetalhamentoContent({
           <AlertDialogHeader>
             <AlertDialogTitle>Cancelar proposta?</AlertDialogTitle>
             <AlertDialogDescription>
-              A proposta <strong>{propostaParaCancelar}</strong> será marcada como <strong>Cancelada</strong>.{' '}
-              Importações futuras não alterarão este status para &quot;Aguardando Habilitação&quot; no mesmo número de proposta; demais campos continuam sendo atualizados pela planilha.
+              {propostaParaCancelar && (
+                <>
+                  O registro{' '}
+                  <strong>
+                    {propostaParaCancelar.numero_proposta?.trim() ||
+                      `${propostaParaCancelar.origem.toUpperCase()} · ${propostaParaCancelar.id}`}
+                  </strong>{' '}
+                  será marcado como <strong>Cancelada</strong>.
+                  {(propostaParaCancelar.origem === 'venda_meta' ||
+                    propostaParaCancelar.origem === 'venda') && (
+                    <>
+                      {' '}
+                      Importações futuras não alterarão este status para &quot;Aguardando Habilitação&quot; no mesmo
+                      número de proposta; demais campos continuam sendo atualizados pela planilha.
+                    </>
+                  )}
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

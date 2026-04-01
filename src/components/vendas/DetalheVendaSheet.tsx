@@ -20,6 +20,7 @@ const STATUS_OPCOES = [
   'Aguardando Habilitação',
   'Aguardando Pagamento',
   'Pagamento Confirmado',
+  'Cancelada',
 ];
 
 const STATUS_FINALIZADO_GROUP = ['FINALIZADA', 'FINALIZADO', 'HABILITADO'];
