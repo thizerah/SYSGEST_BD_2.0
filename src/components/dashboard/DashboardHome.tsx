@@ -54,14 +54,14 @@ const ALL_PAGES: Record<string, Omit<QuickAction, "id">> = {
     bgColor: "bg-red-50 hover:bg-red-100",
   },
   technicians: {
-    label: "Técnicos",
+    label: "Relatório de Técnicos",
     icon: <Wrench className="w-5 h-5" />,
     description: "Gerencie sua equipe",
     color: "text-purple-600",
     bgColor: "bg-purple-50 hover:bg-purple-100",
   },
   vendedor: {
-    label: "Vendedores",
+    label: "Relatório de Vendedores",
     icon: <Briefcase className="w-5 h-5" />,
     description: "Performance de vendedores",
     color: "text-indigo-600",

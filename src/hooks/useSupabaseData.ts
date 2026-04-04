@@ -14,6 +14,52 @@ import {
   VendaNovaParabolica
 } from '@/types';
 
+const SUPABASE_PAGE_SIZE = 1000;
+
+/**
+ * PostgREST/Supabase retorna no máximo ~1000 linhas por request sem range.
+ * O DataContext já pagina; migração e este hook precisam do mesmo para reconhecer
+ * duplicatas e carregar o estado completo.
+ */
+async function fetchAllRowsForUser(
+  tableName: string,
+  userId: string,
+  orderOpts?: { column: string; ascending: boolean }
+): Promise<Record<string, unknown>[]> {
+  const column = orderOpts?.column ?? 'id';
+  const ascending = orderOpts?.ascending ?? true;
+  const all: Record<string, unknown>[] = [];
+  let page = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const start = page * SUPABASE_PAGE_SIZE;
+    const end = start + SUPABASE_PAGE_SIZE - 1;
+    const { data, error } = await supabase
+      .from(tableName)
+      .select('*')
+      .eq('user_id', userId)
+      .order(column, { ascending })
+      .range(start, end);
+
+    if (error) throw error;
+    const chunk = data || [];
+    all.push(...chunk);
+    hasMore = chunk.length === SUPABASE_PAGE_SIZE;
+    page++;
+  }
+
+  return all;
+}
+
+/** Chave composta alinhada ao filtro .eq(codigo_os).eq(codigo_item) (null/vazio tratados igual). */
+function serviceOrderCompositeKey(item: Record<string, unknown>): string {
+  const os = String(item.codigo_os ?? '');
+  const raw = item.codigo_item;
+  const itemPart = raw == null || raw === '' ? '' : String(raw);
+  return `${os}-${itemPart}`;
+}
+
 interface ImportResult {
   totalProcessed: number;
   newRecords: number;
@@ -196,58 +242,38 @@ export function useSupabaseData() {
       const uid = donoUserId ?? user?.id;
       if (!uid) throw new Error('Usuário não autenticado');
       const [
-        serviceOrdersResponse,
-        vendasResponse,
-        pagamentosResponse,
-        metasResponse,
-        vendasMetaResponse,
-        baseDataResponse,
-        vendasFibraResponse,
-        vendasMovelResponse,
-        vendasNpResponse
+        serviceOrdersData,
+        vendasData,
+        pagamentosData,
+        metasData,
+        vendasMetaData,
+        baseDataData,
+        vendasFibraData,
+        vendasMovelData,
+        vendasNpData
       ] = await Promise.all([
-        supabase.from('service_orders').select('*').eq('user_id', uid),
-        supabase.from('vendas').select('*').eq('user_id', uid),
-        supabase.from('pagamentos').select('*').eq('user_id', uid),
-        supabase.from('metas').select('*').eq('user_id', uid),
-        supabase.from('vendas_meta').select('*').eq('user_id', uid),
-        supabase.from('base_data').select('*').eq('user_id', uid),
-        supabase.from('vendas_fibra').select('*').eq('user_id', uid).order('data_cadastro', { ascending: false }),
-        supabase.from('vendas_movel').select('*').eq('user_id', uid).order('data_cadastro', { ascending: false }),
-        supabase.from('vendas_nova_parabolica').select('*').eq('user_id', uid).order('data_venda', { ascending: false })
+        fetchAllRowsForUser('service_orders', uid),
+        fetchAllRowsForUser('vendas', uid),
+        fetchAllRowsForUser('pagamentos', uid),
+        fetchAllRowsForUser('metas', uid),
+        fetchAllRowsForUser('vendas_meta', uid),
+        fetchAllRowsForUser('base_data', uid),
+        fetchAllRowsForUser('vendas_fibra', uid, { column: 'data_cadastro', ascending: false }),
+        fetchAllRowsForUser('vendas_movel', uid, { column: 'data_cadastro', ascending: false }),
+        fetchAllRowsForUser('vendas_nova_parabolica', uid, { column: 'data_venda', ascending: false })
       ]);
-
-      // Verificar erros
-      const responses = [
-        { name: 'service_orders', response: serviceOrdersResponse },
-        { name: 'vendas', response: vendasResponse },
-        { name: 'pagamentos', response: pagamentosResponse },
-        { name: 'metas', response: metasResponse },
-        { name: 'vendas_meta', response: vendasMetaResponse },
-        { name: 'base_data', response: baseDataResponse },
-        { name: 'vendas_fibra', response: vendasFibraResponse },
-        { name: 'vendas_movel', response: vendasMovelResponse },
-        { name: 'vendas_nova_parabolica', response: vendasNpResponse }
-      ];
-
-      for (const { name, response } of responses) {
-        if (response.error) {
-          console.error(`[SUPABASE] Erro ao carregar ${name}:`, response.error);
-          throw response.error;
-        }
-      }
 
       setState(prev => ({
         ...prev,
-        serviceOrders: serviceOrdersResponse.data || [],
-        vendas: vendasResponse.data || [],
-        pagamentos: pagamentosResponse.data || [],
-        metas: metasResponse.data || [],
-        vendasMeta: vendasMetaResponse.data || [],
-        baseData: baseDataResponse.data || [],
-        vendasFibra: (vendasFibraResponse.data || []) as VendaFibra[],
-        vendasMovel: (vendasMovelResponse.data || []) as VendaMovel[],
-        vendasNovaParabolica: (vendasNpResponse.data || []) as VendaNovaParabolica[],
+        serviceOrders: serviceOrdersData as ServiceOrder[],
+        vendas: vendasData as Venda[],
+        pagamentos: pagamentosData as PrimeiroPagamento[],
+        metas: metasData as Meta[],
+        vendasMeta: vendasMetaData as VendaMeta[],
+        baseData: baseDataData as BaseData[],
+        vendasFibra: vendasFibraData as VendaFibra[],
+        vendasMovel: vendasMovelData as VendaMovel[],
+        vendasNovaParabolica: vendasNpData as VendaNovaParabolica[],
         loading: false
       }));
 
@@ -270,32 +296,25 @@ export function useSupabaseData() {
     async (tableName: string, newData: Record<string, unknown>[]) => {
       const uid = donoUserId ?? user?.id;
       if (!uid) throw new Error('Usuário não autenticado');
-      const { data: existingData, error } = await supabase
-        .from(tableName)
-        .select('*')
-        .eq('user_id', uid);
-
-    if (error) throw error;
+      const existingData = await fetchAllRowsForUser(tableName, uid);
 
     let dataToInsert: Record<string, unknown>[] = [];
     let duplicatesIgnored = 0;
+    /** Registros aplicados via UPDATE no Supabase (fora do fluxo de INSERT em lote). */
+    let recordsUpdated = 0;
 
     // Lógica específica de duplicatas por tipo de tabela
     switch (tableName) {
       case 'service_orders': {
-        // Criar chave composta (codigo_os + codigo_item) para identificar registros únicos
         const existingKeys = new Set(
-          existingData?.map((item: Record<string, unknown>) => 
-            `${item.codigo_os}-${item.codigo_item ?? ''}`
-          ) || []
+          (existingData || []).map((item: Record<string, unknown>) => serviceOrderCompositeKey(item))
         );
         
         const registrosParaInserir: Record<string, unknown>[] = [];
         const registrosParaAtualizar: Record<string, unknown>[] = [];
         
-        // Separar registros novos vs existentes
         newData.forEach((item: Record<string, unknown>) => {
-          const key = `${item.codigo_os}-${item.codigo_item ?? ''}`;
+          const key = serviceOrderCompositeKey(item);
           if (existingKeys.has(key)) {
             registrosParaAtualizar.push(item);
           } else {
@@ -398,6 +417,7 @@ export function useSupabaseData() {
               throw updateError;
             }
           }
+          recordsUpdated = registrosParaAtualizar.length;
         }
         
         dataToInsert = registrosParaInserir;
@@ -474,6 +494,7 @@ export function useSupabaseData() {
         
         dataToInsert = registrosParaInserir;
         duplicatesIgnored = newData.length - registrosParaInserir.length;
+        recordsUpdated = propostasParaAtualizar.length;
         break;
       }
 
@@ -543,6 +564,7 @@ export function useSupabaseData() {
               throw updateError;
             }
           }
+          recordsUpdated = registrosParaAtualizar.length;
         }
         dataToInsert = registrosParaInserir;
         duplicatesIgnored = 0; // Não ignoramos duplicatas, atualizamos
@@ -597,6 +619,7 @@ export function useSupabaseData() {
               throw updateError;
             }
           }
+          recordsUpdated = registrosParaAtualizar.length;
         }
         
         dataToInsert = registrosParaInserir;
@@ -612,7 +635,7 @@ export function useSupabaseData() {
       }
     }
 
-    return { dataToInsert, duplicatesIgnored };
+    return { dataToInsert, duplicatesIgnored, recordsUpdated };
   }, [donoUserId, user?.id, sanitizeDataForSupabase]);
 
   // Função para migrar dados do localStorage para Supabase
@@ -637,7 +660,9 @@ export function useSupabaseData() {
         VENDAS_META: 'Meta de Vendas',
       };
 
-      let migratedCount = 0;
+      let typesWithInserts = 0;
+      let totalInsertedRows = 0;
+      let totalUpdatedRows = 0;
       let totalProcessed = 0;
       let totalDuplicates = 0;
 
@@ -677,13 +702,15 @@ export function useSupabaseData() {
             if (tableName) {
               console.log(`[MIGRAÇÃO] Processando ${tableName}: ${parsedData.length} registros`);
               
-              // Verificar duplicatas antes de inserir
-              const { dataToInsert, duplicatesIgnored } = await handleDuplicateCheck(tableName, parsedData);
-              
+              const { dataToInsert, duplicatesIgnored, recordsUpdated } = await handleDuplicateCheck(
+                tableName,
+                parsedData
+              );
+              totalUpdatedRows += recordsUpdated;
+
               if (dataToInsert.length > 0) {
-                // APLICAR SANITIZAÇÃO ANTES DA INSERÇÃO
                 const sanitizedData = sanitizeDataForSupabase(dataToInsert, tableName);
-                
+
                 const dataWithUserId = sanitizedData.map((item) => ({
                   ...item,
                   user_id: uid,
@@ -692,7 +719,8 @@ export function useSupabaseData() {
                 const { error } = await supabase.from(tableName).insert(dataWithUserId);
                 if (error) throw error;
                 console.log(`[MIGRAÇÃO] ${tableName}: ${dataToInsert.length} novos registros, ${duplicatesIgnored} duplicatas ignoradas`);
-                migratedCount++;
+                typesWithInserts++;
+                totalInsertedRows += dataToInsert.length;
               }
 
               totalProcessed += parsedData.length;
@@ -704,18 +732,39 @@ export function useSupabaseData() {
 
       await loadFromSupabase();
       setState(prev => ({ ...prev, syncing: false, migrationProgress: null }));
-      
-      if (migratedCount > 0) {
-        return { 
-          success: true, 
-          message: `Migração concluída! ${migratedCount} tipos de dados migrados. Total processado: ${totalProcessed}, duplicatas ignoradas: ${totalDuplicates}.` 
-        };
-      } else {
-        return { 
-          success: true, 
-          message: 'Nenhum dado novo encontrado para migrar (todos já existem no Supabase).' 
+
+      if (totalInsertedRows === 0 && totalUpdatedRows === 0) {
+        if (totalProcessed === 0) {
+          return {
+            success: true,
+            message: 'Nenhum dado no armazenamento local para migrar.',
+          };
+        }
+        return {
+          success: true,
+          message:
+            'Nenhuma alteração necessária: os dados no Supabase já estão alinhados com o armazenamento local (sem registros novos a inserir nem atualizações pendentes).',
         };
       }
+
+      if (totalUpdatedRows > 0 && totalInsertedRows === 0) {
+        return {
+          success: true,
+          message: `Dados atualizados com sucesso no Supabase (${totalUpdatedRows} registro${totalUpdatedRows !== 1 ? 's' : ''}). Total analisado: ${totalProcessed}.`,
+        };
+      }
+
+      if (totalInsertedRows > 0 && totalUpdatedRows === 0) {
+        return {
+          success: true,
+          message: `Migração concluída! ${typesWithInserts} tipo${typesWithInserts !== 1 ? 's' : ''} de dados com registros novos. Inseridos: ${totalInsertedRows}. Total processado: ${totalProcessed}, duplicatas ignoradas: ${totalDuplicates}.`,
+        };
+      }
+
+      return {
+        success: true,
+        message: `Migração concluída! ${totalInsertedRows} registro${totalInsertedRows !== 1 ? 's' : ''} novo${totalInsertedRows !== 1 ? 's' : ''} e ${totalUpdatedRows} atualizado${totalUpdatedRows !== 1 ? 's' : ''}. Total processado: ${totalProcessed}, duplicatas ignoradas: ${totalDuplicates}.`,
+      };
 
     } catch (error) {
       console.error('[MIGRAÇÃO] Erro durante a migração:', error);
@@ -754,7 +803,7 @@ export function useSupabaseData() {
           
           const dataWithUserId = sanitizedData.map(item => ({
             ...item,
-            user_id: user.id,
+            user_id: uid,
             imported_at: new Date().toISOString()
           }));
 

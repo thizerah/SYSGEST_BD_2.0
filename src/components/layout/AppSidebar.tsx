@@ -61,32 +61,6 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
 
   const menuStructure: MenuCategory[] = useMemo(() => [
     {
-      id: "metricas",
-      label: "INDICADORES",
-      items: [
-        {
-          id: "time",
-          label: "Tempos e Otimização",
-          icon: <Clock className="h-5 w-5 shrink-0 text-blue-600" strokeWidth={2.5} />,
-        },
-        {
-          id: "reopening",
-          label: "Reaberturas",
-          icon: <Repeat className="h-5 w-5 shrink-0 text-amber-600" strokeWidth={2.5} />,
-        },
-        {
-          id: "technicians",
-          label: "Técnicos",
-          icon: <Wrench className="h-5 w-5 shrink-0 text-violet-600" strokeWidth={2.5} />,
-        },
-        {
-          id: "vendedor",
-          label: "Vendedores",
-          icon: <Briefcase className="h-5 w-5 shrink-0 text-indigo-600" strokeWidth={2.5} />,
-        },
-      ],
-    },
-    {
       id: "comercial",
       label: "COMERCIAL",
       items: [
@@ -110,6 +84,11 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
           label: "Visualizar Vendas",
           icon: <Eye className="h-5 w-5 shrink-0 text-green-600" strokeWidth={2.5} />,
         },
+        {
+          id: "vendedor",
+          label: "Relatório de Vendedores",
+          icon: <Briefcase className="h-5 w-5 shrink-0 text-indigo-600" strokeWidth={2.5} />,
+        },
       ],
     },
     {
@@ -121,6 +100,21 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
           label: "Roteiro",
           icon: <Map className="h-5 w-5 shrink-0 text-teal-600" strokeWidth={2.5} />,
           badge: 0, // Será atualizado depois com OSs pendentes
+        },
+        {
+          id: "time",
+          label: "Tempos e Otimização",
+          icon: <Clock className="h-5 w-5 shrink-0 text-blue-600" strokeWidth={2.5} />,
+        },
+        {
+          id: "reopening",
+          label: "Reaberturas",
+          icon: <Repeat className="h-5 w-5 shrink-0 text-amber-600" strokeWidth={2.5} />,
+        },
+        {
+          id: "technicians",
+          label: "Relatório de Técnicos",
+          icon: <Wrench className="h-5 w-5 shrink-0 text-violet-600" strokeWidth={2.5} />,
         },
       ],
     },
