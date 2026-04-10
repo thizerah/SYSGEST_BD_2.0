@@ -57,13 +57,14 @@ export async function upsertBaseRow(
   userId: string,
   item: { mes: string; ano: number; base_tv: number; base_fibra: number; alianca: number; alianca_fibra?: number }
 ): Promise<void> {
-  const { data: existing } = await supabase
+  const { data: existing, error: selectErr } = await supabase
     .from('base_data')
     .select('id')
     .eq('user_id', userId)
     .eq('mes', item.mes)
     .eq('ano', item.ano)
     .maybeSingle();
+  if (selectErr) throw selectErr;
 
   const payload = {
     base_tv: item.base_tv,

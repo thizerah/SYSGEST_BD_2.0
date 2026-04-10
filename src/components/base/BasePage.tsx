@@ -29,6 +29,7 @@ import {
   MESES_NOMES,
 } from '@/lib/base';
 import type { BaseData } from '@/types';
+import { getSupabaseErrorMessage } from '@/utils/supabaseError';
 import { Database, Plus, Loader2, TrendingUp, TrendingDown } from 'lucide-react';
 
 const MESES_OPCOES = Object.entries(MESES_NOMES).map(([num, nome]) => ({
@@ -93,7 +94,7 @@ export function BasePage() {
     } catch (e) {
       toast({
         title: 'Erro ao carregar Base',
-        description: e instanceof Error ? e.message : 'Tente novamente.',
+        description: getSupabaseErrorMessage(e),
         variant: 'destructive',
       });
     } finally {
@@ -143,7 +144,7 @@ export function BasePage() {
     } catch (e) {
       toast({
         title: 'Erro ao salvar',
-        description: e instanceof Error ? e.message : 'Tente novamente.',
+        description: getSupabaseErrorMessage(e),
         variant: 'destructive',
       });
     } finally {
@@ -198,7 +199,7 @@ export function BasePage() {
     } catch (e) {
       toast({
         title: 'Erro ao adicionar',
-        description: e instanceof Error ? e.message : 'Tente novamente.',
+        description: getSupabaseErrorMessage(e),
         variant: 'destructive',
       });
     } finally {
