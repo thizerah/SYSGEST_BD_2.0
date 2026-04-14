@@ -17,6 +17,9 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      workbox: {
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+      },
       manifest: {
         name: 'SYSGEST',
         short_name: 'SYSGEST',
@@ -50,7 +53,15 @@ export default defineConfig(({ mode }) => ({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: undefined
+        manualChunks: (id) => {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-dom') || id.includes('react-router-dom')) return 'vendor-react';
+            if (id.includes('@radix-ui') || id.includes('lucide-react') || id.includes('cmdk') || id.includes('vaul') || id.includes('embla')) return 'vendor-ui';
+            if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-')) return 'vendor-charts';
+            if (id.includes('@supabase') || id.includes('@tanstack')) return 'vendor-data';
+            if (id.includes('date-fns') || id.includes('zod') || id.includes('react-hook-form') || id.includes('@hookform') || id.includes('xlsx')) return 'vendor-utils';
+          }
+        }
       }
     }
   }
