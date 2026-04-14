@@ -23,6 +23,7 @@ import { usePageTracking } from "@/hooks/usePageTracking";
 import { useMemo } from "react";
 import { useRotas } from "@/context/RotasContext";
 import { format } from "date-fns";
+import { DashboardMetricsSummary } from "./DashboardMetricsSummary";
 
 interface QuickAction {
   id: string;
@@ -185,32 +186,22 @@ export function DashboardHome({ onPageChange }: DashboardHomeProps) {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Hero Section */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-gray-700 via-gray-600 to-gray-800 p-8 md:p-12 shadow-xl">
-        <div className="relative z-10">
-          <div className="flex flex-col items-center justify-center text-center space-y-6">
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-white">
-                Sysnex
-              </h1>
-              <p className="text-gray-200 text-sm md:text-base mt-1">
-                Sistema inteligente de gestão operacional, comercial e indicadores
-              </p>
-            </div>
-            
-            <div className="space-y-2">
-              <h2 className="text-2xl md:text-3xl font-semibold text-white">
-                {getSaudacao()}, {user?.name?.split(" ")[0] || "Usuário"}! 👋
-              </h2>
-              <p className="text-gray-200 text-lg">
-                Bem-vindo ao seu painel de controle
-              </p>
-            </div>
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-gray-700 via-gray-600 to-gray-800 px-8 py-5 shadow-md">
+        <div className="relative z-10 flex items-center justify-between">
+          <div>
+            <span className="text-lg font-bold text-white">Sysnex</span>
+            <p className="text-gray-300 text-xs mt-0.5">
+              Sistema inteligente de gestão operacional, comercial e indicadores
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-base font-semibold text-white">
+              {getSaudacao()}, {user?.name?.split(" ")[0] || "Usuário"}! 👋
+            </p>
+            <p className="text-gray-300 text-sm">Bem-vindo ao seu painel de controle</p>
           </div>
         </div>
-        
-        {/* Decorative elements */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
+        <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
       </div>
 
       {/* Técnico: apenas card "Rota do Dia" */}
@@ -278,61 +269,9 @@ export function DashboardHome({ onPageChange }: DashboardHomeProps) {
         </div>
       ) : (
         <>
-          {/* Quick Actions Grid — não técnico */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                <Zap className="w-5 h-5 text-yellow-500" />
-                Acesso Rápido
-              </h3>
-              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
-                Baseado no seu uso
-              </span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {quickActions.map((action) => (
-                <Card
-                  key={action.id}
-                  className="group cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 border-2 hover:border-gray-300"
-                  onClick={() => onPageChange?.(action.id)}
-                >
-                  <CardContent className="p-6">
-                    <div
-                      className={`w-12 h-12 rounded-xl ${action.bgColor} flex items-center justify-center mb-4 transition-colors`}
-                    >
-                      <div className={action.color}>{action.icon}</div>
-                    </div>
-                    <h4 className="font-semibold text-gray-900 mb-1 group-hover:text-gray-700 transition-colors">
-                      {action.label}
-                    </h4>
-                    <p className="text-sm text-gray-600 mb-3">{action.description}</p>
-                    <div className="flex items-center text-sm font-medium text-gray-700 group-hover:gap-2 transition-all">
-                      Acessar
-                      <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
+          {/* Dashboard de Métricas Essenciais */}
+          <DashboardMetricsSummary onPageChange={onPageChange} />
 
-          {/* Welcome Message */}
-          <Card className="bg-gradient-to-r from-gray-50 to-neutral-50 border-2 border-gray-200">
-            <CardContent className="p-6">
-              <div className="flex items-start gap-4">
-                <div className="p-3 bg-gray-200 rounded-xl">
-                  <LayoutDashboard className="w-6 h-6 text-gray-700" />
-                </div>
-                <div className="flex-1">
-                  <h4 className="font-semibold text-gray-900 mb-2">Comece a explorar</h4>
-                  <p className="text-sm text-gray-600 leading-relaxed">
-                    Use o menu lateral para navegar entre as diferentes seções do sistema. Você pode
-                    acessar métricas, relatórios, configurações e muito mais.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </>
       )}
     </div>
