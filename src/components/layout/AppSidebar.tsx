@@ -25,6 +25,7 @@ import {
   User,
   UserPlus,
   Map,
+  Package,
   Shield,
   CreditCard,
   Upload,
@@ -35,8 +36,14 @@ import {
   FileEdit,
   Settings2,
   Eye,
+  type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/context/auth";
+
+/** Ícones neutros: cor vem do `SidebarMenuButton` (ativo = accent). */
+function MenuIcon({ icon: Icon }: { icon: LucideIcon }) {
+  return <Icon className="h-5 w-5 shrink-0 text-current" strokeWidth={2} />;
+}
 
 interface MenuItem {
   id: string;
@@ -67,27 +74,27 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
         {
           id: "metas",
           label: "Vendas",
-          icon: <Target className="h-5 w-5 shrink-0 text-green-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Target} />,
         },
         {
           id: "permanencia",
           label: "Permanência",
-          icon: <Shield className="h-5 w-5 shrink-0 text-orange-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Shield} />,
         },
         {
           id: "cadastro_comercial",
           label: "Cadastro Comercial",
-          icon: <FileEdit className="h-5 w-5 shrink-0 text-emerald-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={FileEdit} />,
         },
         {
           id: "visualizar_vendas",
           label: "Visualizar Vendas",
-          icon: <Eye className="h-5 w-5 shrink-0 text-green-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Eye} />,
         },
         {
           id: "vendedor",
           label: "Relatório de Vendedores",
-          icon: <Briefcase className="h-5 w-5 shrink-0 text-indigo-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Briefcase} />,
         },
       ],
     },
@@ -98,23 +105,28 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
         {
           id: "roteiro",
           label: "Roteiro",
-          icon: <Map className="h-5 w-5 shrink-0 text-teal-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Map} />,
           badge: 0, // Será atualizado depois com OSs pendentes
+        },
+        {
+          id: "estoque",
+          label: "Estoque",
+          icon: <MenuIcon icon={Package} />,
         },
         {
           id: "time",
           label: "Tempos e Otimização",
-          icon: <Clock className="h-5 w-5 shrink-0 text-blue-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Clock} />,
         },
         {
           id: "reopening",
           label: "Reaberturas",
-          icon: <Repeat className="h-5 w-5 shrink-0 text-amber-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Repeat} />,
         },
         {
           id: "technicians",
           label: "Relatório de Técnicos",
-          icon: <Wrench className="h-5 w-5 shrink-0 text-violet-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Wrench} />,
         },
       ],
     },
@@ -125,12 +137,12 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
         {
           id: "cadastro_tecnicos",
           label: "Cadastro de Usuários",
-          icon: <UserPlus className="h-5 w-5 shrink-0 text-pink-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={UserPlus} />,
         },
         {
           id: "subusuarios",
           label: "Cadastro de Acesso",
-          icon: <Users className="h-5 w-5 shrink-0 text-cyan-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Users} />,
         },
       ],
     },
@@ -141,27 +153,27 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
         {
           id: "indicadores",
           label: "Projeção Variável",
-          icon: <DollarSign className="h-5 w-5 shrink-0 text-emerald-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={DollarSign} />,
         },
         {
           id: "base",
           label: "Base",
-          icon: <Database className="h-5 w-5 shrink-0 text-slate-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Database} />,
         },
         {
           id: "metas_empresa",
           label: "Meta de Vendas Empresa",
-          icon: <Target className="h-5 w-5 shrink-0 text-amber-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Target} />,
         },
         {
           id: "metas_vendedor",
           label: "Meta de Vendas Vendedor",
-          icon: <Briefcase className="h-5 w-5 shrink-0 text-amber-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Briefcase} />,
         },
         {
           id: "mailing",
           label: "Mailing",
-          icon: <Mail className="h-5 w-5 shrink-0 text-rose-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Mail} />,
         },
       ],
     },
@@ -172,17 +184,17 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
         {
           id: "users",
           label: "Usuários",
-          icon: <User className="h-5 w-5 shrink-0 text-sky-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={User} />,
         },
         {
           id: "payments",
           label: "Pagamentos",
-          icon: <CreditCard className="h-5 w-5 shrink-0 text-amber-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={CreditCard} />,
         },
         {
           id: "planos_comercial",
           label: "Planos Comercial",
-          icon: <Settings2 className="h-5 w-5 shrink-0 text-blue-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Settings2} />,
         },
       ],
     },
@@ -193,7 +205,7 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
         {
           id: "import",
           label: "Importação",
-          icon: <Upload className="h-5 w-5 shrink-0 text-violet-600" strokeWidth={2.5} />,
+          icon: <MenuIcon icon={Upload} />,
         },
       ],
     },
@@ -251,9 +263,11 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader className="border-b border-sidebar-border">
-        <div className="flex items-center gap-2 px-2 py-4">
-          <LayoutDashboard className="w-6 h-6 shrink-0 text-gray-700" />
-          <span className="font-bold text-lg text-sidebar-foreground whitespace-normal break-words">
+        <div className="flex items-center gap-2.5 px-2 py-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/40">
+            <LayoutDashboard className="h-5 w-5 text-sidebar-foreground" strokeWidth={2} />
+          </div>
+          <span className="font-semibold tracking-tight text-lg text-sidebar-foreground whitespace-normal break-words">
             Sysnex
           </span>
         </div>
@@ -273,13 +287,13 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
                   <CollapsibleTrigger asChild>
                     <SidebarGroupLabel
                       asChild
-                      className="text-sidebar-foreground/70 uppercase text-xs font-semibold px-2 cursor-pointer hover:text-sidebar-foreground hover:bg-sidebar-accent/50 rounded-md transition-colors flex items-center gap-1.5 h-8"
+                      className="cursor-pointer px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground/90 flex items-center gap-1.5 h-8 rounded-md"
                     >
                       <div className="flex items-center gap-1.5 w-full">
                         {isOpen ? (
-                          <ChevronDown className="h-4 w-4 shrink-0 transition-transform" />
+                          <ChevronDown className="h-4 w-4 shrink-0 text-sidebar-foreground/60 transition-transform" />
                         ) : (
-                          <ChevronRight className="h-4 w-4 shrink-0 transition-transform" />
+                          <ChevronRight className="h-4 w-4 shrink-0 text-sidebar-foreground/60 transition-transform" />
                         )}
                         <span>{category.label}</span>
                       </div>
@@ -308,7 +322,7 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
                               {item.icon}
                               <span>{item.label}</span>
                               {item.badge !== undefined && item.badge > 0 && (
-                                <SidebarMenuBadge className="ml-auto bg-gray-700 text-white shrink-0">
+                                <SidebarMenuBadge className="ml-auto shrink-0 border border-border bg-primary text-[10px] font-medium text-primary-foreground">
                                   {item.badge}
                                 </SidebarMenuBadge>
                               )}

@@ -6,9 +6,11 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/use-toast";
+import { useAuth } from "@/context/useAuth";
 import { ServiceOrder, BaseData, TODOS_MATERIAIS } from "@/types";
 import * as XLSX from "xlsx";
 import { File, FileUp, X, FileText } from "lucide-react";
+import { sincronizarOsComEstoque, type ServiceOrderSyncItem } from "@/lib/estoque";
 
 // Função para consolidar materiais de OSs duplicadas
 function consolidateMaterials(orders: ServiceOrder[]): ServiceOrder[] {
@@ -198,8 +200,11 @@ export function FileUploader() {
     servicos: string | null;
     base: string | null;
   }>({ servicos: null, base: null });
-  const { importServiceOrders, importBaseData, clearData } = useData();
+  const { importServiceOrders, importBaseData, clearData, serviceOrders } = useData();
+  const { user, authExtras } = useAuth();
   const { toast } = useToast();
+  const donoUserId = authExtras?.donoUserId ?? user?.id ?? null;
+  const usuarioId = user?.id ?? '';
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -391,6 +396,43 @@ export function FileUploader() {
             });
           }
           
+          // Ponto 2: sincronizar IRDs e seriais com o módulo de estoque (background)
+          if (donoUserId && usuarioId && totalProcessados > 0) {
+            try {
+              const IRD_COLS = Array.from({ length: 20 }, (_, i) => `ird_${i + 1}` as keyof ServiceOrder);
+              const syncItems: ServiceOrderSyncItem[] = serviceOrders
+                .filter((o) => o.data_finalizacao)
+                .map((o) => {
+                  const seriais = IRD_COLS
+                    .map((col) => o[col] as string | null | undefined)
+                    .filter((v): v is string => Boolean(v));
+                  return {
+                    codigo_os: o.codigo_os,
+                    codigo_cliente: o.codigo_cliente ?? '',
+                    nome_cliente: o.nome_cliente ?? '',
+                    data_finalizacao: o.data_finalizacao ?? '',
+                    seriais,
+                  };
+                })
+                .filter((si) => si.seriais.length > 0);
+
+              if (syncItems.length > 0) {
+                sincronizarOsComEstoque(donoUserId, usuarioId, syncItems)
+                  .then(({ sincronizados, erros }) => {
+                    if (sincronizados > 0) {
+                      toast({ title: 'Estoque sincronizado', description: `${sincronizados} OS(s) com seriais atualizados.` });
+                    }
+                    if (erros.length > 0) {
+                      console.warn('[Ponto2] Erros sync estoque:', erros);
+                    }
+                  })
+                  .catch((e) => console.warn('[Ponto2] Falha sync estoque:', e));
+              }
+            } catch (syncErr) {
+              console.warn('[Ponto2] Erro ao preparar sync:', syncErr);
+            }
+          }
+
           setFile(null);
         } catch (err) {
           console.error('Error processing file:', err);

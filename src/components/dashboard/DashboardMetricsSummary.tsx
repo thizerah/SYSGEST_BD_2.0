@@ -1,10 +1,15 @@
-import { useMemo } from "react";
+import { useMemo, useState, useCallback } from "react";
 import useData from "@/context/useData";
 import { useOptimizationCounts } from "@/hooks/useOptimizationCounts";
+import { useReopeningMetricsByMonth } from "@/hooks/useReopeningMetricsByMonth";
 import { addMonthsForPermanencia } from "@/context/DataUtils";
+import { useRotas } from "@/context/RotasContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { NumberTicker } from "@/components/ui/number-ticker";
+import { ShimmerButton } from "@/components/ui/shimmer-button";
+import { cn } from "@/lib/utils";
 import { VALID_STATUS } from "@/types";
 import {
   Clock,
@@ -16,6 +21,13 @@ import {
   ArrowRight,
   TrendingUp,
   TrendingDown,
+  RefreshCw,
+  MapPin,
+  CheckCircle2,
+  CircleDot,
+  XCircle,
+  CalendarClock,
+  CreditCard,
 } from "lucide-react";
 
 interface DashboardMetricsSummaryProps {
@@ -42,56 +54,201 @@ function parseDateMesAno(dateStr: string): { mes: number; ano: number } | null {
 
 // Badge onde valor alto = bom (tempo de atendimento, permanência)
 function StatusBadgeHigh({ value, good, warn }: { value: number; good: number; warn: number }) {
-  if (value >= good) return <Badge className="bg-green-100 text-green-700 border-green-300 text-[10px]">Ótimo</Badge>;
-  if (value >= warn) return <Badge className="bg-yellow-100 text-yellow-700 border-yellow-300 text-[10px]">Atenção</Badge>;
-  return <Badge className="bg-red-100 text-red-700 border-red-300 text-[10px]">Crítico</Badge>;
+  if (value >= good)
+    return (
+      <Badge variant="outline" className="border-emerald-200/80 bg-emerald-50 text-[10px] font-medium text-emerald-800">
+        Ótimo
+      </Badge>
+    );
+  if (value >= warn)
+    return (
+      <Badge variant="outline" className="border-amber-200/80 bg-amber-50 text-[10px] font-medium text-amber-900">
+        Atenção
+      </Badge>
+    );
+  return (
+    <Badge variant="outline" className="border-rose-200/80 bg-rose-50 text-[10px] font-medium text-rose-900">
+      Crítico
+    </Badge>
+  );
 }
 
 // Badge onde valor baixo = bom (consumo, reaberturas)
 function StatusBadgeLow({ value, good, warn }: { value: number; good: number; warn: number }) {
-  if (value <= good) return <Badge className="bg-green-100 text-green-700 border-green-300 text-[10px]">Ótimo</Badge>;
-  if (value <= warn) return <Badge className="bg-yellow-100 text-yellow-700 border-yellow-300 text-[10px]">Atenção</Badge>;
-  return <Badge className="bg-red-100 text-red-700 border-red-300 text-[10px]">Crítico</Badge>;
+  if (value <= good)
+    return (
+      <Badge variant="outline" className="border-emerald-200/80 bg-emerald-50 text-[10px] font-medium text-emerald-800">
+        Ótimo
+      </Badge>
+    );
+  if (value <= warn)
+    return (
+      <Badge variant="outline" className="border-amber-200/80 bg-amber-50 text-[10px] font-medium text-amber-900">
+        Atenção
+      </Badge>
+    );
+  return (
+    <Badge variant="outline" className="border-rose-200/80 bg-rose-50 text-[10px] font-medium text-rose-900">
+      Crítico
+    </Badge>
+  );
 }
 
 function MetricRow({ label, value, colorClass }: { label: string; value: string; colorClass: string }) {
   return (
-    <div className="flex items-center justify-between py-1 border-b border-gray-100 last:border-0">
-      <span className="text-xs text-gray-600">{label}</span>
-      <span className={`text-sm font-bold ${colorClass}`}>{value}</span>
+    <div className="flex items-center justify-between border-b border-border/50 py-2 last:border-0">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={cn("text-sm font-semibold tabular-nums", colorClass)}>{value}</span>
     </div>
   );
 }
 
-// Linha de consumo: Material | Vol Consumo | %PDV (badge colorido por gatilho)
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-4 flex items-center gap-3">
+      <span className="h-1 w-10 rounded-full bg-gradient-to-r from-primary/50 to-primary/10" aria-hidden />
+      <h2 className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{children}</h2>
+    </div>
+  );
+}
+
+interface DashCardProps {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  badge?: React.ReactNode;
+  children: React.ReactNode;
+  onClick?: () => void;
+  className?: string;
+  featured?: boolean;
+}
+
+function DashCard({ icon, title, subtitle, badge, children, onClick, className, featured }: DashCardProps) {
+  return (
+    <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      onClick={onClick}
+      className={cn(
+        "group relative flex flex-col overflow-hidden rounded-xl border border-border/70 bg-card text-left shadow-sm transition-all duration-300",
+        "hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-lg",
+        onClick && "cursor-pointer",
+        featured && "ring-1 ring-primary/10",
+        className
+      )}
+    >
+      {featured && (
+        <span
+          className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full bg-primary/[0.06] blur-2xl transition-opacity group-hover:opacity-100"
+          aria-hidden
+        />
+      )}
+      <div className="relative flex items-start justify-between gap-2 border-b border-border/60 bg-muted/25 px-4 py-3 backdrop-blur-[2px]">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background text-primary shadow-sm ring-1 ring-border/40">
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold tracking-tight text-foreground">{title}</p>
+            {subtitle ? <p className="truncate text-[10px] text-muted-foreground">{subtitle}</p> : null}
+          </div>
+        </div>
+        {badge ? <div className="shrink-0 pt-0.5">{badge}</div> : null}
+      </div>
+      <div className="relative flex flex-1 flex-col">{children}</div>
+    </div>
+  );
+}
+
+function DetailLink({ className, children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "mt-3 flex items-center gap-1 text-xs font-medium text-primary transition-colors group-hover:text-primary/90",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Mesmos critérios de `OptimizationCountCard` → quadro «Percentuais de Consumo». */
+const GATILHO_CONSUMO_ANTENA_PCT = 86.13;
+const GATILHO_CONSUMO_LNBF_PCT = 88.63;
+const CONSUMO_PCT_LIMITE_VERDE = 50;
+
+function consumoOtimizacaoTextClass(pct: number, gatilhoCritico: number) {
+  if (pct > gatilhoCritico) return "text-red-600";
+  if (pct > CONSUMO_PCT_LIMITE_VERDE) return "text-yellow-600";
+  return "text-green-600";
+}
+
+function consumoOtimizacaoProgressClass(pct: number, gatilhoCritico: number) {
+  if (pct > gatilhoCritico) return "h-2 rounded-full bg-muted [&>div]:bg-red-500";
+  if (pct > CONSUMO_PCT_LIMITE_VERDE) return "h-2 rounded-full bg-muted [&>div]:bg-yellow-500";
+  return "h-2 rounded-full bg-muted [&>div]:bg-green-500";
+}
+
+// Cabeçalho da tabela de consumo (flex: colunas numéricas com largura fixa para não “espichar” %PDV)
+function ConsumoHeader() {
+  return (
+    <div className="mb-1 flex items-end gap-x-2 border-b border-border/70 pb-1.5 pt-0.5 text-[10px] font-semibold uppercase leading-none text-muted-foreground">
+      <span className="min-w-0 flex-1">Material</span>
+      <span className="w-11 shrink-0 text-center">Vol OS</span>
+      <span className="w-[3.25rem] shrink-0 text-center">Vol Cons.</span>
+      <span className="w-11 shrink-0 text-center">%PDV</span>
+    </div>
+  );
+}
+
+// Linha de consumo: Material | Vol OS | Vol Consumo | %PDV
 function ConsumoRow({
   label,
+  volume,
   consumo,
   pdv,
   gatilho,
   unidade = "",
 }: {
   label: string;
+  volume: number;
   consumo: number;
   pdv: number;
   gatilho: number;
   unidade?: string;
 }) {
   const badgeClass =
-    pdv === 0
-      ? "bg-green-100 text-green-700"
-      : pdv > gatilho
-      ? "bg-red-100 text-red-700"
-      : "bg-yellow-100 text-yellow-700";
+    pdv > gatilho
+      ? "bg-red-500 text-white"
+      : pdv > gatilho * 0.8
+      ? "bg-yellow-500 text-white"
+      : "bg-green-500 text-white";
 
   return (
-    <div className="grid grid-cols-3 items-center py-0.5 text-[11px]">
-      <span className="text-gray-600">{label}</span>
-      <span className="text-center text-gray-700 font-medium">
-        {consumo}{unidade}
+    <div className="flex items-center gap-x-2 py-1 text-[11px] leading-snug">
+      <span className="min-w-0 flex-1 truncate text-muted-foreground">{label}</span>
+      <span className="flex w-11 shrink-0 justify-center">
+        <span className="rounded border border-border/80 bg-muted/60 px-1 py-0.5 text-[10px] font-medium tabular-nums text-foreground/80">
+          {volume}
+        </span>
       </span>
-      <span className={`text-center font-bold rounded px-1 py-0.5 ${badgeClass}`}>
-        {pdv.toFixed(2)}%
+      <span className="w-[3.25rem] shrink-0 text-center font-medium tabular-nums text-foreground/85">
+        {consumo}
+        {unidade}
+      </span>
+      <span className={`flex w-11 shrink-0 justify-center rounded px-1 py-0.5 text-center text-[10px] font-bold tabular-nums ${badgeClass}`}>
+        {Math.round(pdv)}%
       </span>
     </div>
   );
@@ -109,13 +266,26 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
     primeirosPagamentos,
     propostasUnificadas,
     calculateTimeMetrics,
-    calculateReopeningMetrics,
     calculateMetaMetrics,
+    loadFromSupabaseIfEmpty,
+    isLoadingFromSupabase,
   } = useData();
+
+  /** Incrementado após cada atualização bem-sucedida para remontar os NumberTicker e repetir a animação. */
+  const [tickerReplay, setTickerReplay] = useState(0);
+
+  const handleRefreshPanel = useCallback(async () => {
+    await loadFromSupabaseIfEmpty();
+    setTickerReplay((n) => n + 1);
+  }, [loadFromSupabaseIfEmpty]);
 
   const mesAtual = new Date().getMonth() + 1;   // 1-indexed
   const anoAtual = new Date().getFullYear();
   const mesLabel = new Date().toLocaleString("pt-BR", { month: "long", year: "numeric" });
+
+  // Mês e ano em formato string para os hooks
+  const mesAtualStr = mesAtual.toString().padStart(2, "0");
+  const anoAtualStr = anoAtual.toString();
 
   // OSs do mês atual (por data_finalizacao ou data_criacao)
   const osDoMes = useMemo(() => {
@@ -134,12 +304,8 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
     [osDoMes]
   );
 
-  // Reaberturas (mês atual)
-  const reopeningMetrics = useMemo(
-    () => calculateReopeningMetrics(osDoMes),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [osDoMes]
-  );
+  // Reaberturas — usa o hook que replica exatamente a lógica do MetricsOverview
+  const reopeningMetrics = useReopeningMetricsByMonth(mesAtualStr, anoAtualStr);
 
   // Permanência: vendas que entram em permanência NESTE mês (habilitadas ~4 meses atrás)
   const permanenciaMesAtual = useMemo(() => {
@@ -315,11 +481,67 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
     [metaEmpresa]
   );
 
+  /** Cartão de crédito (Pós-Pago) — mesma regra da aba Metas (MetricsOverview). */
+  const cartaoCreditoResumo = useMemo(() => {
+    if (!metaEmpresa) return null;
+    const META_CARTAO_PERCENTUAL = 20;
+    const catPos = metaEmpresa.categorias.find((c) => c.categoria === "PÓS-PAGO");
+    const totalPosPago = catPos?.vendas_realizadas ?? 0;
+    const totalCartao = metaEmpresa.cartao_credito_pos_pago;
+    const percentualCartao =
+      totalPosPago > 0 ? (totalCartao / totalPosPago) * 100 : 0;
+    const metaCartaoQtd = Math.ceil(totalPosPago * (META_CARTAO_PERCENTUAL / 100));
+    const atingiuMeta = percentualCartao >= META_CARTAO_PERCENTUAL;
+    return {
+      META_CARTAO_PERCENTUAL,
+      totalPosPago,
+      totalCartao,
+      percentualCartao,
+      metaCartaoQtd,
+      atingiuMeta,
+    };
+  }, [metaEmpresa]);
+
   // Mês de referência das vendas para permanência (mesAtual - 4)
   const mesRefPermanencia = useMemo(() => {
     const d = new Date(anoAtual, mesAtual - 1 - 4, 1);
     return MESES_NOMES[d.getMonth()];
   }, [mesAtual, anoAtual]);
+
+  // ── Roteiro do Dia ──────────────────────────────────────────────
+  const { osRotas } = useRotas();
+
+  const roteiroDoDia = useMemo(() => {
+    const hoje = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    const osDia = osRotas.filter((o) => o.data_agendada === hoje);
+
+    const isAT = (o: (typeof osRotas)[0]) =>
+      o.tipo_servico?.toLowerCase().includes("assistência") || o.tipo_servico?.toLowerCase().includes("assistencia");
+    const isINS = (o: (typeof osRotas)[0]) =>
+      o.tipo_servico?.toLowerCase().includes("instalação") || o.tipo_servico?.toLowerCase().includes("instalacao");
+
+    const byStatus = {
+      pendente: osDia.filter((o) => o.status === "pendente"),
+      atribuida: osDia.filter((o) => o.status === "atribuida"),
+      em_andamento: osDia.filter((o) => o.status === "em_andamento"),
+      pre_finalizada: osDia.filter((o) => o.status === "pre_finalizada"),
+      finalizada: osDia.filter((o) => o.status === "finalizada"),
+      cancelada: osDia.filter((o) => o.status === "cancelada"),
+      reagendada: osDia.filter((o) => o.status === "reagendada"),
+    };
+
+    const pendenteMaisAtribuida = [...byStatus.pendente, ...byStatus.atribuida];
+
+    return {
+      total: osDia.length,
+      byStatus,
+      abertas: pendenteMaisAtribuida.length,
+      abertasAT: pendenteMaisAtribuida.filter(isAT).length,
+      abertasINS: pendenteMaisAtribuida.filter(isINS).length,
+      finalizadas: byStatus.finalizada.length + byStatus.pre_finalizada.length,
+      emAndamento: byStatus.em_andamento.length,
+    };
+  }, [osRotas]);
 
   const attv = timeMetrics.servicesByType["Assistência Técnica TV"];
   const pptv = timeMetrics.servicesByType["Ponto Principal TV"];
@@ -338,262 +560,645 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
   };
 
   return (
-    <div className="space-y-6">
-      {/* ── ATENDIMENTO & QUALIDADE ─────────────────────────────────── */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-          Atendimento &amp; Qualidade — {mesLabel}
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-b from-muted/35 via-background to-background p-4 shadow-sm sm:p-6 md:p-8">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/25 to-transparent"
+        aria-hidden
+      />
 
-          {/* Tempo de Atendimento */}
-          <Card className="cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 border-l-4 border-l-blue-400" onClick={() => onPageChange?.("time")}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2 text-blue-600">
-                  <Clock className="w-4 h-4" />
-                  <span className="text-xs font-semibold uppercase tracking-wide">Tempo de Atendimento</span>
-                </div>
-                <StatusBadgeHigh value={timeMetrics.percentWithinGoal} good={85} warn={70} />
-              </div>
-              <MetricRow label="Assistência Técnica TV" value={attv ? pct(attv.percentWithinGoal) : "—"} colorClass={attv ? colorTA(attv.percentWithinGoal) : "text-gray-400"} />
-              <MetricRow label="Ponto Principal TV" value={pptv ? pct(pptv.percentWithinGoal) : "—"} colorClass={pptv ? colorTA(pptv.percentWithinGoal) : "text-gray-400"} />
-              {timeMetrics.backlogCount > 0 && (
-                <p className="text-xs text-orange-600 mt-2 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" />{timeMetrics.backlogCount} em backlog
-                </p>
-              )}
-              <div className="flex items-center gap-1 text-xs text-blue-600 mt-3 font-medium">
-                Ver detalhes <ArrowRight className="w-3 h-3" />
-              </div>
-            </CardContent>
-          </Card>
+      <div className="relative space-y-8 md:space-y-10">
+        {/* Barra superior */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Visão geral</p>
+            <h1 className="mt-1 bg-gradient-to-r from-foreground via-foreground/90 to-muted-foreground bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl">
+              {mesLabel.charAt(0).toUpperCase() + mesLabel.slice(1)}
+            </h1>
+            <p className="mt-0.5 text-xs text-muted-foreground">Indicadores consolidados do período</p>
+          </div>
+          <ShimmerButton
+            onClick={() => void handleRefreshPanel()}
+            disabled={isLoadingFromSupabase}
+            className="shrink-0"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoadingFromSupabase ? "animate-spin" : ""}`} />
+            {isLoadingFromSupabase ? "Atualizando…" : "Atualizar painel"}
+          </ShimmerButton>
+        </div>
 
-          {/* Reaberturas */}
-          <Card className="cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 border-l-4 border-l-red-400" onClick={() => onPageChange?.("reopening")}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2 text-red-600">
-                  <Repeat className="w-4 h-4" />
-                  <span className="text-xs font-semibold uppercase tracking-wide">Reaberturas</span>
-                </div>
-                <StatusBadgeLow value={reopeningMetrics.reopeningRate} good={3.5} warn={7} />
-              </div>
-              <MetricRow label="Assistência Técnica TV" value={reabATTV ? pct(reabATTV.reopeningRate) : "0,00%"} colorClass={reabATTV ? colorReab(reabATTV.reopeningRate) : "text-green-600"} />
-              <MetricRow label="Ponto Principal TV" value={reabPPTV ? pct(reabPPTV.reopeningRate) : "0,00%"} colorClass={reabPPTV ? colorReab(reabPPTV.reopeningRate) : "text-green-600"} />
-              {topOfensorTV && (
-                <div className="mt-2 p-2 bg-red-50 rounded text-xs">
-                  <span className="text-gray-500">Ofensor: </span>
-                  <span className="font-semibold text-red-700">{topOfensorTV.nome}</span>
-                  <span className="text-gray-500 ml-1">({topOfensorTV.count} reab.)</span>
-                </div>
-              )}
-              <div className="flex items-center gap-1 text-xs text-red-600 mt-3 font-medium">
-                Ver detalhes <ArrowRight className="w-3 h-3" />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Permanência — mês de permanência atual */}
-          <Card className="cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 border-l-4 border-l-orange-400" onClick={() => onPageChange?.("permanencia")}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 text-orange-600">
-                  <Shield className="w-4 h-4" />
-                  <span className="text-xs font-semibold uppercase tracking-wide">Permanência</span>
-                </div>
-                <StatusBadgeHigh value={permanenciaMesAtual.percentual_adimplentes} good={55} warn={45} />
-              </div>
-              <p className="text-[10px] text-gray-400 mb-2">Hab. em {mesRefPermanencia} · {permanenciaMesAtual.total} clientes</p>
-
-              <div className="flex items-baseline gap-1 mb-2">
-                <span className="text-2xl font-bold text-gray-900">{permanenciaMesAtual.percentual_adimplentes.toFixed(2)}%</span>
-                <span className="text-xs text-gray-400">adimplentes</span>
-              </div>
-              <Progress value={Math.min(permanenciaMesAtual.percentual_adimplentes, 100)} className="h-1.5 [&>div]:bg-orange-400 mb-2" />
-
-              {permanenciaGap && (
-                <p className="text-xs mt-2 flex items-center gap-1">
-                  {permanenciaGap.acima ? (
-                    <><TrendingUp className="w-3 h-3 text-green-600" /><span className="text-green-700">{permanenciaGap.quantidade} acima da meta (55%)</span></>
-                  ) : (
-                    <><TrendingDown className="w-3 h-3 text-red-600" /><span className="text-red-700">Faltam {permanenciaGap.quantidade} para 55%</span></>
+        {/* Atendimento & Qualidade — Bento */}
+        <section>
+          <SectionLabel>Atendimento &amp; Qualidade</SectionLabel>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+            <div className="md:col-span-4">
+              <DashCard
+                icon={<Clock className="h-4 w-4" strokeWidth={2.25} />}
+                title="Tempo de Atendimento"
+                badge={<StatusBadgeHigh value={timeMetrics.percentWithinGoal} good={85} warn={70} />}
+                onClick={() => onPageChange?.("time")}
+              >
+                <CardContent className="space-y-1 p-4 pt-0">
+                  <MetricRow
+                    label="Assistência Técnica TV"
+                    value={attv ? pct(attv.percentWithinGoal) : "—"}
+                    colorClass={attv ? colorTA(attv.percentWithinGoal) : "text-muted-foreground"}
+                  />
+                  <MetricRow
+                    label="Ponto Principal TV"
+                    value={pptv ? pct(pptv.percentWithinGoal) : "—"}
+                    colorClass={pptv ? colorTA(pptv.percentWithinGoal) : "text-muted-foreground"}
+                  />
+                  {timeMetrics.backlogCount > 0 && (
+                    <p className="flex items-center gap-1 pt-1 text-xs text-amber-700">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      {timeMetrics.backlogCount} em backlog
+                    </p>
                   )}
-                </p>
-              )}
-              <div className="flex items-center gap-1 text-xs text-orange-600 mt-3 font-medium">
-                Ver detalhes <ArrowRight className="w-3 h-3" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+                  <DetailLink>
+                    Ver detalhes <ArrowRight className="h-3 w-3" />
+                  </DetailLink>
+                </CardContent>
+              </DashCard>
+            </div>
 
-      {/* ── METAS COMERCIAIS ────────────────────────────────────────── */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-          Metas Comerciais — {mesLabel}
-        </h3>
-        {metaEmpresa ? (
-          <Card className="cursor-pointer hover:shadow-md transition-all duration-200 border-l-4 border-l-green-400" onClick={() => onPageChange?.("metas")}>
-            <CardContent className="p-4">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2 text-green-600">
-                  <Target className="w-4 h-4" />
-                  <span className="text-xs font-semibold uppercase tracking-wide">Total Geral</span>
-                  <span className="text-[10px] text-gray-400 font-normal normal-case">· Meta PayTV</span>
-                </div>
-                <StatusBadgeHigh value={metaEmpresa.percentual_geral} good={80} warn={50} />
-              </div>
-
-              {/* Layout horizontal: resumo à esquerda, mini-cards à direita */}
-              <div className="flex gap-4 items-start">
-                {/* Resumo geral */}
-                <div className="flex-shrink-0 w-52">
-                  <div className="flex items-baseline gap-1.5 mb-1">
-                    <span className="text-2xl font-bold text-gray-900">{metaEmpresa.percentual_geral.toFixed(2)}%</span>
-                    <span className="text-xs text-gray-500">({metaEmpresa.total_vendas}/{metaEmpresa.total_meta})</span>
-                  </div>
-                  <Progress value={Math.min(metaEmpresa.percentual_geral, 100)} className="h-1.5 [&>div]:bg-green-500 mb-2" />
-                  <div className="grid grid-cols-3 gap-1">
-                    <div className="text-center bg-green-50 rounded p-1.5">
-                      <p className="font-bold text-green-700 text-sm">{empresaBreakdown.finalizado}</p>
-                      <p className="text-[10px] text-gray-500">Finalizado</p>
+            <div className="md:col-span-4">
+              <DashCard
+                icon={<Repeat className="h-4 w-4" strokeWidth={2.25} />}
+                title="Reaberturas"
+                badge={<StatusBadgeLow value={reopeningMetrics.reopeningRate} good={3.5} warn={7} />}
+                onClick={() => onPageChange?.("reopening")}
+              >
+                <CardContent className="space-y-1 p-4 pt-0">
+                  <MetricRow
+                    label="Assistência Técnica TV"
+                    value={reabATTV ? pct(reabATTV.reopeningRate) : "0.00%"}
+                    colorClass={reabATTV ? colorReab(reabATTV.reopeningRate) : "text-emerald-600"}
+                  />
+                  <MetricRow
+                    label="Ponto Principal TV"
+                    value={reabPPTV ? pct(reabPPTV.reopeningRate) : "0.00%"}
+                    colorClass={reabPPTV ? colorReab(reabPPTV.reopeningRate) : "text-emerald-600"}
+                  />
+                  {topOfensorTV && (
+                    <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-rose-100 bg-rose-50/80 p-2 text-xs">
+                      <AlertTriangle className="h-3 w-3 shrink-0 text-rose-500" />
+                      <span className="text-muted-foreground">Ofensor:</span>
+                      <span className="truncate font-semibold text-rose-800">{topOfensorTV.nome}</span>
+                      <span className="shrink-0 text-muted-foreground">({topOfensorTV.count})</span>
                     </div>
-                    <div className="text-center bg-yellow-50 rounded p-1.5">
-                      <p className="font-bold text-yellow-700 text-sm">{empresaBreakdown.agPagamento}</p>
-                      <p className="text-[10px] text-gray-500">Ag. Pgto</p>
-                      {(empresaBreakdown.agPagamentoPos > 0 || empresaBreakdown.agPagamentoFlex > 0) && (
-                        <p className="text-[9px] text-yellow-700 font-medium mt-0.5 leading-tight">
-                          {empresaBreakdown.agPagamentoPos > 0 && <span className="block">{empresaBreakdown.agPagamentoPos} Pós-Pago</span>}
-                          {empresaBreakdown.agPagamentoFlex > 0 && <span className="block">{empresaBreakdown.agPagamentoFlex} Flex</span>}
-                        </p>
+                  )}
+                  <DetailLink>
+                    Ver detalhes <ArrowRight className="h-3 w-3" />
+                  </DetailLink>
+                </CardContent>
+              </DashCard>
+            </div>
+
+            <div className="md:col-span-4">
+              <DashCard
+                icon={<Shield className="h-4 w-4" strokeWidth={2.25} />}
+                title="Permanência"
+                subtitle={`Hab. em ${mesRefPermanencia} · ${permanenciaMesAtual.total} clientes`}
+                badge={<StatusBadgeHigh value={permanenciaMesAtual.percentual_adimplentes} good={55} warn={45} />}
+                onClick={() => onPageChange?.("permanencia")}
+              >
+                <CardContent className="p-4 pt-0">
+                  <div className="mb-2 flex items-baseline gap-1">
+                    <span
+                      className={cn(
+                        "text-3xl font-bold tracking-tight",
+                        permanenciaMesAtual.percentual_adimplentes >= 55
+                          ? "text-emerald-600"
+                          : permanenciaMesAtual.percentual_adimplentes >= 45
+                            ? "text-amber-600"
+                            : "text-red-600"
                       )}
-                    </div>
-                    <div className="text-center bg-orange-50 rounded p-1.5">
-                      <p className="font-bold text-orange-700 text-sm">{empresaBreakdown.agHabilitacao}</p>
-                      <p className="text-[10px] text-gray-500">Ag. Hab.</p>
-                      {(empresaBreakdown.agHabilitacaoPos > 0 || empresaBreakdown.agHabilitacaoFlex > 0) && (
-                        <p className="text-[9px] text-orange-700 font-medium mt-0.5 leading-tight">
-                          {empresaBreakdown.agHabilitacaoPos > 0 && <span className="block">{empresaBreakdown.agHabilitacaoPos} Pós-Pago</span>}
-                          {empresaBreakdown.agHabilitacaoFlex > 0 && <span className="block">{empresaBreakdown.agHabilitacaoFlex} Flex</span>}
-                        </p>
-                      )}
-                    </div>
+                    >
+                      <NumberTicker
+                        key={`perm-${tickerReplay}`}
+                        value={permanenciaMesAtual.percentual_adimplentes}
+                        decimalPlaces={2}
+                      />
+                      %
+                    </span>
+                    <span className="text-xs text-muted-foreground">adimplentes</span>
                   </div>
-                </div>
+                  <Progress
+                    value={Math.min(permanenciaMesAtual.percentual_adimplentes, 100)}
+                    className="mb-3 h-2.5 rounded-full bg-muted [&>div]:bg-primary/70"
+                  />
+                  {permanenciaGap && (
+                    <p className="flex items-center gap-1 text-xs">
+                      {permanenciaGap.acima ? (
+                        <>
+                          <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />
+                          <span className="font-medium text-emerald-800">
+                            {permanenciaGap.quantidade} acima da meta (55%)
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <TrendingDown className="h-3.5 w-3.5 text-amber-600" />
+                          <span className="font-medium text-amber-800">
+                            Faltam {permanenciaGap.quantidade} para 55%
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  )}
+                  <DetailLink className="mt-3">
+                    Ver detalhes <ArrowRight className="h-3 w-3" />
+                  </DetailLink>
+                </CardContent>
+              </DashCard>
+            </div>
+          </div>
+        </section>
 
-                {/* Mini-cards por categoria — linha compacta */}
-                {categoriasComMeta.length > 0 && (
-                  <div className="flex-1 flex flex-col gap-1 min-w-0">
-                    {categoriasComMeta.map((cat) => (
-                      <div key={cat.categoria} className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded px-2 py-1 gap-2">
-                        <p className="text-[10px] font-semibold text-gray-500 uppercase truncate flex-shrink-0 w-28">{cat.categoria}</p>
-                        <Progress value={Math.min(cat.percentual_atingido, 100)} className="h-1 flex-1 min-w-0" />
-                        <p className={`text-xs font-bold flex-shrink-0 w-14 text-right ${pctColor(cat.percentual_atingido, 100)}`}>
-                          {cat.percentual_atingido.toFixed(2)}%
-                        </p>
-                        <p className="text-[10px] text-gray-400 flex-shrink-0 w-10 text-right">{cat.vendas_realizadas}/{cat.meta_definida}</p>
+        {/* Metas comerciais */}
+        <section>
+          <SectionLabel>Metas comerciais</SectionLabel>
+          {metaEmpresa ? (
+            <DashCard
+              featured
+              icon={<Target className="h-4 w-4" strokeWidth={2.25} />}
+              title="Metas Comerciais"
+              subtitle={`Meta PayTV · ${mesLabel}`}
+              badge={<StatusBadgeHigh value={metaEmpresa.percentual_geral} good={80} warn={50} />}
+              onClick={() => onPageChange?.("metas")}
+              className="overflow-hidden"
+            >
+              <CardContent className="p-5 pt-0">
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+                  <div className="w-full shrink-0 rounded-xl border border-border/50 bg-muted/20 p-4 lg:w-56">
+                    <p className="mb-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Total geral</p>
+                    <div className="flex items-baseline gap-1">
+                      <span className={cn("text-4xl font-bold tracking-tight", pctColor(metaEmpresa.percentual_geral, 100))}>
+                        <NumberTicker
+                          key={`meta-${tickerReplay}`}
+                          value={metaEmpresa.percentual_geral}
+                          decimalPlaces={2}
+                        />
+                        %
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground">{metaEmpresa.total_vendas}</span>
+                      <span> / {metaEmpresa.total_meta} vendas</span>
+                    </p>
+                    <Progress
+                      value={Math.min(metaEmpresa.percentual_geral, 100)}
+                      className="mb-5 mt-3 h-2.5 rounded-full bg-muted [&>div]:bg-primary"
+                    />
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                          <span className="text-[11px] text-muted-foreground">Finalizado</span>
+                        </div>
+                        <span className="text-sm font-bold text-emerald-700">{empresaBreakdown.finalizado}</span>
                       </div>
-                    ))}
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <div className="mt-0.5 h-2 w-2 rounded-full bg-amber-400" />
+                          <span className="text-[11px] text-muted-foreground">Ag. Pgto</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-bold text-amber-800">{empresaBreakdown.agPagamento}</span>
+                          {(empresaBreakdown.agPagamentoPos > 0 || empresaBreakdown.agPagamentoFlex > 0) && (
+                            <p className="mt-0.5 text-[9px] leading-tight text-amber-700">
+                              {[
+                                empresaBreakdown.agPagamentoPos > 0 ? `${empresaBreakdown.agPagamentoPos} Pós` : null,
+                                empresaBreakdown.agPagamentoFlex > 0 ? `${empresaBreakdown.agPagamentoFlex} Flex` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <div className="mt-0.5 h-2 w-2 rounded-full bg-orange-400" />
+                          <span className="text-[11px] text-muted-foreground">Ag. Hab.</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-bold text-orange-800">{empresaBreakdown.agHabilitacao}</span>
+                          {(empresaBreakdown.agHabilitacaoPos > 0 || empresaBreakdown.agHabilitacaoFlex > 0) && (
+                            <p className="mt-0.5 text-[9px] leading-tight text-orange-700">
+                              {[
+                                empresaBreakdown.agHabilitacaoPos > 0 ? `${empresaBreakdown.agHabilitacaoPos} Pós` : null,
+                                empresaBreakdown.agHabilitacaoFlex > 0 ? `${empresaBreakdown.agHabilitacaoFlex} Flex` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <DetailLink className="mt-4">
+                      Ver detalhes <ArrowRight className="h-3 w-3" />
+                    </DetailLink>
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card><CardContent className="p-4 text-sm text-gray-400">Meta não cadastrada para este mês.</CardContent></Card>
-        )}
-      </div>
 
-      {/* ── OTIMIZAÇÃO & CONSUMO ─────────────────────────────────────── */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-          Otimização &amp; Consumo — {mesLabel}
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {(categoriasComMeta.length > 0 ||
+                    (cartaoCreditoResumo && cartaoCreditoResumo.totalPosPago > 0)) && (
+                    <div className="min-w-0 flex-1 space-y-2.5 overflow-hidden px-0.5 pt-3 sm:pt-4">
+                      <div className="grid grid-cols-[minmax(0,1fr)_3rem_3.25rem] items-center gap-x-3 border-b border-border/60 border-l-2 border-l-transparent pb-2.5 pl-3 sm:grid-cols-[minmax(0,1fr)_3.5rem_4rem]">
+                        <span className="min-w-0 py-0.5 text-[9px] font-semibold uppercase leading-snug tracking-widest text-muted-foreground">
+                          Categoria
+                        </span>
+                        <span className="w-full py-0.5 text-right text-[9px] font-semibold uppercase leading-snug tracking-widest text-muted-foreground">
+                          %
+                        </span>
+                        <span className="w-full py-0.5 text-right text-[9px] font-semibold uppercase leading-snug tracking-widest text-muted-foreground">
+                          Vendas
+                        </span>
+                      </div>
+                      {categoriasComMeta.map((cat) => {
+                        const borderAccent =
+                          cat.percentual_atingido >= 80
+                            ? "border-l-emerald-500"
+                            : cat.percentual_atingido >= 50
+                              ? "border-l-amber-400"
+                              : cat.percentual_atingido > 0
+                                ? "border-l-orange-400"
+                                : "border-l-border";
+                        const fillClass =
+                          cat.percentual_atingido >= 80
+                            ? "[&>div]:bg-emerald-500"
+                            : cat.percentual_atingido >= 50
+                              ? "[&>div]:bg-amber-400"
+                              : cat.percentual_atingido > 0
+                                ? "[&>div]:bg-orange-500"
+                                : "[&>div]:bg-muted-foreground/35";
+                        return (
+                          <div key={cat.categoria} className={cn("min-w-0 rounded-r-lg border-l-2 pl-3", borderAccent)}>
+                            <div className="mb-1 grid grid-cols-[minmax(0,1fr)_3rem_3.25rem] items-center gap-x-3 sm:grid-cols-[minmax(0,1fr)_3.5rem_4rem]">
+                              <span className="min-w-0 truncate text-[10px] font-semibold uppercase text-foreground/80">
+                                {cat.categoria}
+                              </span>
+                              <span className={cn("text-right text-xs font-bold tabular-nums", pctColor(cat.percentual_atingido, 100))}>
+                                {cat.percentual_atingido.toFixed(2)}%
+                              </span>
+                              <span className="text-right text-[10px] tabular-nums text-muted-foreground">
+                                {cat.vendas_realizadas}/{cat.meta_definida}
+                              </span>
+                            </div>
+                            <Progress
+                              value={Math.min(cat.percentual_atingido, 100)}
+                              className={cn("h-1.5 rounded-full bg-muted", fillClass)}
+                            />
+                          </div>
+                        );
+                      })}
 
-          {/* Consumo AT (antenas) */}
-          <Card className="cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 border-l-4 border-l-purple-400" onClick={() => onPageChange?.("time")}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 text-purple-600">
-                  <Zap className="w-4 h-4" />
-                  <span className="text-xs font-semibold uppercase tracking-wide">Consumo Antena</span>
+                      {cartaoCreditoResumo && cartaoCreditoResumo.totalPosPago > 0 && (
+                        <div className="min-w-0 rounded-r-lg border-l-2 border-l-amber-500 pl-3">
+                          <div className="mb-1 grid grid-cols-[minmax(0,1fr)_3rem_3.25rem] items-center gap-x-3 sm:grid-cols-[minmax(0,1fr)_3.5rem_4rem]">
+                            <span className="flex min-w-0 items-center gap-1.5 truncate text-[10px] font-semibold uppercase text-amber-950">
+                              <CreditCard className="h-3 w-3 shrink-0 text-amber-700" strokeWidth={2.25} />
+                              <span className="truncate">Cartão de crédito</span>
+                            </span>
+                            <span
+                              className={cn(
+                                "text-right text-xs font-bold tabular-nums",
+                                cartaoCreditoResumo.atingiuMeta
+                                  ? "text-emerald-600"
+                                  : cartaoCreditoResumo.percentualCartao >=
+                                      cartaoCreditoResumo.META_CARTAO_PERCENTUAL * 0.75
+                                    ? "text-amber-700"
+                                    : "text-rose-600"
+                              )}
+                            >
+                              {cartaoCreditoResumo.percentualCartao.toFixed(2)}%
+                            </span>
+                            <span className="text-right text-[10px] tabular-nums text-muted-foreground">
+                              {cartaoCreditoResumo.totalCartao}/{cartaoCreditoResumo.metaCartaoQtd}
+                            </span>
+                          </div>
+                          <Progress
+                            value={Math.min(
+                              100,
+                              (cartaoCreditoResumo.percentualCartao /
+                                cartaoCreditoResumo.META_CARTAO_PERCENTUAL) *
+                                100
+                            )}
+                            className={cn(
+                              "h-1.5 rounded-full bg-muted",
+                              cartaoCreditoResumo.atingiuMeta
+                                ? "[&>div]:bg-emerald-500"
+                                : cartaoCreditoResumo.percentualCartao >=
+                                    cartaoCreditoResumo.META_CARTAO_PERCENTUAL * 0.75
+                                  ? "[&>div]:bg-amber-500"
+                                  : "[&>div]:bg-rose-500"
+                            )}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <StatusBadgeLow value={pctConsumoAntena} good={40} warn={60} />
-              </div>
-              <span className="text-2xl font-bold text-gray-900">{pct(pctConsumoAntena)}</span>
-              <p className="text-xs text-gray-500 mt-1">consumo de antenas ({volumeConsumoAntena}/{volumeOS} OS)</p>
-              <Progress value={pctConsumoAntena} className="h-1.5 [&>div]:bg-purple-400 mt-2" />
-              <div className="flex items-center gap-1 text-xs text-purple-600 mt-3 font-medium">
-                Ver detalhes <ArrowRight className="w-3 h-3" />
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </DashCard>
+          ) : (
+            <Card className="border-dashed">
+              <CardContent className="p-6 text-center text-sm text-muted-foreground">
+                Meta não cadastrada para este mês.
+              </CardContent>
+            </Card>
+          )}
+        </section>
 
-          {/* Consumo PP (LNBF) */}
-          <Card className="cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 border-l-4 border-l-violet-400" onClick={() => onPageChange?.("time")}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 text-violet-600">
-                  <Zap className="w-4 h-4" />
-                  <span className="text-xs font-semibold uppercase tracking-wide">Consumo LNBs</span>
-                </div>
-                <StatusBadgeLow value={pctConsumoLnbs} good={40} warn={60} />
-              </div>
-              <span className="text-2xl font-bold text-gray-900">{pct(pctConsumoLnbs)}</span>
-              <p className="text-xs text-gray-500 mt-1">consumo de LNBF ({volumeConsumoLnbs}/{volumeOS} OS)</p>
-              <Progress value={pctConsumoLnbs} className="h-1.5 [&>div]:bg-violet-400 mt-2" />
-              <div className="flex items-center gap-1 text-xs text-violet-600 mt-3 font-medium">
-                Ver detalhes <ArrowRight className="w-3 h-3" />
-              </div>
-            </CardContent>
-          </Card>
+        {/* Otimização & Consumo */}
+        <section>
+          <SectionLabel>Otimização &amp; Consumo</SectionLabel>
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-12">
+            <div className="md:col-span-4">
+              <DashCard
+                icon={<Zap className="h-4 w-4" strokeWidth={2.25} />}
+                title="Consumo de Materiais"
+                onClick={() => onPageChange?.("time")}
+              >
+                <CardContent className="space-y-5 px-5 pb-5 pt-2">
+                  <div className="pt-0.5">
+                    <div className="mb-2.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Antena</span>
+                      <StatusBadgeLow
+                        value={pctConsumoAntena}
+                        good={CONSUMO_PCT_LIMITE_VERDE}
+                        warn={GATILHO_CONSUMO_ANTENA_PCT}
+                      />
+                    </div>
+                    <div
+                      className={cn(
+                        "mb-2 flex items-baseline gap-0.5 text-2xl font-bold tracking-tight",
+                        consumoOtimizacaoTextClass(pctConsumoAntena, GATILHO_CONSUMO_ANTENA_PCT)
+                      )}
+                    >
+                      <NumberTicker
+                        key={`ant-${tickerReplay}`}
+                        value={pctConsumoAntena}
+                        decimalPlaces={2}
+                        className="text-inherit"
+                      />
+                      %
+                    </div>
+                    <p className="mb-3 text-[11px] text-muted-foreground">
+                      {volumeConsumoAntena} antenas · {volumeOS} OS
+                    </p>
+                    <Progress
+                      value={pctConsumoAntena}
+                      className={consumoOtimizacaoProgressClass(pctConsumoAntena, GATILHO_CONSUMO_ANTENA_PCT)}
+                    />
+                  </div>
 
-          {/* Consumo Excessivo */}
-          <Card className="cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 border-l-4 border-l-rose-400" onClick={() => onPageChange?.("time")}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-rose-600 mb-3">
-                <AlertTriangle className="w-4 h-4" />
-                <span className="text-xs font-semibold uppercase tracking-wide">Consumo Excessivo</span>
-              </div>
+                  <div className="border-t border-border/60 pt-1" />
 
-              {/* AT Corretiva */}
-              {consumoExcessivo.atCorretiva.volume > 0 && (
-                <div className="mb-3">
-                  <p className="text-[10px] font-semibold text-red-700 uppercase mb-1">
-                    AT Corretiva · {consumoExcessivo.atCorretiva.volume} OS
-                  </p>
-                  <ConsumoRow label="Antenas" consumo={consumoExcessivo.atCorretiva.antenas.consumo} pdv={consumoExcessivo.atCorretiva.antenas.pdv} gatilho={consumoExcessivo.atCorretiva.antenas.gatilho} />
-                  <ConsumoRow label="Cabo"    consumo={consumoExcessivo.atCorretiva.cabo.consumo}    pdv={consumoExcessivo.atCorretiva.cabo.pdv}    gatilho={consumoExcessivo.atCorretiva.cabo.gatilho} unidade="m" />
-                  <ConsumoRow label="LNBs"    consumo={consumoExcessivo.atCorretiva.lnbs.consumo}   pdv={consumoExcessivo.atCorretiva.lnbs.pdv}   gatilho={consumoExcessivo.atCorretiva.lnbs.gatilho} />
-                </div>
-              )}
+                  <div className="pb-0.5">
+                    <div className="mb-2.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">LNBs</span>
+                      <StatusBadgeLow
+                        value={pctConsumoLnbs}
+                        good={CONSUMO_PCT_LIMITE_VERDE}
+                        warn={GATILHO_CONSUMO_LNBF_PCT}
+                      />
+                    </div>
+                    <div
+                      className={cn(
+                        "mb-2 flex items-baseline gap-0.5 text-2xl font-bold tracking-tight",
+                        consumoOtimizacaoTextClass(pctConsumoLnbs, GATILHO_CONSUMO_LNBF_PCT)
+                      )}
+                    >
+                      <NumberTicker
+                        key={`lnb-${tickerReplay}`}
+                        value={pctConsumoLnbs}
+                        decimalPlaces={2}
+                        className="text-inherit"
+                      />
+                      %
+                    </div>
+                    <p className="mb-3 text-[11px] text-muted-foreground">
+                      {volumeConsumoLnbs} LNBFs · {volumeOS} OS
+                    </p>
+                    <Progress
+                      value={pctConsumoLnbs}
+                      className={consumoOtimizacaoProgressClass(pctConsumoLnbs, GATILHO_CONSUMO_LNBF_PCT)}
+                    />
+                  </div>
 
-              {/* UP/DOWN */}
-              {consumoExcessivo.upDown.volume > 0 && (
-                <div>
-                  <p className="text-[10px] font-semibold text-orange-700 uppercase mb-1">
-                    UP/DOWN · {consumoExcessivo.upDown.volume} OS
-                  </p>
-                  <ConsumoRow label="Antenas" consumo={consumoExcessivo.upDown.antenas.consumo} pdv={consumoExcessivo.upDown.antenas.pdv} gatilho={consumoExcessivo.upDown.antenas.gatilho} />
-                  <ConsumoRow label="Cabo"    consumo={consumoExcessivo.upDown.cabo.consumo}    pdv={consumoExcessivo.upDown.cabo.pdv}    gatilho={consumoExcessivo.upDown.cabo.gatilho} unidade="m" />
-                  <ConsumoRow label="LNBs"    consumo={consumoExcessivo.upDown.lnbs.consumo}   pdv={consumoExcessivo.upDown.lnbs.pdv}   gatilho={consumoExcessivo.upDown.lnbs.gatilho} />
-                </div>
-              )}
+                  <DetailLink className="mt-2">
+                    Ver detalhes <ArrowRight className="h-3 w-3" />
+                  </DetailLink>
+                </CardContent>
+              </DashCard>
+            </div>
 
-              {consumoExcessivo.atCorretiva.volume === 0 && consumoExcessivo.upDown.volume === 0 && (
-                <p className="text-sm text-gray-400">Sem dados no mês.</p>
-              )}
+            <div className="md:col-span-4">
+              <DashCard
+                icon={<AlertTriangle className="h-4 w-4" strokeWidth={2.25} />}
+                title="Consumo Excessivo"
+                onClick={() => onPageChange?.("time")}
+              >
+                <CardContent className="px-4 pb-5 pt-2 sm:px-5">
+                  {consumoExcessivo.atCorretiva.volume > 0 && (
+                    <div className="mb-3">
+                      <p className="mb-1.5 text-[10px] font-semibold uppercase leading-snug text-rose-800">
+                        AT Corretiva · {consumoExcessivo.atCorretiva.volume} OS
+                      </p>
+                      <ConsumoHeader />
+                      <ConsumoRow
+                        label="Antenas"
+                        volume={consumoExcessivo.atCorretiva.volume}
+                        consumo={consumoExcessivo.atCorretiva.antenas.consumo}
+                        pdv={consumoExcessivo.atCorretiva.antenas.pdv}
+                        gatilho={consumoExcessivo.atCorretiva.antenas.gatilho}
+                      />
+                      <ConsumoRow
+                        label="Cabo"
+                        volume={consumoExcessivo.atCorretiva.volume}
+                        consumo={consumoExcessivo.atCorretiva.cabo.consumo}
+                        pdv={consumoExcessivo.atCorretiva.cabo.pdv}
+                        gatilho={consumoExcessivo.atCorretiva.cabo.gatilho}
+                        unidade="m"
+                      />
+                      <ConsumoRow
+                        label="LNBs"
+                        volume={consumoExcessivo.atCorretiva.volume}
+                        consumo={consumoExcessivo.atCorretiva.lnbs.consumo}
+                        pdv={consumoExcessivo.atCorretiva.lnbs.pdv}
+                        gatilho={consumoExcessivo.atCorretiva.lnbs.gatilho}
+                      />
+                    </div>
+                  )}
 
-              <div className="flex items-center gap-1 text-xs text-rose-600 mt-3 font-medium">
-                Ver detalhes <ArrowRight className="w-3 h-3" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                  {consumoExcessivo.upDown.volume > 0 && (
+                    <div
+                      className={
+                        consumoExcessivo.atCorretiva.volume > 0
+                          ? "border-t border-border/50 pt-3"
+                          : ""
+                      }
+                    >
+                      <p className="mb-1.5 text-[10px] font-semibold uppercase leading-snug text-amber-800">
+                        UP/DOWN · {consumoExcessivo.upDown.volume} OS
+                      </p>
+                      <ConsumoHeader />
+                      <ConsumoRow
+                        label="Antenas"
+                        volume={consumoExcessivo.upDown.volume}
+                        consumo={consumoExcessivo.upDown.antenas.consumo}
+                        pdv={consumoExcessivo.upDown.antenas.pdv}
+                        gatilho={consumoExcessivo.upDown.antenas.gatilho}
+                      />
+                      <ConsumoRow
+                        label="Cabo"
+                        volume={consumoExcessivo.upDown.volume}
+                        consumo={consumoExcessivo.upDown.cabo.consumo}
+                        pdv={consumoExcessivo.upDown.cabo.pdv}
+                        gatilho={consumoExcessivo.upDown.cabo.gatilho}
+                        unidade="m"
+                      />
+                      <ConsumoRow
+                        label="LNBs"
+                        volume={consumoExcessivo.upDown.volume}
+                        consumo={consumoExcessivo.upDown.lnbs.consumo}
+                        pdv={consumoExcessivo.upDown.lnbs.pdv}
+                        gatilho={consumoExcessivo.upDown.lnbs.gatilho}
+                      />
+                    </div>
+                  )}
+
+                  {consumoExcessivo.atCorretiva.volume === 0 && consumoExcessivo.upDown.volume === 0 && (
+                    <p className="py-2 text-sm text-muted-foreground">Sem dados no mês.</p>
+                  )}
+
+                  <DetailLink className="mt-4">
+                    Ver detalhes <ArrowRight className="h-3 w-3" />
+                  </DetailLink>
+                </CardContent>
+              </DashCard>
+            </div>
+
+            <div className="md:col-span-4">
+              <DashCard
+                icon={<MapPin className="h-4 w-4" strokeWidth={2.25} />}
+                title="Roteiro do Dia"
+                subtitle={new Date().toLocaleDateString("pt-BR", {
+                  weekday: "short",
+                  day: "2-digit",
+                  month: "2-digit",
+                })}
+                badge={
+                  roteiroDoDia.total > 0 ? (
+                    <Badge variant="secondary" className="border-primary/15 bg-primary/10 text-[10px] font-semibold text-primary">
+                      {roteiroDoDia.total} OS
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                      Vazio
+                    </Badge>
+                  )
+                }
+                onClick={() => onPageChange?.("roteiro")}
+              >
+                <CardContent className="px-5 pb-5 pt-2">
+                  {roteiroDoDia.total === 0 ? (
+                    <p className="mt-1 rounded-lg border border-dashed border-border/80 bg-muted/20 px-4 py-8 text-center text-sm leading-relaxed text-muted-foreground">
+                      Nenhuma OS agendada para hoje.
+                    </p>
+                  ) : (
+                    <div className="space-y-3 pt-0.5">
+                      {roteiroDoDia.abertas > 0 && (
+                        <div className="flex items-start justify-between rounded-lg border border-amber-100 bg-amber-50/80 p-3.5">
+                          <div className="flex items-center gap-2">
+                            <CircleDot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
+                            <div>
+                              <p className="text-[11px] font-semibold text-amber-900">Pendentes / Atribuídas</p>
+                              <p className="mt-0.5 text-[10px] text-amber-800/90">
+                                {[
+                                  roteiroDoDia.abertasAT > 0 ? `${roteiroDoDia.abertasAT} AT` : null,
+                                  roteiroDoDia.abertasINS > 0 ? `${roteiroDoDia.abertasINS} INS` : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ") || "Outros"}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-sm font-bold text-amber-900">{roteiroDoDia.abertas}</span>
+                        </div>
+                      )}
+
+                      {roteiroDoDia.emAndamento > 0 && (
+                        <div className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50/80 p-3.5">
+                          <div className="flex items-center gap-2">
+                            <CircleDot className="h-3.5 w-3.5 text-blue-700" />
+                            <span className="text-[11px] font-semibold text-blue-900">Em andamento</span>
+                          </div>
+                          <span className="text-sm font-bold text-blue-900">{roteiroDoDia.emAndamento}</span>
+                        </div>
+                      )}
+
+                      {roteiroDoDia.byStatus.pre_finalizada.length > 0 && (
+                        <div className="flex items-center justify-between rounded-lg border border-violet-100 bg-violet-50/80 p-3.5">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-violet-700" />
+                            <span className="text-[11px] font-semibold text-violet-900">Pré-finalizada</span>
+                          </div>
+                          <span className="text-sm font-bold text-violet-900">
+                            {roteiroDoDia.byStatus.pre_finalizada.length}
+                          </span>
+                        </div>
+                      )}
+
+                      {roteiroDoDia.byStatus.finalizada.length > 0 && (
+                        <div className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/80 p-3.5">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
+                            <span className="text-[11px] font-semibold text-emerald-900">Finalizada</span>
+                          </div>
+                          <span className="text-sm font-bold text-emerald-900">
+                            {roteiroDoDia.byStatus.finalizada.length}
+                          </span>
+                        </div>
+                      )}
+
+                      {roteiroDoDia.byStatus.cancelada.length > 0 && (
+                        <div className="flex items-center justify-between rounded-lg border border-rose-100 bg-rose-50/80 p-3.5">
+                          <div className="flex items-center gap-2">
+                            <XCircle className="h-3.5 w-3.5 text-rose-600" />
+                            <span className="text-[11px] font-semibold text-rose-900">Cancelada</span>
+                          </div>
+                          <span className="text-sm font-bold text-rose-800">
+                            {roteiroDoDia.byStatus.cancelada.length}
+                          </span>
+                        </div>
+                      )}
+
+                      {roteiroDoDia.byStatus.reagendada.length > 0 && (
+                        <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 p-3.5">
+                          <div className="flex items-center gap-2">
+                            <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-[11px] font-semibold text-foreground/80">Reagendada</span>
+                          </div>
+                          <span className="text-sm font-bold text-foreground">
+                            {roteiroDoDia.byStatus.reagendada.length}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <DetailLink className="mt-5">
+                    Ver roteiro <ArrowRight className="h-3 w-3" />
+                  </DetailLink>
+                </CardContent>
+              </DashCard>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );

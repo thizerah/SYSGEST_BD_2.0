@@ -31,6 +31,7 @@ export const PERMISSOES_CODIGOS = [
   'visualizar_vendas_todas',
   'editar_metas_vendedor',
   'visualizar_metas_vendedor',
+  'estoque',
 ] as const;
 
 export type PermissaoCodigo = (typeof PERMISSOES_CODIGOS)[number];
@@ -52,6 +53,7 @@ export const PAGE_TO_PERMISSION: Record<string, PermissaoCodigo | null> = {
   cadastro_tecnicos: 'cadastro_usuarios',
   subusuarios: 'cadastro_acesso',
   cadastro_comercial: null, // Usa PAGE_TO_PERMISSION_ANY
+  estoque: 'estoque',
 };
 
 /** Páginas que exigem QUALQUER uma das permissões listadas. */

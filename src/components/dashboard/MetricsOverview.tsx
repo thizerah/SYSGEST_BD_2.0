@@ -221,6 +221,7 @@ import { ServiceOrderTable } from "@/components/dashboard/ServiceOrderTable";
 import { OptimizationCountCard } from "@/components/dashboard/OptimizationCountCard";
 import { Badge } from "@/components/ui/badge";
 import { RoteiroMain } from "@/components/roteiro/RoteiroMain";
+import { EstoqueMain } from "@/components/estoque/EstoqueMain";
 import { CadastroTecnicos } from "@/components/cadastro/CadastroTecnicos";
 import { CadastroComercial } from "@/components/cadastro/CadastroComercial";
 import { VisualizarVendasPage } from "@/components/vendas/VisualizarVendasPage";
@@ -8741,6 +8742,11 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
     {/* Roteiro */}
     <TabsContent value="roteiro" className="space-y-4">
       <RoteiroMain />
+    </TabsContent>
+
+    {/* Estoque */}
+    <TabsContent value="estoque" className="space-y-4">
+      <EstoqueMain />
     </TabsContent>
 
     {/* Cadastro de Usuários */}

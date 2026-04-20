@@ -110,13 +110,18 @@ export default {
 					to: {
 						height: '0'
 					}
+				},
+				'shimmer-slide': {
+					'0%': { transform: 'translateX(-100%)' },
+					'100%': { transform: 'translateX(200%)' }
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out',
 				'collapsible-down': 'collapsible-down 0.25s ease-out',
-				'collapsible-up': 'collapsible-up 0.2s ease-in'
+				'collapsible-up': 'collapsible-up 0.2s ease-in',
+				'shimmer-slide': 'shimmer-slide 2.2s ease-in-out infinite'
 			}
 		}
 	},

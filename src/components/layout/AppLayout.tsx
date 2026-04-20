@@ -47,6 +47,7 @@ const PAGE_TITLES: Record<string, string> = {
   mailing: "Mailing",
   cadastro_comercial: "Cadastro Comercial",
   visualizar_vendas: "Visualizar Vendas",
+  planos_comercial: "Planos Comercial",
 };
 
 export function AppLayout({ 
@@ -86,26 +87,25 @@ export function AppLayout({
     <SidebarProvider defaultOpen={true}>
       <AppSidebar activePage={activePage} onPageChange={onPageChange} />
       <SidebarInset>
-        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b bg-background px-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="mr-2 h-4" />
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:h-16 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <SidebarTrigger className="-ml-0.5 text-foreground" />
+            <Separator orientation="vertical" className="h-4 bg-border" />
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
                   {activePage !== "home" ? (
                     <button
+                      type="button"
                       onClick={() => onPageChange("home")}
-                      className="group flex items-center gap-2 px-3 py-1.5 rounded-md font-semibold text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 hover:text-gray-900 border border-gray-200 hover:border-gray-300 transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer"
+                      className="group flex max-w-[min(100vw-10rem,20rem)] cursor-pointer items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/70 sm:max-w-xs sm:px-3"
                       title="Voltar para o início"
                     >
-                      <Home className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                      <span className="truncate max-w-[180px] sm:max-w-xs">
-                        {PAGE_TITLES[activePage] || "Dashboard"}
-                      </span>
+                      <Home className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                      <span className="truncate">{PAGE_TITLES[activePage] || "Dashboard"}</span>
                     </button>
                   ) : (
-                    <BreadcrumbPage className="font-semibold">
+                    <BreadcrumbPage className="font-semibold text-foreground">
                       {PAGE_TITLES[activePage] || "Dashboard"}
                     </BreadcrumbPage>
                   )}
@@ -114,41 +114,35 @@ export function AppLayout({
             </Breadcrumb>
           </div>
 
-          {/* Card de usuário no header principal */}
-          <div className="hidden md:flex items-center">
-            <div className="flex items-center gap-3 rounded-xl bg-white/80 border border-gray-200 px-4 py-2 shadow-sm">
-              <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-sm font-bold text-gray-800">
-                {(user?.name || "T").charAt(0).toUpperCase()}
+          <div className="hidden md:flex md:items-center">
+            <div className="flex max-w-md items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground">
+                {(user?.name || "U").charAt(0).toUpperCase()}
               </div>
-              <div className="flex flex-col text-xs leading-tight text-gray-800">
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5">
-                  <span>
-                    <span className="font-semibold">Usuário:</span>{" "}
-                    <span>{user?.name || "Thiago Nascimento"}</span>
-                  </span>
-                  <span>
-                    <span className="font-semibold">Empresa:</span>{" "}
-                    <span>{user?.empresa || "SYSTEC"}</span>
-                  </span>
+              <div className="min-w-0 flex-1 text-xs leading-tight text-foreground">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <span className="text-muted-foreground">Usuário</span>
+                  <span className="truncate font-medium">{user?.name ?? "—"}</span>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5">
-                  <span>
-                    <span className="font-semibold">Função:</span>{" "}
-                    <span>{getFuncaoLabel()}</span>
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <span className="text-muted-foreground">Empresa</span>
+                  <span className="truncate">{user?.empresa ?? "—"}</span>
+                </div>
+                <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground/80">{getFuncaoLabel()}</span>
+                  <span aria-hidden className="text-border">
+                    ·
                   </span>
-                  <span className="text-[11px] text-gray-600">
-                    <span className="font-semibold">Último acesso:</span>{" "}
+                  <span>
                     {new Date().toLocaleDateString("pt-BR")}{" "}
-                    {new Date().toLocaleTimeString("pt-BR", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={logout}
-                className="ml-2 text-xs font-semibold text-red-600 hover:text-red-700 px-2 py-1 rounded-md hover:bg-red-50 transition-colors"
+                className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
               >
                 Sair
               </button>

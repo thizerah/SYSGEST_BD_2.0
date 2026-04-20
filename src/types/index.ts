@@ -554,6 +554,10 @@ export interface RegistroTempo {
 export interface MaterialRota {
   nome: string;
   quantidade: number;
+  // Campos de integração com estoque (Opção B)
+  material_id?: string;
+  unidade?: string;
+  serial_ids?: string[]; // IDs dos seriais da tabela seriais
 }
 
 // Foto antes/depois

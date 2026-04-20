@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -57,16 +57,20 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { RotaOS, StatusRotaOS } from '@/types';
+import { RotaOS, StatusRotaOS, MaterialRota } from '@/types';
 import { cn } from '@/lib/utils';
 import { obterHistoricoCliente, extrairMotivoDasObservacoes } from '@/lib/roteiroHistorico';
+import { fetchEstoqueTecnico, fetchSeriaisTecnicoPorMaterial, abaterMateriaisOS } from '@/lib/estoque';
+import type { EstoqueSaldo, Serial } from '@/types/estoque';
 
 export function RotaDoDia() {
   const { osRotas, tecnicos, atualizarOS, buscarOSPorTecnico, removerOS, removerAtribuicao, atribuirTecnico, obterMediaTempoPorTipo, atualizarMediaTempo, recarregarDados, ultimaAtualizacao } = useRotas();
-  const { authExtras } = useAuth();
+  const { user, authExtras } = useAuth();
   const { toast } = useToast();
   const isTecnico = authExtras?.papelCodigo === 'tecnico' && !!authExtras?.equipeId;
   const equipeId = authExtras?.equipeId ?? null;
+  const donoUserId = authExtras?.donoUserId ?? user?.id ?? null;
+  const usuarioId = user?.id ?? '';
   const osRotasRoteiro = isTecnico && equipeId ? osRotas.filter((os) => os.tecnico_id === equipeId) : osRotas;
   const tecnicosRoteiro = isTecnico && equipeId ? tecnicos.filter((t) => t.id === equipeId) : tecnicos;
 
@@ -125,6 +129,39 @@ export function RotaDoDia() {
   const [modoEdicaoOrdem, setModoEdicaoOrdem] = useState(false);
   const [ordemTemporaria, setOrdemTemporaria] = useState<Record<string, number>>({});
   const [filtroTecnicoId, setFiltroTecnicoId] = useState<string>('__todos__');
+
+  // Materiais utilizados na OS – Opção B
+  const [materiaisOS, setMateriaisOS] = useState<MaterialRota[]>([]);
+  const [estoqueTecnicoOS, setEstoqueTecnicoOS] = useState<EstoqueSaldo[]>([]);
+  const [seriaisDispOS, setSeriaisDispOS] = useState<Record<string, Serial[]>>({});
+  const [matIdSelecionado, setMatIdSelecionado] = useState('');
+  const [qtdMaterial, setQtdMaterial] = useState(1);
+  const [serialSelecionados, setSerialSelecionados] = useState<string[]>([]);
+  const [confirmandoOS, setConfirmandoOS] = useState(false);
+
+  // Carregar estoque do técnico ao abrir dialog (Opção B)
+  useEffect(() => {
+    if (!dialogAberto || !isTecnico || !equipeId || !donoUserId) {
+      setEstoqueTecnicoOS([]);
+      return;
+    }
+    fetchEstoqueTecnico(donoUserId, equipeId)
+      .then(setEstoqueTecnicoOS)
+      .catch(() => setEstoqueTecnicoOS([]));
+  }, [dialogAberto, isTecnico, equipeId, donoUserId]);
+
+  // Carregar seriais disponíveis para o material selecionado (técnico)
+  useEffect(() => {
+    if (!matIdSelecionado || !donoUserId || !equipeId) { setSerialSelecionados([]); return; }
+    const mat = estoqueTecnicoOS.find((s) => s.material_id === matIdSelecionado);
+    if (!mat?.material?.serializado) { setSerialSelecionados([]); return; }
+    fetchSeriaisTecnicoPorMaterial(donoUserId, equipeId, matIdSelecionado)
+      .then((seriais) => {
+        setSeriaisDispOS((prev) => ({ ...prev, [matIdSelecionado]: seriais }));
+        setSerialSelecionados([]);
+      })
+      .catch(() => setSeriaisDispOS((prev) => ({ ...prev, [matIdSelecionado]: [] })));
+  }, [matIdSelecionado, donoUserId, equipeId, estoqueTecnicoOS]);
 
   const historicoCliente = useMemo(() => {
     if (!osSelecionada?.codigo_cliente) return [];
@@ -579,6 +616,11 @@ Em breve entraremos em contato para mais informações.`;
     setServicoPago(os.servico_pago || false);
     setValorPago(os.valor_pago);
     setFormaPagamento(os.forma_pagamento || '');
+    // Reset materiais OS
+    setMateriaisOS(os.materiais_utilizados ?? []);
+    setMatIdSelecionado('');
+    setQtdMaterial(1);
+    setSerialSelecionados([]);
     setDialogAberto(true);
   };
 
@@ -790,7 +832,8 @@ Em breve entraremos em contato para mais informações.`;
     let registroTempo = osSelecionada.registro_tempo || { chegada: '', saida: '' };
 
     if (statusFinalizada) {
-      novoStatus = 'finalizada';
+      // Técnico finaliza → pré-finalizada (aguarda confirmação do estoquista)
+      novoStatus = isTecnico ? 'pre_finalizada' : 'finalizada';
       // Preencher hora de saída automaticamente se não tiver
       if (!horarioSaida) {
         setHorarioSaida(horarioAgora);
@@ -847,6 +890,8 @@ Em breve entraremos em contato para mais informações.`;
       servico_pago: servicoPago,
       valor_pago: servicoPago ? valorPago : undefined,
       forma_pagamento: servicoPago ? formaPagamento : undefined,
+      // Salvar materiais utilizados ao pré-finalizar (técnico)
+      ...(isTecnico && statusFinalizada && { materiais_utilizados: materiaisOS }),
     };
 
     // Se reagendada, manter na rota do técnico e apenas atualizar status
@@ -911,6 +956,43 @@ Em breve entraremos em contato para mais informações.`;
     setServicoPago(false);
     setValorPago(undefined);
     setFormaPagamento('');
+  };
+
+  // Ponto 1: Confirmar OS pré-finalizada → finalizada + abate estoque
+  const handleConfirmarOS = async () => {
+    if (!osSelecionada || !donoUserId || !usuarioId) return;
+    setConfirmandoOS(true);
+    try {
+      const mats = osSelecionada.materiais_utilizados ?? [];
+      // Abater materiais do técnico se houver material_id nos itens
+      if (mats.length > 0 && mats.some((m) => m.material_id) && osSelecionada.tecnico_id) {
+        await abaterMateriaisOS(
+          donoUserId,
+          usuarioId,
+          osSelecionada.id,
+          osSelecionada.tecnico_id,
+          osSelecionada.tecnico_nome ?? '',
+          mats
+            .filter((m) => m.material_id)
+            .map((m) => ({
+              material_id: m.material_id!,
+              quantidade: m.quantidade,
+              serial_ids: m.serial_ids,
+            }))
+        );
+      }
+      atualizarOS(osSelecionada.id, {
+        status: 'finalizada',
+        data_finalizacao: new Date().toISOString(),
+      });
+      toast({ title: 'OS confirmada!', description: 'Materiais abatidos do estoque do técnico.' });
+      setDialogAberto(false);
+      setOsSelecionada(null);
+    } catch (e) {
+      toast({ title: 'Erro ao confirmar', description: e instanceof Error ? e.message : 'Falha ao abater estoque.', variant: 'destructive' });
+    } finally {
+      setConfirmandoOS(false);
+    }
   };
 
   // Obter horário previsto (pode vir de periodo ou ser estimado)
@@ -2037,6 +2119,116 @@ Em breve entraremos em contato para mais informações.`;
                       </div>
                     </div>
                   </div>
+
+                  {/* Materiais utilizados – técnico ao pré-finalizar (Opção B) */}
+                  {isTecnico && statusFinalizada && (
+                    <div className="space-y-3 border-t pt-4">
+                      <Label className="font-semibold">Materiais utilizados</Label>
+
+                      {estoqueTecnicoOS.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nenhum material em seu estoque.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex gap-2">
+                            <select
+                              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                              value={matIdSelecionado}
+                              onChange={(e) => { setMatIdSelecionado(e.target.value); setQtdMaterial(1); setSerialSelecionados([]); }}
+                            >
+                              <option value="">Selecione o material…</option>
+                              {estoqueTecnicoOS.map((s) => (
+                                <option key={s.material_id} value={s.material_id}>
+                                  {s.material?.descricao ?? s.material_id} (saldo: {s.quantidade})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {matIdSelecionado && (() => {
+                            const mat = estoqueTecnicoOS.find((s) => s.material_id === matIdSelecionado);
+                            const isSerial = mat?.material?.serializado ?? false;
+                            const serDisp = seriaisDispOS[matIdSelecionado] ?? [];
+                            return (
+                              <div className="space-y-2">
+                                {!isSerial && (
+                                  <div className="flex items-center gap-2">
+                                    <Label className="text-xs">Quantidade</Label>
+                                    <Input type="number" min={1} max={mat?.quantidade ?? 1} className="h-8 w-20 text-sm" value={qtdMaterial} onChange={(e) => setQtdMaterial(Number(e.target.value))} />
+                                  </div>
+                                )}
+                                {isSerial && serDisp.length === 0 && <p className="text-xs text-muted-foreground">Carregando seriais…</p>}
+                                {isSerial && serDisp.length > 0 && (
+                                  <div className="border rounded p-2 max-h-32 overflow-y-auto flex flex-wrap gap-1.5">
+                                    {serDisp.map((s) => (
+                                      <label key={s.id} className="flex items-center gap-1 cursor-pointer text-xs">
+                                        <input type="checkbox" checked={serialSelecionados.includes(s.id)} onChange={() => setSerialSelecionados((p) => p.includes(s.id) ? p.filter((x) => x !== s.id) : [...p, s.id])} />
+                                        <span className="font-mono">{s.numero_serial}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                )}
+                                <Button size="sm" variant="outline" onClick={() => {
+                                  const mat = estoqueTecnicoOS.find((s) => s.material_id === matIdSelecionado);
+                                  if (!mat) return;
+                                  const isSerial = mat.material?.serializado ?? false;
+                                  const qty = isSerial ? serialSelecionados.length : qtdMaterial;
+                                  if (qty <= 0) return;
+                                  const item: MaterialRota = {
+                                    material_id: mat.material_id,
+                                    nome: mat.material?.descricao ?? '',
+                                    unidade: mat.material?.unidade_medida ?? '',
+                                    quantidade: qty,
+                                    ...(isSerial && { serial_ids: serialSelecionados }),
+                                  };
+                                  setMateriaisOS((p) => {
+                                    const idx = p.findIndex((x) => x.material_id === mat.material_id);
+                                    if (idx >= 0) { const cp = [...p]; cp[idx] = item; return cp; }
+                                    return [...p, item];
+                                  });
+                                  setMatIdSelecionado('');
+                                  setQtdMaterial(1);
+                                  setSerialSelecionados([]);
+                                }}>
+                                  + Adicionar
+                                </Button>
+                              </div>
+                            );
+                          })()}
+
+                          {materiaisOS.length > 0 && (
+                            <div className="border rounded p-2 space-y-1">
+                              {materiaisOS.map((m) => (
+                                <div key={m.material_id ?? m.nome} className="flex items-center justify-between text-sm">
+                                  <span>{m.nome} — {m.quantidade} {m.unidade}</span>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setMateriaisOS((p) => p.filter((x) => x.material_id !== m.material_id))}>
+                                    ✕
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Confirmação de OS pré-finalizada – apenas para estoquista/admin */}
+                  {!isTecnico && osSelecionada?.status === 'pre_finalizada' && (
+                    <div className="space-y-3 border border-amber-200 bg-amber-50 rounded-lg p-3">
+                      <p className="text-sm font-semibold text-amber-800">OS aguardando confirmação do estoquista</p>
+                      {(osSelecionada.materiais_utilizados ?? []).length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-amber-700 font-medium">Materiais informados pelo técnico:</p>
+                          {(osSelecionada.materiais_utilizados ?? []).map((m, i) => (
+                            <p key={i} className="text-xs text-amber-900">• {m.nome} — {m.quantidade} {m.unidade}</p>
+                          ))}
+                        </div>
+                      )}
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={handleConfirmarOS} disabled={confirmandoOS}>
+                        {confirmandoOS ? 'Confirmando…' : '✓ Confirmar e abater estoque'}
+                      </Button>
+                    </div>
+                  )}
 
                   {/* Campo condicional para Reagendada */}
                   {statusReagendada && (
