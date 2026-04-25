@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { fetchResumoEstornosConferenciaPorOs } from '@/lib/estoque';
 import type { RotaOS, Rota, RegistroTempo, MaterialRota, FotoOS } from '@/types';
 
 /** Formato DB de roteiro_os (snake_case) */
@@ -48,6 +49,8 @@ interface RoteiroOsRow {
   data_importacao: string;
   data_atribuicao: string | null;
   data_finalizacao: string | null;
+  estoque_sincronizado: boolean | null;
+  updated_at?: string;
   user_id: string;
 }
 
@@ -108,6 +111,7 @@ function mapOsRowToRotaOS(r: RoteiroOsRow): RotaOS {
     data_importacao: r.data_importacao,
     data_atribuicao: r.data_atribuicao ?? undefined,
     data_finalizacao: r.data_finalizacao ?? undefined,
+    estoque_sincronizado: r.estoque_sincronizado === true,
     user_id: r.user_id,
   };
 }
@@ -173,6 +177,100 @@ export async function fetchRoteiroOs(donoUserId: string): Promise<RotaOS[]> {
   return ((data ?? []) as RoteiroOsRow[]).map(mapOsRowToRotaOS);
 }
 
+/** Situação na fila do estoque: pendente de conferência ou já baixado. */
+export type SituacaoConferenciaEstoque = 'pendente' | 'conferido';
+
+export interface FetchOsConferenciaEstoqueParams {
+  /** Dia de referência (YYYY-MM-DD), intervalo UTC [00:00, 23:59:59.999]. */
+  dataRef: string;
+  tecnicoId?: string | null;
+  situacao: SituacaoConferenciaEstoque;
+}
+
+function timestampsDiaUtc(ymd: string): { start: string; end: string } {
+  return {
+    start: `${ymd}T00:00:00.000Z`,
+    end: `${ymd}T23:59:59.999Z`,
+  };
+}
+
+/**
+ * Lista OS para conferência de baixa no estoque.
+ * Pendente: pré-finalizadas (técnico) na data por `updated_at`, ou finalizadas sem sync na data por `data_finalizacao`.
+ * Conferido: finalizadas com estoque sincronizado na data de `data_finalizacao`.
+ */
+export async function fetchOsConferenciaEstoque(
+  donoUserId: string,
+  params: FetchOsConferenciaEstoqueParams
+): Promise<RotaOS[]> {
+  const { start, end } = timestampsDiaUtc(params.dataRef);
+  const tid = params.tecnicoId?.trim();
+
+  if (params.situacao === 'conferido') {
+    let q = supabase
+      .from('roteiro_os')
+      .select('*')
+      .eq('dono_user_id', donoUserId)
+      .eq('status', 'finalizada')
+      .eq('estoque_sincronizado', true)
+      .gte('data_finalizacao', start)
+      .lte('data_finalizacao', end)
+      .order('data_finalizacao', { ascending: false });
+    if (tid) q = q.eq('tecnico_id', tid);
+    const { data, error } = await q;
+    if (error) throw error;
+    const mapped = ((data ?? []) as RoteiroOsRow[]).map(mapOsRowToRotaOS);
+    return mergeResumoEstornoConferencia(donoUserId, mapped);
+  }
+
+  let qPre = supabase
+    .from('roteiro_os')
+    .select('*')
+    .eq('dono_user_id', donoUserId)
+    .eq('status', 'pre_finalizada')
+    .gte('updated_at', start)
+    .lte('updated_at', end)
+    .order('updated_at', { ascending: false });
+  if (tid) qPre = qPre.eq('tecnico_id', tid);
+
+  let qFin = supabase
+    .from('roteiro_os')
+    .select('*')
+    .eq('dono_user_id', donoUserId)
+    .eq('status', 'finalizada')
+    .or('estoque_sincronizado.is.null,estoque_sincronizado.eq.false')
+    .gte('data_finalizacao', start)
+    .lte('data_finalizacao', end)
+    .order('data_finalizacao', { ascending: false });
+  if (tid) qFin = qFin.eq('tecnico_id', tid);
+
+  const [rPre, rFin] = await Promise.all([qPre, qFin]);
+  if (rPre.error) throw rPre.error;
+  if (rFin.error) throw rFin.error;
+
+  const byId = new Map<string, RoteiroOsRow>();
+  for (const row of [...(rPre.data ?? []), ...(rFin.data ?? [])]) {
+    byId.set((row as RoteiroOsRow).id, row as RoteiroOsRow);
+  }
+  const merged = Array.from(byId.values())
+    .map(mapOsRowToRotaOS)
+    .sort((a, b) => (b.codigo_os || '').localeCompare(a.codigo_os || '', undefined, { numeric: true }));
+  return mergeResumoEstornoConferencia(donoUserId, merged);
+}
+
+async function mergeResumoEstornoConferencia(donoUserId: string, lista: RotaOS[]): Promise<RotaOS[]> {
+  if (lista.length === 0) return lista;
+  const resumo = await fetchResumoEstornosConferenciaPorOs(
+    donoUserId,
+    lista.map((o) => o.id)
+  );
+  return lista.map((o) => {
+    const r = resumo.get(o.id);
+    if (!r) return o;
+    return { ...o, estorno_baixa_conferencia: r };
+  });
+}
+
 export async function insertRoteiroOs(
   donoUserId: string,
   userId: string,
@@ -216,6 +314,7 @@ export async function updateRoteiroOs(id: string, patch: Partial<RotaOS>): Promi
   if (patch.reagendada !== undefined) row.reagendada = patch.reagendada ?? null;
   if (patch.historico_status !== undefined) row.historico_status = patch.historico_status ?? null;
   if (patch.ordem_sequencia !== undefined) row.ordem_sequencia = patch.ordem_sequencia ?? null;
+  if (patch.estoque_sincronizado !== undefined) row.estoque_sincronizado = patch.estoque_sincronizado;
   const { error } = await supabase.from('roteiro_os').update(row).eq('id', id);
   if (error) throw error;
 }
@@ -440,4 +539,12 @@ export async function insertHistoricoPagamento(
     observacao: params.observacao ?? null,
   });
   if (error) throw error;
+}
+
+/** Texto curto para lista de materiais na OS (inclui IRDs quando houver). */
+export function formatMaterialRotaResumo(m: MaterialRota): string {
+  const uni = m.unidade?.trim() ? ` ${m.unidade}` : '';
+  const nums = m.numeros_seriais?.filter(Boolean) ?? [];
+  const ser = nums.length > 0 ? ` · IRD: ${nums.join(', ')}` : '';
+  return `${m.nome} — ${m.quantidade}${uni}${ser}`;
 }

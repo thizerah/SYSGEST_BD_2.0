@@ -4,10 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { FileText, Table2, X, AlertTriangle } from 'lucide-react';
-import { checkSeriaisExistentes } from '@/lib/estoque';
+import {
+  checkSeriaisMesmaChaveEntrada,
+  normalizarNumeroSerial,
+  type ChaveEntradaSerial,
+} from '@/lib/estoque';
 
 interface ImportacaoSeriaisProps {
   donoUserId: string;
+  chaveEntrada: ChaveEntradaSerial;
   seriais: string[];
   onChange: (seriais: string[]) => void;
 }
@@ -37,7 +42,7 @@ function parseExcel(buffer: ArrayBuffer): string[] {
     .filter(Boolean);
 }
 
-export function ImportacaoSeriais({ donoUserId, seriais, onChange }: ImportacaoSeriaisProps) {
+export function ImportacaoSeriais({ donoUserId, chaveEntrada, seriais, onChange }: ImportacaoSeriaisProps) {
   const inputTxtRef = useRef<HTMLInputElement>(null);
   const inputXlsxRef = useRef<HTMLInputElement>(null);
   const [processando, setProcessando] = useState(false);
@@ -47,17 +52,20 @@ export function ImportacaoSeriais({ donoUserId, seriais, onChange }: ImportacaoS
     setProcessando(true);
     setErros([]);
     try {
-      const duplicadosNoArquivo = novos.filter((s, i) => novos.indexOf(s) !== i);
-      const unicos = [...new Set(novos)];
-      const jaExistentes = await checkSeriaisExistentes(donoUserId, unicos);
+      const normalizados = novos.map(normalizarNumeroSerial).filter(Boolean);
+      const duplicadosNoArquivo = normalizados.filter((s, i) => normalizados.indexOf(s) !== i);
+      const unicos = [...new Set(normalizados)];
+      const jaMesmaEntrada = await checkSeriaisMesmaChaveEntrada(donoUserId, unicos, chaveEntrada);
 
       const avisos: string[] = [];
       if (duplicadosNoArquivo.length > 0)
         avisos.push(`${[...new Set(duplicadosNoArquivo)].length} serial(is) duplicado(s) no arquivo foram ignorados.`);
-      if (jaExistentes.length > 0)
-        avisos.push(`${jaExistentes.length} serial(is) já cadastrado(s) no sistema foram ignorados: ${jaExistentes.slice(0, 3).join(', ')}${jaExistentes.length > 3 ? '…' : ''}`);
+      if (jaMesmaEntrada.length > 0)
+        avisos.push(
+          `${jaMesmaEntrada.length} serial(is) já têm entrada com a mesma origem e NF/data informados no cabeçalho: ${jaMesmaEntrada.slice(0, 3).join(', ')}${jaMesmaEntrada.length > 3 ? '…' : ''}`
+        );
 
-      const validos = unicos.filter((s) => !jaExistentes.includes(s));
+      const validos = unicos.filter((s) => !jaMesmaEntrada.includes(s));
       const combinados = [...new Set([...seriais, ...validos])];
 
       setErros(avisos);

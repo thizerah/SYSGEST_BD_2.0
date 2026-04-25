@@ -93,6 +93,7 @@ export function MaterialTecnico() {
             const seriais = await fetchSeriais(donoUserId, {
               material_id: s.material_id,
               local_id: local.id,
+              status: 'disponivel',
             });
             return { ...s, seriais };
           }
@@ -190,6 +191,9 @@ export function MaterialTecnico() {
           <UserCheck className="h-5 w-5 text-violet-500" />
           Material do Técnico
         </CardTitle>
+        <p className="text-xs text-muted-foreground font-normal">
+          Exibe apenas material <strong className="font-medium text-foreground">disponível</strong> no bolso do técnico (IRD instalados não aparecem).
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="max-w-xs space-y-1.5">
@@ -252,31 +256,13 @@ export function MaterialTecnico() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="text-xs">Serial</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs">Cliente</TableHead>
+                        <TableHead className="text-xs">IRD disponível</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {item.seriais.map((s) => (
                         <TableRow key={s.id}>
                           <TableCell className="font-mono text-xs py-1.5">{s.numero_serial}</TableCell>
-                          <TableCell className="py-1.5">
-                            {s.status === 'instalado' ? (
-                              <span className="text-green-600 font-medium text-xs">● Instalado</span>
-                            ) : s.status === 'disponivel' ? (
-                              <span className="text-muted-foreground text-xs">Disponível</span>
-                            ) : (
-                              <span className="text-amber-600 text-xs">{s.status}</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="py-1.5">
-                            {s.status === 'instalado' && s.nome_cliente ? (
-                              <span className="text-green-700 text-xs font-medium">{s.nome_cliente}</span>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
-                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

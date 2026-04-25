@@ -27,6 +27,8 @@ interface TabsManagerProps {
   tabsInfo?: TabsInfo;
   /** Mapeamento de ícones por página (usado para tabs vindos do localStorage sem icon) */
   pageIcons?: Record<string, React.ReactNode>;
+  /** Títulos canônicos por página (corrige abas antigas com id cru como título) */
+  pageTitles?: Record<string, string>;
 }
 
 export function TabsManager({
@@ -36,12 +38,15 @@ export function TabsManager({
   onTabClose,
   tabsInfo,
   pageIcons,
+  pageTitles,
 }: TabsManagerProps) {
   // Obter ícone válido para renderização (evita erro com objetos vindos do localStorage)
   const getValidIcon = (tab: Tab): React.ReactNode | null => {
     const icon = tab.icon ?? pageIcons?.[tab.page];
     return icon && React.isValidElement(icon) ? icon : null;
   };
+
+  const getDisplayTitle = (tab: Tab) => pageTitles?.[tab.page] ?? tab.title;
 
   // Determinar cor do indicador baseado no uso
   const getIndicatorColor = () => {
@@ -82,7 +87,7 @@ export function TabsManager({
               )}
 
               {/* Título */}
-              <span className="flex-1 truncate text-sm">{tab.title}</span>
+              <span className="flex-1 truncate text-sm">{getDisplayTitle(tab)}</span>
 
               {/* Botão fechar (não mostrar para Home) */}
               {!isHome && (

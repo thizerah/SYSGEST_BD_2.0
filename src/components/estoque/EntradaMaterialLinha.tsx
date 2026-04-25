@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Plus, X } from 'lucide-react';
 import type { Material } from '@/types/estoque';
+import type { ChaveEntradaSerial } from '@/lib/estoque';
 import { randomClientId, cn } from '@/lib/utils';
 import { ImportacaoSeriais } from './ImportacaoSeriais';
 import { MaterialCombobox } from './MaterialCombobox';
@@ -30,6 +31,7 @@ type Props = {
   index: number;
   materiais: Material[];
   donoUserId: string | null;
+  chaveEntrada: ChaveEntradaSerial;
   removivel: boolean;
   onRemove: () => void;
   onMaterialChange: (materialId: string) => void;
@@ -49,6 +51,7 @@ export function EntradaMaterialLinha({
   index,
   materiais,
   donoUserId,
+  chaveEntrada,
   removivel,
   onRemove,
   onMaterialChange,
@@ -157,7 +160,12 @@ export function EntradaMaterialLinha({
           {donoUserId && (
             <div className="pt-1">
               <p className="text-xs text-muted-foreground mb-1.5">Importar lista (esta linha):</p>
-              <ImportacaoSeriais donoUserId={donoUserId} seriais={linha.seriais} onChange={onSeriaisImportados} />
+              <ImportacaoSeriais
+                donoUserId={donoUserId}
+                chaveEntrada={chaveEntrada}
+                seriais={linha.seriais}
+                onChange={onSeriaisImportados}
+              />
             </div>
           )}
         </div>

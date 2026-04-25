@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { PackagePlus, Plus } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/context/useAuth';
-import { fetchMateriais, registrarEntrada, getOrCreateEstoqueCentral, checkSeriaisExistentes } from '@/lib/estoque';
+import {
+  fetchMateriais,
+  registrarEntrada,
+  getOrCreateEstoqueCentral,
+  checkSeriaisMesmaChaveEntrada,
+  normalizarChaveEntradaParaSeriais,
+} from '@/lib/estoque';
 import type { Material } from '@/types/estoque';
 import { EntradaMaterialLinha, type LinhaEntrada, novaLinhaEntrada } from './EntradaMaterialLinha';
 
@@ -58,6 +64,16 @@ export function EntradaMaterial() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const chaveEntradaAtual = useMemo(
+    () =>
+      normalizarChaveEntradaParaSeriais(
+        cabecalho.tipo_origem === 'novo' ? 'compra' : 'reuso',
+        cabecalho.numero_nota_fiscal.trim() || null,
+        cabecalho.data_nota_fiscal || null
+      ),
+    [cabecalho.tipo_origem, cabecalho.numero_nota_fiscal, cabecalho.data_nota_fiscal]
+  );
 
   const atualizarLinha = (id: string, patch: Partial<LinhaEntrada>) => {
     setLinhas((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -185,11 +201,11 @@ export function EntradaMaterial() {
     }
 
     if (todosSeriais.length > 0) {
-      const existentes = await checkSeriaisExistentes(donoUserId, todosSeriais);
+      const existentes = await checkSeriaisMesmaChaveEntrada(donoUserId, todosSeriais, chaveEntradaAtual);
       if (existentes.length > 0) {
         toast({
-          title: 'Seriais já cadastrados',
-          description: `Ex.: ${existentes.slice(0, 5).join(', ')}${existentes.length > 5 ? '…' : ''}`,
+          title: 'Entrada duplicada',
+          description: `Já existe registro com o mesmo serial, origem (${cabecalho.tipo_origem === 'novo' ? 'Novo' : 'Reuso'}) e NF/data informados. Ex.: ${existentes.slice(0, 5).join(', ')}${existentes.length > 5 ? '…' : ''}`,
           variant: 'destructive',
         });
         return;
@@ -252,7 +268,8 @@ export function EntradaMaterial() {
           Entrada de material
         </CardTitle>
         <p className="text-xs text-muted-foreground font-normal">
-          Inclua uma linha por item da nota fiscal (cabo, antena, LNB, aparelhos etc.). Os dados da NF valem para todos os itens deste envio.
+          Inclua uma linha por item da nota fiscal (cabo, antena, LNB, aparelhos etc.). Os dados da NF e o tipo de origem (Novo/Reuso) valem para todos os itens deste envio. O mesmo IRD pode ser cadastrado de novo se a combinação{' '}
+          <strong>origem + número da NF + data da NF</strong> for diferente (ex.: novo com NF da DHL vs. reuso após retirada).
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -318,6 +335,7 @@ export function EntradaMaterial() {
                 index={index}
                 materiais={materiais}
                 donoUserId={donoUserId}
+                chaveEntrada={chaveEntradaAtual}
                 removivel={linhas.length > 1}
                 onRemove={() => removerLinha(linha.id)}
                 onMaterialChange={(id) => handleMaterialLinha(linha.id, id)}

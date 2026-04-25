@@ -39,6 +39,7 @@ const PAGE_TITLES: Record<string, string> = {
   payments: "Pagamentos",
   import: "Importação",
   roteiro: "Roteiro",
+  estoque: "Estoque",
   cadastro_tecnicos: "Cadastro de Usuários",
   subusuarios: "Cadastro de Acesso",
   base: "Base",
@@ -159,6 +160,7 @@ export function AppLayout({
             onTabClose={onTabClose}
             tabsInfo={tabsInfo}
             pageIcons={pageIcons}
+            pageTitles={PAGE_TITLES}
           />
         )}
         

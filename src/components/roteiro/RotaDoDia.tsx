@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,8 +60,9 @@ import {
 import { RotaOS, StatusRotaOS, MaterialRota } from '@/types';
 import { cn } from '@/lib/utils';
 import { obterHistoricoCliente, extrairMotivoDasObservacoes } from '@/lib/roteiroHistorico';
-import { fetchEstoqueTecnico, fetchSeriaisTecnicoPorMaterial, abaterMateriaisOS } from '@/lib/estoque';
-import type { EstoqueSaldo, Serial } from '@/types/estoque';
+import { formatMaterialRotaResumo } from '@/lib/roteiro';
+import { abaterMateriaisOS } from '@/lib/estoque';
+import { FinalizacaoMateriaisModal } from './FinalizacaoMateriaisModal';
 
 export function RotaDoDia() {
   const { osRotas, tecnicos, atualizarOS, buscarOSPorTecnico, removerOS, removerAtribuicao, atribuirTecnico, obterMediaTempoPorTipo, atualizarMediaTempo, recarregarDados, ultimaAtualizacao } = useRotas();
@@ -130,38 +131,13 @@ export function RotaDoDia() {
   const [ordemTemporaria, setOrdemTemporaria] = useState<Record<string, number>>({});
   const [filtroTecnicoId, setFiltroTecnicoId] = useState<string>('__todos__');
 
-  // Materiais utilizados na OS – Opção B
-  const [materiaisOS, setMateriaisOS] = useState<MaterialRota[]>([]);
-  const [estoqueTecnicoOS, setEstoqueTecnicoOS] = useState<EstoqueSaldo[]>([]);
-  const [seriaisDispOS, setSeriaisDispOS] = useState<Record<string, Serial[]>>({});
-  const [matIdSelecionado, setMatIdSelecionado] = useState('');
-  const [qtdMaterial, setQtdMaterial] = useState(1);
-  const [serialSelecionados, setSerialSelecionados] = useState<string[]>([]);
   const [confirmandoOS, setConfirmandoOS] = useState(false);
-
-  // Carregar estoque do técnico ao abrir dialog (Opção B)
-  useEffect(() => {
-    if (!dialogAberto || !isTecnico || !equipeId || !donoUserId) {
-      setEstoqueTecnicoOS([]);
-      return;
-    }
-    fetchEstoqueTecnico(donoUserId, equipeId)
-      .then(setEstoqueTecnicoOS)
-      .catch(() => setEstoqueTecnicoOS([]));
-  }, [dialogAberto, isTecnico, equipeId, donoUserId]);
-
-  // Carregar seriais disponíveis para o material selecionado (técnico)
-  useEffect(() => {
-    if (!matIdSelecionado || !donoUserId || !equipeId) { setSerialSelecionados([]); return; }
-    const mat = estoqueTecnicoOS.find((s) => s.material_id === matIdSelecionado);
-    if (!mat?.material?.serializado) { setSerialSelecionados([]); return; }
-    fetchSeriaisTecnicoPorMaterial(donoUserId, equipeId, matIdSelecionado)
-      .then((seriais) => {
-        setSeriaisDispOS((prev) => ({ ...prev, [matIdSelecionado]: seriais }));
-        setSerialSelecionados([]);
-      })
-      .catch(() => setSeriaisDispOS((prev) => ({ ...prev, [matIdSelecionado]: [] })));
-  }, [matIdSelecionado, donoUserId, equipeId, estoqueTecnicoOS]);
+  const [finalizacaoMateriaisAberto, setFinalizacaoMateriaisAberto] = useState(false);
+  const preFinalizacaoRef = useRef<{
+    atualizacoes: Partial<RotaOS>;
+    novoStatus: StatusRotaOS;
+    checouFinalizada: boolean;
+  } | null>(null);
 
   const historicoCliente = useMemo(() => {
     if (!osSelecionada?.codigo_cliente) return [];
@@ -398,6 +374,7 @@ Em breve entraremos em contato para mais informações.`;
         status: {
           Aguardando: 0,
           'Em Andamento': 0,
+          'Pré-finalizada': 0,
           Finalizado: 0,
           Reagendada: 0,
           Cancelada: 0
@@ -413,6 +390,7 @@ Em breve entraremos em contato para mais informações.`;
     const status = {
       Aguardando: 0,
       'Em Andamento': 0,
+      'Pré-finalizada': 0,
       Finalizado: 0,
       Reagendada: 0,
       Cancelada: 0
@@ -441,8 +419,10 @@ Em breve entraremos em contato para mais informações.`;
       Object.entries(resumo.statusCount).forEach(([st, count]) => {
         if (st === 'pendente' || st === 'atribuida') {
           status.Aguardando += count;
-        } else if (st === 'em_andamento' || st === 'pre_finalizada') {
+        } else if (st === 'em_andamento') {
           status['Em Andamento'] += count;
+        } else if (st === 'pre_finalizada') {
+          status['Pré-finalizada'] += count;
         } else if (st === 'finalizada') {
           status.Finalizado += count;
         } else if (st === 'reagendada') {
@@ -517,7 +497,7 @@ Em breve entraremos em contato para mais informações.`;
       pendente: 'AG',
       atribuida: 'AG',
       em_andamento: 'EM',
-      pre_finalizada: 'EM',
+      pre_finalizada: 'PF',
       finalizada: 'FI',
       reagendada: 'RE',
       cancelada: 'CA',
@@ -564,8 +544,8 @@ Em breve entraremos em contato para mais informações.`;
       'pendente': { label: 'Aguardando', color: 'gray', icon: <Circle className="w-4 h-4" /> },
       'atribuida': { label: 'Aguardando', color: 'gray', icon: <Circle className="w-4 h-4" /> },
       'em_andamento': { label: 'Em andamento', color: 'blue', icon: <RefreshCw className="w-4 h-4" /> },
-      'pre_finalizada': { label: 'Em andamento', color: 'blue', icon: <RefreshCw className="w-4 h-4" /> },
-      'finalizada': { label: 'Finalizado', color: 'green', icon: <CheckCircle2 className="w-4 h-4" /> },
+      'pre_finalizada': { label: 'Pré-finalizada', color: 'amber', icon: <AlertCircle className="w-4 h-4" /> },
+      'finalizada': { label: 'Finalizada', color: 'green', icon: <CheckCircle2 className="w-4 h-4" /> },
       'reagendada': { label: 'Reagendada', color: 'purple', icon: <CheckCircle2 className="w-4 h-4" /> },
       'cancelada': { label: 'Cancelada', color: 'red', icon: <XCircle className="w-4 h-4" /> },
     };
@@ -577,6 +557,7 @@ Em breve entraremos em contato para mais informações.`;
     const classes = {
       gray: 'bg-gray-100 text-gray-700 border-gray-300',
       blue: 'bg-blue-100 text-blue-700 border-blue-300',
+      amber: 'bg-amber-100 text-amber-900 border-amber-300',
       green: 'bg-green-100 text-green-700 border-green-300',
       purple: 'bg-purple-100 text-purple-700 border-purple-300',
       red: 'bg-red-100 text-red-700 border-red-300',
@@ -589,6 +570,7 @@ Em breve entraremos em contato para mais informações.`;
     const classes = {
       gray: 'bg-gray-400 border-gray-500',
       blue: 'bg-blue-500 border-blue-600',
+      amber: 'bg-amber-500 border-amber-600',
       green: 'bg-green-500 border-green-600',
       purple: 'bg-purple-500 border-purple-600',
       red: 'bg-red-500 border-red-600',
@@ -616,11 +598,6 @@ Em breve entraremos em contato para mais informações.`;
     setServicoPago(os.servico_pago || false);
     setValorPago(os.valor_pago);
     setFormaPagamento(os.forma_pagamento || '');
-    // Reset materiais OS
-    setMateriaisOS(os.materiais_utilizados ?? []);
-    setMatIdSelecionado('');
-    setQtdMaterial(1);
-    setSerialSelecionados([]);
     setDialogAberto(true);
   };
 
@@ -890,17 +867,15 @@ Em breve entraremos em contato para mais informações.`;
       servico_pago: servicoPago,
       valor_pago: servicoPago ? valorPago : undefined,
       forma_pagamento: servicoPago ? formaPagamento : undefined,
-      // Salvar materiais utilizados ao pré-finalizar (técnico)
-      ...(isTecnico && statusFinalizada && { materiais_utilizados: materiaisOS }),
     };
 
     // Se reagendada, manter na rota do técnico e apenas atualizar status
     if (statusReagendada) {
       atualizacoes.historico_status = 'reagendada';
-      
+
       // Adicionar motivo do reagendamento nas observações
       if (motivoReagendamento) {
-        const observacoesComMotivo = osSelecionada.observacoes 
+        const observacoesComMotivo = osSelecionada.observacoes
           ? `${osSelecionada.observacoes}\n\nMotivo do reagendamento: ${motivoReagendamento}`
           : `Motivo do reagendamento: ${motivoReagendamento}`;
         atualizacoes.observacoes = observacoesComMotivo;
@@ -909,10 +884,21 @@ Em breve entraremos em contato para mais informações.`;
 
     // Se cancelada, adicionar motivo nas observações
     if (statusCancelada && motivoCancelamento) {
-      const observacoesComMotivo = osSelecionada.observacoes 
+      const observacoesComMotivo = osSelecionada.observacoes
         ? `${osSelecionada.observacoes}\n\nMotivo do cancelamento: ${motivoCancelamento}`
         : `Motivo do cancelamento: ${motivoCancelamento}`;
       atualizacoes.observacoes = observacoesComMotivo;
+    }
+
+    // Só abre o fluxo de materiais na transição para finalização — OS já finalizada não reabre o modal
+    if (statusFinalizada && osSelecionada.status !== 'finalizada') {
+      preFinalizacaoRef.current = {
+        atualizacoes,
+        novoStatus,
+        checouFinalizada: statusFinalizada,
+      };
+      setFinalizacaoMateriaisAberto(true);
+      return;
     }
 
     atualizarOS(osSelecionada.id, atualizacoes);
@@ -956,6 +942,127 @@ Em breve entraremos em contato para mais informações.`;
     setServicoPago(false);
     setValorPago(undefined);
     setFormaPagamento('');
+  };
+
+  const fecharFormularioOS = () => {
+    preFinalizacaoRef.current = null;
+    setFinalizacaoMateriaisAberto(false);
+    setDialogAberto(false);
+    setOsSelecionada(null);
+    setStatusEditado('pendente');
+    setStatusEmAndamento(false);
+    setStatusFinalizada(false);
+    setStatusReagendada(false);
+    setStatusCancelada(false);
+    setHorarioEntrada('');
+    setHorarioSaida('');
+    setObservacoesEditado('');
+    setMotivoCancelamento('');
+    setMotivoReagendamento('');
+    setServicoPago(false);
+    setValorPago(undefined);
+    setFormaPagamento('');
+  };
+
+  const completarSalvarFinalizacaoTecnico = async (materiais: MaterialRota[]) => {
+    if (!osSelecionada) return;
+    const pending = preFinalizacaoRef.current;
+    if (!pending) return;
+
+    if (isTecnico) {
+      const atualizacoes: Partial<RotaOS> = {
+        ...pending.atualizacoes,
+        materiais_utilizados: materiais,
+      };
+
+      atualizarOS(osSelecionada.id, atualizacoes);
+
+      if (pending.checouFinalizada || pending.novoStatus === 'finalizada') {
+        const osAtualizada = {
+          ...osSelecionada,
+          ...atualizacoes,
+          status: 'finalizada' as StatusRotaOS,
+          data_finalizacao: osSelecionada.data_finalizacao || new Date().toISOString(),
+        };
+        atualizarMediaTempo(osAtualizada);
+      }
+
+      toast({
+        title: 'OS pré-finalizada',
+        description:
+          materiais.length > 0
+            ? 'Materiais registrados. Aguarde a confirmação do estoque.'
+            : 'Serviço registrado. Aguarde a confirmação do estoque.',
+      });
+
+      fecharFormularioOS();
+      return;
+    }
+
+    // Controlador (ou outros perfis não-técnico): finaliza direto e abate do estoque do técnico da OS
+    if (!donoUserId || !usuarioId) {
+      toast({
+        title: 'Sessão inválida',
+        description: 'Faça login novamente.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      if (materiais.length > 0 && materiais.some((m) => m.material_id) && osSelecionada.tecnico_id) {
+        await abaterMateriaisOS(
+          donoUserId,
+          usuarioId,
+          osSelecionada.id,
+          osSelecionada.tecnico_id,
+          osSelecionada.tecnico_nome ?? '',
+          materiais
+            .filter((m) => m.material_id)
+            .map((m) => ({
+              material_id: m.material_id!,
+              quantidade: m.quantidade,
+              serial_ids: m.serial_ids,
+            }))
+        );
+      }
+    } catch (e) {
+      toast({
+        title: 'Erro ao baixar estoque',
+        description: e instanceof Error ? e.message : 'Não foi possível abater o material do técnico.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const dataFinal = new Date().toISOString();
+    const atualizacoes: Partial<RotaOS> = {
+      ...pending.atualizacoes,
+      materiais_utilizados: materiais,
+      data_finalizacao: dataFinal,
+    };
+
+    atualizarOS(osSelecionada.id, atualizacoes);
+
+    if (pending.checouFinalizada || pending.novoStatus === 'finalizada') {
+      const osAtualizada = {
+        ...osSelecionada,
+        ...atualizacoes,
+        status: 'finalizada' as StatusRotaOS,
+        data_finalizacao: dataFinal,
+      };
+      atualizarMediaTempo(osAtualizada);
+    }
+
+    toast({
+      title: 'OS finalizada',
+      description:
+        materiais.length > 0 && osSelecionada.tecnico_id
+          ? 'Materiais registrados e baixados do estoque do técnico.'
+          : 'Serviço finalizado.',
+    });
+
+    fecharFormularioOS();
   };
 
   // Ponto 1: Confirmar OS pré-finalizada → finalizada + abate estoque
@@ -1245,9 +1352,17 @@ Em breve entraremos em contato para mais informações.`;
                           )}
                           {resumoGeral.status['Em Andamento'] > 0 && (
                             <div className="flex items-center justify-between text-xs">
-                              <span className="text-muted-foreground">Em Andamento:</span>
+                              <span className="text-muted-foreground">Em andamento:</span>
                               <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 ml-1">
                                 {resumoGeral.status['Em Andamento']}
+                              </Badge>
+                            </div>
+                          )}
+                          {resumoGeral.status['Pré-finalizada'] > 0 && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Pré-finalizada:</span>
+                              <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 ml-1">
+                                {resumoGeral.status['Pré-finalizada']}
                               </Badge>
                             </div>
                           )}
@@ -1600,7 +1715,7 @@ Em breve entraremos em contato para mais informações.`;
                   <div className="space-y-3">
                     {ossFiltradas.map((os) => {
                       const statusVisual = getStatusVisual(os.status);
-                      const isAgora = os.status === 'em_andamento' || os.status === 'pre_finalizada';
+                      const isAgora = os.status === 'em_andamento';
                       const horarioReal = os.registro_tempo?.chegada || null;
                       const tempoServico = calcularTempoServico(os.registro_tempo?.chegada, os.registro_tempo?.saida);
                       return (
@@ -1717,7 +1832,8 @@ Em breve entraremos em contato para mais informações.`;
             <div className="flex flex-wrap gap-2">
               {[
                 { status: 'pendente' as StatusRotaOS, label: 'Aguardando' },
-                { status: 'em_andamento' as StatusRotaOS, label: 'Em Andamento' },
+                { status: 'em_andamento' as StatusRotaOS, label: 'Em andamento' },
+                { status: 'pre_finalizada' as StatusRotaOS, label: 'Pré-finalizada' },
                 { status: 'finalizada' as StatusRotaOS, label: 'Finalizada' },
                 { status: 'reagendada' as StatusRotaOS, label: 'Reagendada' },
                 { status: 'cancelada' as StatusRotaOS, label: 'Cancelada' },
@@ -1752,6 +1868,8 @@ Em breve entraremos em contato para mais informações.`;
       <Dialog open={dialogAberto} onOpenChange={(open) => {
         setDialogAberto(open);
         if (!open) {
+          preFinalizacaoRef.current = null;
+          setFinalizacaoMateriaisAberto(false);
           // Resetar estados ao fechar
           setOsSelecionada(null);
           setStatusEditado('pendente');
@@ -1943,7 +2061,8 @@ Em breve entraremos em contato para mais informações.`;
                         <p className="text-gray-900 mt-1">
                           {osSelecionada.status === 'pendente' ? 'Aguardando' :
                            osSelecionada.status === 'atribuida' ? 'Atribuída' :
-                           osSelecionada.status === 'em_andamento' ? 'Em Andamento' :
+                           osSelecionada.status === 'em_andamento' ? 'Em andamento' :
+                           osSelecionada.status === 'pre_finalizada' ? 'Pré-finalizada' :
                            osSelecionada.status === 'finalizada' ? 'Finalizada' :
                            osSelecionada.status === 'reagendada' ? 'Reagendada' :
                            osSelecionada.status === 'cancelada' ? 'Cancelada' : osSelecionada.status}
@@ -2120,95 +2239,39 @@ Em breve entraremos em contato para mais informações.`;
                     </div>
                   </div>
 
-                  {/* Materiais utilizados – técnico ao pré-finalizar (Opção B) */}
-                  {isTecnico && statusFinalizada && (
-                    <div className="space-y-3 border-t pt-4">
-                      <Label className="font-semibold">Materiais utilizados</Label>
+                  {/* Finalização: materiais serão informados no modal ao salvar */}
+                  {statusFinalizada && (
+                    <div className="space-y-2 border-t pt-4 rounded-md border border-dashed border-primary/30 bg-primary/5 px-3 py-3">
+                      <p className="text-sm font-medium text-foreground">Materiais do serviço</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {isTecnico ? (
+                          <>
+                            Ao clicar em <strong>Finalizar serviço</strong>, será aberta uma tabela com o que você tem no
+                            estoque (numerado). Preencha só o que usou; aparelhos serializados — um IRD por linha.
+                          </>
+                        ) : (
+                          <>
+                            Ao clicar em <strong>Finalizar serviço</strong>, será aberta a tabela com o estoque do{' '}
+                            <strong>técnico atribuído</strong>
+                            {osSelecionada?.tecnico_nome ? ` (${osSelecionada.tecnico_nome})` : ''}. Ao confirmar, a OS
+                            será finalizada e o material será baixado desse estoque.
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  )}
 
-                      {estoqueTecnicoOS.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Nenhum material em seu estoque.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex gap-2">
-                            <select
-                              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
-                              value={matIdSelecionado}
-                              onChange={(e) => { setMatIdSelecionado(e.target.value); setQtdMaterial(1); setSerialSelecionados([]); }}
-                            >
-                              <option value="">Selecione o material…</option>
-                              {estoqueTecnicoOS.map((s) => (
-                                <option key={s.material_id} value={s.material_id}>
-                                  {s.material?.descricao ?? s.material_id} (saldo: {s.quantidade})
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {matIdSelecionado && (() => {
-                            const mat = estoqueTecnicoOS.find((s) => s.material_id === matIdSelecionado);
-                            const isSerial = mat?.material?.serializado ?? false;
-                            const serDisp = seriaisDispOS[matIdSelecionado] ?? [];
-                            return (
-                              <div className="space-y-2">
-                                {!isSerial && (
-                                  <div className="flex items-center gap-2">
-                                    <Label className="text-xs">Quantidade</Label>
-                                    <Input type="number" min={1} max={mat?.quantidade ?? 1} className="h-8 w-20 text-sm" value={qtdMaterial} onChange={(e) => setQtdMaterial(Number(e.target.value))} />
-                                  </div>
-                                )}
-                                {isSerial && serDisp.length === 0 && <p className="text-xs text-muted-foreground">Carregando seriais…</p>}
-                                {isSerial && serDisp.length > 0 && (
-                                  <div className="border rounded p-2 max-h-32 overflow-y-auto flex flex-wrap gap-1.5">
-                                    {serDisp.map((s) => (
-                                      <label key={s.id} className="flex items-center gap-1 cursor-pointer text-xs">
-                                        <input type="checkbox" checked={serialSelecionados.includes(s.id)} onChange={() => setSerialSelecionados((p) => p.includes(s.id) ? p.filter((x) => x !== s.id) : [...p, s.id])} />
-                                        <span className="font-mono">{s.numero_serial}</span>
-                                      </label>
-                                    ))}
-                                  </div>
-                                )}
-                                <Button size="sm" variant="outline" onClick={() => {
-                                  const mat = estoqueTecnicoOS.find((s) => s.material_id === matIdSelecionado);
-                                  if (!mat) return;
-                                  const isSerial = mat.material?.serializado ?? false;
-                                  const qty = isSerial ? serialSelecionados.length : qtdMaterial;
-                                  if (qty <= 0) return;
-                                  const item: MaterialRota = {
-                                    material_id: mat.material_id,
-                                    nome: mat.material?.descricao ?? '',
-                                    unidade: mat.material?.unidade_medida ?? '',
-                                    quantidade: qty,
-                                    ...(isSerial && { serial_ids: serialSelecionados }),
-                                  };
-                                  setMateriaisOS((p) => {
-                                    const idx = p.findIndex((x) => x.material_id === mat.material_id);
-                                    if (idx >= 0) { const cp = [...p]; cp[idx] = item; return cp; }
-                                    return [...p, item];
-                                  });
-                                  setMatIdSelecionado('');
-                                  setQtdMaterial(1);
-                                  setSerialSelecionados([]);
-                                }}>
-                                  + Adicionar
-                                </Button>
-                              </div>
-                            );
-                          })()}
-
-                          {materiaisOS.length > 0 && (
-                            <div className="border rounded p-2 space-y-1">
-                              {materiaisOS.map((m) => (
-                                <div key={m.material_id ?? m.nome} className="flex items-center justify-between text-sm">
-                                  <span>{m.nome} — {m.quantidade} {m.unidade}</span>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setMateriaisOS((p) => p.filter((x) => x.material_id !== m.material_id))}>
-                                    ✕
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                  {/* Materiais vinculados à OS (leitura) — todos os perfis */}
+                  {(osSelecionada?.materiais_utilizados?.length ?? 0) > 0 && (
+                    <div className="space-y-2 border-t pt-4">
+                      <Label className="font-semibold">Materiais nesta OS</Label>
+                      <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
+                        {(osSelecionada?.materiais_utilizados ?? []).map((m, i) => (
+                          <li key={i} className="marker:text-primary">
+                            {formatMaterialRotaResumo(m)}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
 
@@ -2220,7 +2283,9 @@ Em breve entraremos em contato para mais informações.`;
                         <div className="space-y-1">
                           <p className="text-xs text-amber-700 font-medium">Materiais informados pelo técnico:</p>
                           {(osSelecionada.materiais_utilizados ?? []).map((m, i) => (
-                            <p key={i} className="text-xs text-amber-900">• {m.nome} — {m.quantidade} {m.unidade}</p>
+                            <p key={i} className="text-xs text-amber-900">
+                              • {formatMaterialRotaResumo(m)}
+                            </p>
                           ))}
                         </div>
                       )}
@@ -2535,27 +2600,19 @@ Em breve entraremos em contato para mais informações.`;
           </div>
 
           <DialogFooter className="px-6 py-4 border-t bg-gray-50">
-            <Button variant="outline" onClick={() => {
-              setDialogAberto(false);
-              setOsSelecionada(null);
-              setStatusEditado('pendente');
-              setStatusEmAndamento(false);
-              setStatusFinalizada(false);
-              setStatusReagendada(false);
-              setStatusCancelada(false);
-              setHorarioEntrada('');
-              setHorarioSaida('');
-              setObservacoesEditado('');
-              setMotivoCancelamento('');
-              setMotivoReagendamento('');
-              setServicoPago(false);
-              setValorPago(undefined);
-              setFormaPagamento('');
-            }}>
+            <Button variant="outline" onClick={fecharFormularioOS}>
               Cancelar
             </Button>
-            <Button onClick={handleSalvarOS} className="bg-primary hover:bg-primary/90">
-              Salvar Alterações
+            <Button
+              onClick={handleSalvarOS}
+              className="bg-primary hover:bg-primary/90"
+              disabled={osSelecionada?.status === 'finalizada'}
+            >
+              {osSelecionada?.status === 'finalizada'
+                ? 'Salvar Alterações'
+                : statusFinalizada
+                  ? 'Finalizar serviço…'
+                  : 'Salvar Alterações'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2601,6 +2658,22 @@ Em breve entraremos em contato para mais informações.`;
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {donoUserId && osSelecionada && (
+        <FinalizacaoMateriaisModal
+          open={finalizacaoMateriaisAberto}
+          onOpenChange={(o) => {
+            setFinalizacaoMateriaisAberto(o);
+            if (!o) preFinalizacaoRef.current = null;
+          }}
+          donoUserId={donoUserId}
+          equipeId={isTecnico ? (equipeId ?? '') : (osSelecionada.tecnico_id ?? '')}
+          codigoOs={osSelecionada.codigo_os}
+          fluxoTecnico={isTecnico}
+          tecnicoEstoqueNome={!isTecnico ? osSelecionada.tecnico_nome : null}
+          onConfirm={completarSalvarFinalizacaoTecnico}
+        />
+      )}
 
     </div>
   );

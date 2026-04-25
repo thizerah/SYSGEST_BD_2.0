@@ -164,7 +164,11 @@ export function SaldoEstoque() {
     setSerialModal({ modo: 'local', saldo: item, seriais: [] });
     setLoadingSeriais(true);
     try {
-      const seriais = await fetchSeriais(donoUserId, { material_id: item.material_id, local_id: item.local_id });
+      const seriais = await fetchSeriais(donoUserId, {
+        material_id: item.material_id,
+        local_id: item.local_id,
+        status: 'disponivel',
+      });
       setSerialModal({ modo: 'local', saldo: item, seriais });
     } catch (e) {
       toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao carregar seriais.', variant: 'destructive' });
@@ -180,7 +184,7 @@ export function SaldoEstoque() {
     setLoadingSeriais(true);
     try {
       const localIds = new Set(g.linhas.map((l) => l.local_id));
-      const todos = await fetchSeriais(donoUserId, { material_id: g.material_id });
+      const todos = await fetchSeriais(donoUserId, { material_id: g.material_id, status: 'disponivel' });
       const seriais = todos.filter((s) => localIds.has(s.local_id));
       setSerialModal({ modo: 'grupo', titulo, seriais });
     } catch (e) {
@@ -196,7 +200,7 @@ export function SaldoEstoque() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Saldo de estoque</CardTitle>
           <p className="text-xs text-muted-foreground font-normal">
-            Uma linha por material (total). Use a seta para ver quantidade por local. A lista de materiais só aparece quando há saldo positivo (já houve entrada). Busca em texto filtra código/descrição.
+            Uma linha por material (total). Use a seta para ver quantidade por local. A lista de materiais só aparece quando há saldo positivo (já houve entrada). Nos seriais, só entram aparelhos <strong>disponíveis</strong> (não instalados). Busca em texto filtra código/descrição.
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -310,7 +314,7 @@ export function SaldoEstoque() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                title="Ver todos os seriais (locais do filtro)"
+                                title="Ver seriais disponíveis (locais do filtro)"
                                 onClick={() => void abrirSeriaisGrupo(g)}
                               >
                                 <List className="h-4 w-4" />
@@ -339,7 +343,7 @@ export function SaldoEstoque() {
                             </TableCell>
                             <TableCell className="text-center">
                               {g.material.serializado ? (
-                                <Button variant="ghost" size="icon" title="Seriais neste local" onClick={() => void abrirSeriais(s)}>
+                                <Button variant="ghost" size="icon" title="Seriais disponíveis neste local" onClick={() => void abrirSeriais(s)}>
                                   <List className="h-4 w-4" />
                                 </Button>
                               ) : (
@@ -364,11 +368,11 @@ export function SaldoEstoque() {
             <DialogTitle>
               {serialModal?.modo === 'local' ? (
                 <>
-                  Seriais — {serialModal.saldo.material?.descricao}{' '}
+                  Seriais disponíveis — {serialModal.saldo.material?.descricao}{' '}
                   <span className="text-muted-foreground font-normal">@ {serialModal.saldo.local?.nome}</span>
                 </>
               ) : (
-                <>Seriais — {serialModal?.titulo}</>
+                <>Seriais disponíveis — {serialModal?.titulo}</>
               )}
             </DialogTitle>
           </DialogHeader>

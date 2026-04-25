@@ -26,6 +26,7 @@ import {
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { formatMaterialRotaResumo } from '@/lib/roteiro';
 
 interface DetalhesRotaProps {
   rotaId: string;
@@ -258,8 +259,8 @@ export function DetalhesRota({ rotaId, onClose }: DetalhesRotaProps) {
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {os.materiais_utilizados.map((material, idx) => (
-                          <Badge key={idx} variant="secondary" className="text-xs">
-                            {material.nome}: {material.quantidade}
+                          <Badge key={idx} variant="secondary" className="text-xs font-normal max-w-full whitespace-normal text-left">
+                            {formatMaterialRotaResumo(material)}
                           </Badge>
                         ))}
                       </div>

@@ -53,6 +53,17 @@ export interface EstoqueSaldo {
   local?: Pick<Local, 'nome' | 'tipo'>;
 }
 
+/** Classificação do lançamento para o histórico (coluna Contexto). */
+export type ContextoHistoricoKey =
+  | 'estorno_auditoria'
+  | 'entrada_pos_estorno'
+  | 'baixa_reconferencia'
+  | 'baixa_roteiro'
+  | 'entrada'
+  | 'transferencia'
+  | 'ajuste_geral'
+  | 'saida_outros';
+
 export interface Movimentacao {
   id: string;
   dono_user_id: string;
@@ -75,6 +86,43 @@ export interface Movimentacao {
   local_destino?: Pick<Local, 'nome' | 'tipo'> | null;
   /** Seriais vinculados a esta movimentação (preenchido no histórico para materiais serializados). */
   seriais_vinculados?: { numero_serial: string }[];
+  /** Histórico: código da OS quando `roteiro_os_id` está preenchido. */
+  codigo_os_roteiro?: string | null;
+  /** Histórico (modo quantidade / merge roteiro): cliente da OS. */
+  nome_cliente_roteiro?: string | null;
+  /** Histórico: código do cliente na OS (exibido na col. NF em “Instalado” semelhante ao modo seriais). */
+  codigo_cliente_roteiro?: string | null;
+  /**
+   * Origem de negócio do lançamento (inferido: estorno, baixa 1ª vs pós-estorno, etc.).
+   * Preenchido no histórico de material.
+   */
+  contexto_historico?: ContextoHistoricoKey;
+}
+
+/** Filtro do histórico por coluna “Contexto” (subset do que é inferido em `contexto_historico`). */
+export type HistoricoFiltroContexto =
+  | 'todos'
+  | 'estorno_auditoria'
+  | 'baixa_roteiro'
+  | 'outros';
+
+/** Uma linha do histórico em modo seriais (1 IRD por linha quando houver número). */
+export interface LinhaHistoricoSerial {
+  mov: Movimentacao;
+  numero_serial: string | null;
+  /** Cliente após instalação (campo do serial / OS). */
+  nome_cliente_instalacao?: string | null;
+  /** Código da ordem de serviço vinculada (movimento ou serial). */
+  codigo_os?: string | null;
+  /** NF registrada na entrada original do aparelho (tabela seriais). */
+  nf_entrada_serial?: string | null;
+  serial_status?: StatusSerial | null;
+  /** IRD bate com `service_orders` (mesma OS + coluna ird_*), para indicador no histórico. */
+  ird_confirmado_planilha?: boolean;
+  /** Cliente na OS do roteiro (quando há vínculo com OS). */
+  nome_cliente_roteiro?: string | null;
+  /** Código do cliente na OS do roteiro. */
+  codigo_cliente_roteiro?: string | null;
 }
 
 export interface Serial {
@@ -88,6 +136,10 @@ export interface Serial {
   movimentacao_id: string | null;
   /** Movimentação de entrada que criou o registro; preservada após transferências. */
   movimentacao_entrada_id: string | null;
+  /** Chave da entrada (com NF) para permitir mesmo IRD em entradas diferentes. */
+  entrada_tipo_origem: TipoOrigem;
+  entrada_numero_nota_fiscal: string;
+  entrada_data_nota_fiscal: string;
   roteiro_os_id: string | null;
   nome_cliente: string | null;
   tipo_servico: string | null;
@@ -166,7 +218,12 @@ export interface FiltroMovimentacoes {
   tipo_movimentacao?: TipoMovimentacao;
   data_inicio?: string;
   data_fim?: string;
+  /** Local (tipo técnico): movimentação em que origem ou destino é esse local. */
+  local_tecnico_id?: string;
 }
+
+/** Modo de exibição do histórico de material (UMB vs serial). */
+export type ModoHistoricoMaterial = 'quantidade' | 'seriais';
 
 export interface FiltroSeriais {
   material_id?: string;

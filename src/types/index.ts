@@ -558,6 +558,8 @@ export interface MaterialRota {
   material_id?: string;
   unidade?: string;
   serial_ids?: string[]; // IDs dos seriais da tabela seriais
+  /** Números de IRD/serial (espelho para exibição no roteiro; persistido no JSON da OS). */
+  numeros_seriais?: string[];
 }
 
 // Foto antes/depois
@@ -619,6 +621,14 @@ export interface RotaOS {
   data_importacao: string;           // Timestamp de quando foi importada
   data_atribuicao?: string;          // Timestamp de quando foi atribuída
   data_finalizacao?: string;         // Timestamp de quando foi finalizada
+  /** Após baixa no estoque (movimentações) ou conferência sem material vinculado. */
+  estoque_sincronizado?: boolean;
+  /** Preenchido na conferência: houve estorno de baixa e OS reaberta para reconferir. */
+  estorno_baixa_conferencia?: {
+    ocorrencias: number;
+    ultimo_motivo: string;
+    ultimo_em: string;
+  };
   user_id: string;                   // ID do usuário que importou
 }
 
