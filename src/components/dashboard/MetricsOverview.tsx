@@ -51,7 +51,8 @@ import {
   CloudDownload,
   Info,
   Shield,
-  ShieldCheck
+  ShieldCheck,
+  ChevronDown
 } from "lucide-react";
 import { 
   ChartContainer, 
@@ -199,6 +200,9 @@ function consolidateMaterials(orders: ServiceOrder[]): ServiceOrder[] {
 }
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { NumberTicker } from "@/components/ui/number-ticker";
+import { ShimmerButton } from "@/components/ui/shimmer-button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -232,6 +236,8 @@ import { MetasEmpresaPage } from "@/components/metas/MetasEmpresaPage";
 import { MetasVendedorPage } from "@/components/metas/MetasVendedorPage";
 import { MailingPage } from "@/components/mailing/MailingPage";
 import { DataMigrationPanel } from "@/components/dashboard/DataMigrationPanel";
+import { Collapsible, CollapsibleContentAnimated, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Separator } from "@/components/ui/separator";
 import { DashboardHome } from "@/components/dashboard/DashboardHome";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -9974,6 +9980,7 @@ function ImportData() {
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [importType, setImportType] = useState<'pagamentos' | 'metas' | 'servicos-base'>('pagamentos');
+  const [supabaseOpen, setSupabaseOpen] = useState(false);
   const { toast } = useToast();
   
   // Função auxiliar para agrupar vendas por produto principal (sem secundários)
@@ -11735,256 +11742,195 @@ function ImportData() {
     return processedMetas;
   };
 
-  const importOptionBaseClasses =
-    "group relative flex transform-gpu flex-col gap-3 rounded-2xl border border-blue-200 bg-white/60 px-5 py-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-blue-300 hover:shadow-[0_28px_55px_-38px_rgba(37,99,235,0.55)]";
-  const importOptionSelectedClasses =
-    "border-transparent bg-gradient-to-br from-blue-200/80 via-white to-blue-100/70 shadow-[0_32px_60px_-36px_rgba(37,99,235,0.7)] ring-2 ring-blue-300/70";
+  const typeOptions: {
+    id: typeof importType;
+    title: string;
+    hint: string;
+    icon: React.ReactNode;
+  }[] = [
+    {
+      id: "pagamentos",
+      title: "Primeiro pagamento",
+      hint: "Icare",
+      icon: <CreditCard className="h-4 w-4" />,
+    },
+    {
+      id: "metas",
+      title: "Comercial",
+      hint: "Vendas e metas",
+      icon: <Target className="h-4 w-4" />,
+    },
+    {
+      id: "servicos-base",
+      title: "Operacional",
+      hint: "Serviços e base",
+      icon: <FileIcon className="h-4 w-4" />,
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* Card Principal de Importação */}
-      <Card className="relative overflow-hidden rounded-3xl border border-white/60 bg-gradient-to-br from-blue-50/30 via-white to-slate-50/50 shadow-[0_32px_70px_-40px_rgba(37,99,235,0.55)] backdrop-blur-sm">
-        <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b-2 border-blue-200 pb-4 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-gradient-to-br from-blue-100 via-white to-blue-50 p-3 shadow-inner">
-              <FileUp className="h-6 w-6 text-blue-500" />
-            </div>
-            <div>
-              <CardTitle className="text-3xl font-semibold text-slate-800">Importar Dados</CardTitle>
-              <CardDescription className="mt-2 text-sm text-slate-500">Selecione o tipo de importação e faça upload do arquivo</CardDescription>
-            </div>
+    <div className="mx-auto max-w-5xl space-y-8 pb-2">
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Configurações</p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Importação de dados</h2>
+        <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          Envie um arquivo por vez. Indique o que a planilha representa, arraste o arquivo e conclua com importar.
+        </p>
+      </div>
+
+      <div className="grid items-start gap-6 lg:grid-cols-12">
+        <div className="space-y-3 lg:col-span-5">
+          <p className="text-xs font-medium text-muted-foreground">Conteúdo do arquivo</p>
+          <div className="flex flex-col gap-2">
+            {typeOptions.map((opt) => {
+              const active = importType === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setImportType(opt.id)}
+                  className={cn(
+                    "group flex w-full items-center gap-3 rounded-2xl border px-4 py-3.5 text-left transition-all",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                    active
+                      ? "border-primary/35 bg-primary/[0.08] shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]"
+                      : "border-border/70 bg-card hover:border-border hover:bg-muted/30"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors",
+                      active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground group-hover:text-foreground"
+                    )}
+                  >
+                    {opt.icon}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold leading-tight">{opt.title}</span>
+                    <span className="text-xs text-muted-foreground">{opt.hint}</span>
+                  </span>
+                  {active && <CheckCircle className="h-5 w-5 shrink-0 text-primary" aria-hidden />}
+                </button>
+              );
+            })}
           </div>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <div className="space-y-0">
-            {/* Etapa 1 - Seleção de Tipo de Importação */}
-            <section className="space-y-5">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 via-white to-blue-200 text-lg font-semibold text-blue-600 shadow-inner">
-                  1
-                </div>
-                <div className="space-y-1">
-                  <span className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-500">Etapa 1</span>
-                  <h3 className="text-xl font-semibold text-slate-800">Escolha o tipo de importação</h3>
-                  <p className="text-sm text-slate-500">Selecione o cenário que deseja atualizar antes de enviar o arquivo.</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <button
-                    type="button"
-                    onClick={() => setImportType('pagamentos')}
-                  className={`${importOptionBaseClasses} ${
-                    importType === 'pagamentos' ? importOptionSelectedClasses : ''
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-100 via-white to-blue-50 text-blue-600 shadow-inner transition-transform duration-200 group-hover:scale-105">
-                        <CreditCard className="h-6 w-6" />
-                    </div>
-                      <div className="space-y-1">
-                        <div className={`text-base font-semibold ${importType === 'pagamentos' ? 'text-blue-700' : 'text-slate-700'}`}>
-                        Primeiro Pagamento
-                      </div>
-                        <div className="text-sm text-slate-500">Arquivo Icare</div>
-                      </div>
-                    </div>
-                    {importType === 'pagamentos' && (
-                      <CheckCircle className="h-5 w-5 text-blue-500 transition-all duration-200 group-hover:scale-110" />
-                    )}
-                  </div>
-                </button>
+        </div>
 
-                <button
-                    type="button"
-                    onClick={() => setImportType('metas')}
-                  className={`${importOptionBaseClasses} ${
-                    importType === 'metas' ? importOptionSelectedClasses : ''
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-100 via-white to-blue-50 text-blue-600 shadow-inner transition-transform duration-200 group-hover:scale-105">
-                        <Target className="h-6 w-6" />
-                    </div>
-                      <div className="space-y-1">
-                        <div className={`text-base font-semibold ${importType === 'metas' ? 'text-blue-700' : 'text-slate-700'}`}>
-                        Comercial
-                      </div>
-                        <div className="text-sm text-slate-500">Vendas e Metas</div>
-                      </div>
-                    </div>
-                    {importType === 'metas' && (
-                      <CheckCircle className="h-5 w-5 text-blue-500 transition-all duration-200 group-hover:scale-110" />
-                    )}
-                  </div>
-                </button>
+        <Card className="relative overflow-hidden border-border/50 shadow-md lg:col-span-7">
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-primary/0 via-primary/60 to-primary/0"
+            aria-hidden
+          />
+          <CardContent className="space-y-5 p-5 sm:p-6">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Arquivo</p>
+              <p className="text-sm font-medium text-foreground">Planilha ou CSV</p>
+            </div>
 
-                <button
-                    type="button"
-                    onClick={() => setImportType('servicos-base')}
-                  className={`${importOptionBaseClasses} ${
-                    importType === 'servicos-base' ? importOptionSelectedClasses : ''
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-100 via-white to-blue-50 text-blue-600 shadow-inner transition-transform duration-200 group-hover:scale-105">
-                        <FileIcon className="h-6 w-6" />
-                    </div>
-                      <div className="space-y-1">
-                        <div className={`text-base font-semibold ${importType === 'servicos-base' ? 'text-blue-700' : 'text-slate-700'}`}>
-                        Operacional
-                      </div>
-                        <div className="text-sm text-slate-500">Serviços e Base</div>
-                      </div>
-                    </div>
-                    {importType === 'servicos-base' && (
-                      <CheckCircle className="h-5 w-5 text-blue-500 transition-all duration-200 group-hover:scale-110" />
-                    )}
-                  </div>
-                </button>
-                </div>
-            </section>
-              
-            {/* Divisória entre Etapa 1 e 2 */}
-            <div className="border-t border-gray-200 pt-8">
-              {/* Etapa 2 - Upload de Arquivo */}
-              <section className="space-y-5">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 via-white to-blue-200 text-lg font-semibold text-blue-600 shadow-inner">
-                  2
-                </div>
-                <div className="space-y-1">
-                  <span className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-500">Etapa 2</span>
-                  <h3 className="text-xl font-semibold text-slate-800">Faça o upload do arquivo</h3>
-                  <p className="text-sm text-slate-500">Envie planilhas nos formatos .xlsx, .xls ou .csv com as colunas necessárias.</p>
-                </div>
-              </div>
-              <div className="relative">
+            <div className="relative">
               <Input
                 id="file"
                 type="file"
                 accept=".xlsx,.xls,.csv"
                 onChange={handleFileChange}
                 disabled={processing}
-                  className="hidden"
-                />
-                <label
-                  htmlFor="file"
-                  className={`group relative flex w-full transform-gpu flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed px-6 py-8 text-center shadow-sm transition-all duration-200 before:absolute before:inset-0 before:-z-10 before:rounded-2xl before:bg-gradient-to-br before:from-white/70 before:to-transparent before:opacity-0 before:transition-all before:duration-200 ${
-                    file
-                      ? 'border-blue-400 bg-gradient-to-br from-blue-100/70 via-white to-blue-50/80 shadow-[0_20px_50px_-30px_rgba(37,99,235,0.5)]'
-                      : processing
-                      ? 'cursor-not-allowed border-slate-200 bg-slate-100/80 text-slate-400 opacity-80'
-                      : 'border-blue-200 bg-white/60 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50/40 hover:shadow-[0_20px_50px_-30px_rgba(37,99,235,0.5)] group-hover:before:opacity-100'
-                  }`}
-                >
-                  {file ? (
-                    <>
-                      <CheckCircle className="mb-2 h-8 w-8 text-blue-500" />
-                      <p className="text-sm font-semibold text-blue-700">{file.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">{Math.round(file.size / 1024)} KB</p>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="mb-2 h-8 w-8 text-blue-400 transition-transform duration-200 group-hover:scale-105" />
-                      <p className="text-sm font-semibold text-blue-700">
-                        Arraste ou <span className="text-blue-500 underline decoration-dotted underline-offset-2">clique para enviar</span>
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">Suporta arquivos .xlsx, .xls e .csv</p>
-                    </>
-              )}
-                </label>
-              </div>
-              </section>
-            </div>
-            
-            {/* Divisória entre Etapa 2 e 3 */}
-            <div className="border-t border-gray-200 pt-8">
-              {/* Etapa 3 - Importação */}
-              <section className="space-y-5">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 via-white to-blue-200 text-lg font-semibold text-blue-600 shadow-inner">
-                  3
-            </div>
-                      <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-500">Etapa 3</p>
-                  <h3 className="text-xl font-semibold text-slate-800">Importe e acompanhe o progresso</h3>
-                  <p className="text-sm text-slate-500">Inicie o processo e acompanhe o andamento na barra de progresso.</p>
-                        </div>
-                      </div>
-              
-            {error && (
-                <div className="rounded-2xl border border-red-200/70 bg-red-50/80 p-4 backdrop-blur-sm">
-                <div className="flex items-center gap-2">
-                  <X className="h-5 w-5 text-red-600" />
-                  <p className="text-sm font-medium text-red-800">{error}</p>
-                </div>
-              </div>
-            )}
-              
-              {processing && (
-                <div className="rounded-2xl border border-blue-200/70 bg-white/70 p-4 shadow-sm backdrop-blur-sm">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-blue-900">Processando arquivo...</span>
-                    <span className="text-sm font-bold text-blue-600">{progress}%</span>
-                </div>
-                    <Progress
-                      value={progress}
-                      className="h-2 bg-blue-100/80"
-                      indicatorClassName="bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-500"
-                    />
-            </div>
-              </div>
-            )}
-            
-              <div className="flex flex-col items-center gap-4">
-              <Button
-                onClick={handleUpload}
-                disabled={!file || processing}
-                  className="group relative inline-flex h-12 w-full transform-gpu items-center justify-center rounded-full bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-500 px-8 text-base font-semibold text-white shadow-lg shadow-blue-500/40 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-blue-500/50 disabled:pointer-events-none disabled:opacity-60 sm:w-auto"
-              size="lg"
+                className="hidden"
+              />
+              <label
+                htmlFor="file"
+                className={cn(
+                  "flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 py-10 text-center transition-all",
+                  file
+                    ? "border-primary/40 bg-gradient-to-b from-primary/[0.07] to-transparent"
+                    : processing
+                      ? "cursor-not-allowed border-muted bg-muted/20 opacity-70"
+                      : "border-border/70 bg-gradient-to-b from-muted/30 to-background hover:border-primary/30 hover:from-primary/[0.04]"
+                )}
               >
+                {file ? (
+                  <>
+                    <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/15">
+                      <CheckCircle className="h-6 w-6 text-primary" />
+                    </div>
+                    <p className="max-w-full truncate text-sm font-semibold text-foreground">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">{Math.round(file.size / 1024)} KB</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-border/60 bg-background shadow-sm">
+                      <Upload className="h-7 w-7 text-primary" />
+                    </div>
+                    <p className="text-sm text-foreground">
+                      <span className="font-semibold text-primary">Selecionar arquivo</span>
+                      <span className="text-muted-foreground"> ou arraste para esta área</span>
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">Formatos: .xlsx, .xls, .csv</p>
+                  </>
+                )}
+              </label>
+            </div>
+
+            {error && (
+              <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3 text-sm text-destructive">
+                <X className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>{error}</p>
+              </div>
+            )}
+
+            {processing && (
+              <div className="space-y-2.5 rounded-xl border border-border/60 bg-muted/25 px-3.5 py-3.5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Processando arquivo</span>
+                  <span className="font-semibold tabular-nums text-primary">
+                    <NumberTicker value={progress} className="inline" /> %
+                  </span>
+                </div>
+                <Progress value={progress} className="h-2" />
+              </div>
+            )}
+
+            <ShimmerButton
+              onClick={handleUpload}
+              disabled={!file || processing}
+              className="h-12 w-full rounded-xl border-0 bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25 sm:text-base"
+              shimmerClassName="via-white/25"
+            >
               {processing ? (
                 <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Processando...
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Processando…
                 </>
               ) : (
                 <>
-                  <Upload className="mr-2 h-5 w-5" />
-                Importar Dados
+                  <Upload className="h-5 w-5" />
+                  Importar agora
                 </>
               )}
-              </Button>
-          </div>
-            </section>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            </ShimmerButton>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Card de Migração para Supabase */}
-      <Card className="relative overflow-hidden rounded-3xl border border-white/60 bg-gradient-to-br from-purple-50/30 via-white to-violet-50/50 shadow-[0_32px_70px_-40px_rgba(139,92,246,0.55)] backdrop-blur-sm">
-        <CardHeader className="bg-gradient-to-r from-purple-50 to-violet-50 border-b-2 border-purple-200 pb-4 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-gradient-to-br from-purple-100 via-white to-purple-50 p-3 shadow-inner">
-              <CloudDownload className="h-6 w-6 text-purple-500" />
-            </div>
-            <div>
-              <CardTitle className="text-3xl font-semibold text-slate-800">Migrar para Supabase</CardTitle>
-              <CardDescription className="mt-2 text-sm text-slate-500">
-                Migre seus dados do localStorage para o Supabase Cloud para maior segurança e performance
-              </CardDescription>
-            </div>
+      <Collapsible open={supabaseOpen} onOpenChange={setSupabaseOpen} className="rounded-2xl border border-border/60 bg-card">
+        <CollapsibleTrigger className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-muted/30 sm:px-5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
+            <CloudDownload className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">Sincronizar com Supabase</span>
+            <span className="text-xs text-muted-foreground">Migre dados do navegador para a nuvem (opcional)</span>
+          </span>
+          <ChevronDown
+            className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", supabaseOpen && "rotate-180")}
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContentAnimated>
+          <Separator />
+          <div className="p-4 sm:p-5">
+            <DataMigrationPanel />
           </div>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <DataMigrationPanel />
-        </CardContent>
-      </Card>
+        </CollapsibleContentAnimated>
+      </Collapsible>
     </div>
   );
 }
