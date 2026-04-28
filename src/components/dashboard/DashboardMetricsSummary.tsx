@@ -200,19 +200,45 @@ function consumoOtimizacaoProgressClass(pct: number, gatilhoCritico: number) {
   return "h-2 rounded-full bg-muted [&>div]:bg-green-500";
 }
 
+/** Mesmas regras do quadro «Consumo Excessivo» em OptimizationCountCard.tsx */
+function computeLinhaConsumoExcessivo(
+  volumeOS: number,
+  volumeConsumo: number,
+  pdv: number,
+  gatilho: number
+) {
+  const limitePermitido = Math.floor((volumeOS * gatilho) / 100);
+  const quantidadeExcedida = Math.max(0, volumeConsumo - limitePermitido);
+  const qtdPerm = Math.max(0, limitePermitido - volumeConsumo);
+  const taxaConsumo = volumeOS > 0 ? volumeConsumo / volumeOS : 0;
+  let proxVolOS = 0;
+  if (pdv <= gatilho) {
+    proxVolOS = taxaConsumo > 0 ? Math.floor(qtdPerm / taxaConsumo) : 0;
+  } else {
+    const osNecessarias = gatilho > 0 ? Math.ceil(volumeConsumo / (gatilho / 100) - volumeOS) : 0;
+    proxVolOS = Math.max(0, osNecessarias);
+  }
+  return { quantidadeExcedida, qtdPerm, proxVolOS };
+}
+
 // Cabeçalho da tabela de consumo (flex: colunas numéricas com largura fixa para não “espichar” %PDV)
 function ConsumoHeader() {
   return (
-    <div className="mb-1 flex items-end gap-x-2 border-b border-border/70 pb-1.5 pt-0.5 text-[10px] font-semibold uppercase leading-none text-muted-foreground">
-      <span className="min-w-0 flex-1">Material</span>
-      <span className="w-11 shrink-0 text-center">Vol OS</span>
-      <span className="w-[3.25rem] shrink-0 text-center">Vol Cons.</span>
-      <span className="w-11 shrink-0 text-center">%PDV</span>
+    <div className="mb-1 flex items-end gap-x-1 border-b border-border/70 pb-1.5 pt-0.5 text-[9px] font-semibold leading-tight text-muted-foreground sm:gap-x-1.5 sm:text-[10px]">
+      <span className="min-w-0 flex-1 uppercase tracking-wide">Material</span>
+      <span className="w-9 shrink-0 text-center uppercase sm:w-10">Vol OS</span>
+      <span className="w-[3rem] shrink-0 text-center uppercase sm:w-[3.25rem]">Vol Cons.</span>
+      <span className="w-9 shrink-0 text-center uppercase sm:w-10">%PDV</span>
+      <span className="w-[2.35rem] shrink-0 text-center normal-case">Qtd Exc</span>
+      <span className="w-[2.35rem] shrink-0 text-center normal-case">Qtd Perm</span>
+      <span className="w-[2.85rem] shrink-0 text-center normal-case leading-none">
+        Prox Vol OS
+      </span>
     </div>
   );
 }
 
-// Linha de consumo: Material | Vol OS | Vol Consumo | %PDV
+// Linha de consumo: Material | Vol OS | Vol Consumo | %PDV | Qtd Exc | Qtd Perm | Prox Vol OS
 function ConsumoRow({
   label,
   volume,
@@ -235,21 +261,35 @@ function ConsumoRow({
       ? "bg-yellow-500 text-white"
       : "bg-green-500 text-white";
 
+  const { quantidadeExcedida, qtdPerm, proxVolOS } = computeLinhaConsumoExcessivo(volume, consumo, pdv, gatilho);
+
+  const proxClass =
+    pdv > gatilho ? "text-red-600 font-semibold" : "text-green-600 font-semibold";
+
   return (
-    <div className="flex items-center gap-x-2 py-1 text-[11px] leading-snug">
+    <div className="flex items-center gap-x-1 py-1 text-[11px] leading-snug sm:gap-x-1.5">
       <span className="min-w-0 flex-1 truncate text-muted-foreground">{label}</span>
-      <span className="flex w-11 shrink-0 justify-center">
+      <span className="flex w-9 shrink-0 justify-center sm:w-10">
         <span className="rounded border border-border/80 bg-muted/60 px-1 py-0.5 text-[10px] font-medium tabular-nums text-foreground/80">
           {volume}
         </span>
       </span>
-      <span className="w-[3.25rem] shrink-0 text-center font-medium tabular-nums text-foreground/85">
+      <span className="w-[3rem] shrink-0 text-center font-medium tabular-nums text-foreground/85 sm:w-[3.25rem]">
         {consumo}
         {unidade}
       </span>
-      <span className={`flex w-11 shrink-0 justify-center rounded px-1 py-0.5 text-center text-[10px] font-bold tabular-nums ${badgeClass}`}>
+      <span className={`flex w-9 shrink-0 justify-center rounded px-1 py-0.5 text-center text-[10px] font-bold tabular-nums sm:w-10 ${badgeClass}`}>
         {Math.round(pdv)}%
       </span>
+      <span
+        className={`w-[2.35rem] shrink-0 text-center text-[10px] font-semibold tabular-nums sm:text-[11px] ${
+          quantidadeExcedida > 0 ? "text-red-600" : "text-muted-foreground"
+        }`}
+      >
+        {quantidadeExcedida}
+      </span>
+      <span className="w-[2.35rem] shrink-0 text-center text-[10px] tabular-nums text-foreground/85 sm:text-[11px]">{qtdPerm}</span>
+      <span className={`w-[2.85rem] shrink-0 text-center text-[10px] tabular-nums sm:text-[11px] ${proxClass}`}>{proxVolOS}</span>
     </div>
   );
 }
