@@ -116,15 +116,17 @@ export function LoginForm() {
   };
 
   return (
-    <CardContent className="space-y-6 px-8 pb-8">
-      <form onSubmit={handleSubmit} className="space-y-6">
+    <CardContent className="space-y-5 px-6 pb-6 pt-6 sm:px-8 sm:pb-8">
+      <form onSubmit={handleSubmit} className="space-y-5">
         {renderErrorAlert()}
         
         <div className="space-y-3">
-          <Label htmlFor="email" className="text-gray-700 font-semibold text-sm">Email</Label>
+          <Label htmlFor="email" className="text-sm font-medium text-foreground">
+            Email
+          </Label>
           <div className="relative group">
             <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
-              <Mail className="text-gray-400 group-focus-within:text-gray-700 transition-colors" size={20} />
+              <Mail className="text-muted-foreground group-focus-within:text-foreground" size={20} />
             </div>
             <Input
               id="email"
@@ -133,16 +135,18 @@ export function LoginForm() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
-              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-gray-600 focus:ring-2 focus:ring-gray-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+              className="h-11 rounded-lg border-input bg-background pl-12 text-base"
             />
           </div>
         </div>
         
         <div className="space-y-3">
-          <Label htmlFor="password" className="text-gray-700 font-semibold text-sm">Senha</Label>
+          <Label htmlFor="password" className="text-sm font-medium text-foreground">
+            Senha
+          </Label>
           <div className="relative group">
             <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
-              <Lock className="text-gray-400 group-focus-within:text-gray-700 transition-colors" size={20} />
+              <Lock className="text-muted-foreground group-focus-within:text-foreground" size={20} />
             </div>
             <Input
               id="password"
@@ -151,35 +155,34 @@ export function LoginForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
-              className="pl-12 h-14 text-base border-2 border-gray-200 focus:border-gray-600 focus:ring-2 focus:ring-gray-200 rounded-xl transition-all duration-200 bg-gray-50/50 hover:bg-white hover:border-gray-300"
+              className="h-11 rounded-lg border-input bg-background pl-12 text-base"
             />
           </div>
         </div>
         
-        <Button 
-          type="submit" 
-          className="w-full h-14 bg-gray-800 hover:bg-gray-900 text-white font-bold text-lg rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 flex items-center justify-center space-x-3 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+        <Button
+          type="submit"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-slate-800 text-base font-semibold text-white shadow hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={loading}
         >
           {loading ? (
             <>
-              <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
+              <span className="inline-block size-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
               <span>Autenticando...</span>
             </>
           ) : (
             <>
-              <LogIn size={20} className="mr-1" />
-              <span>Entrar no Sistema</span>
-              <span className="text-xl">→</span>
+              <LogIn size={18} className="shrink-0" />
+              <span>Entrar</span>
             </>
           )}
         </Button>
       </form>
       
-      <div className="text-center pt-4 border-t-2 border-gray-100">
-        <p className="text-xs text-gray-500 flex items-center justify-center space-x-2">
-          <Shield className="text-gray-400" size={14} />
-          <span>Acesso seguro e protegido por criptografia</span>
+      <div className="border-t border-border/60 pt-4 text-center">
+        <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+          <Shield className="size-3.5 shrink-0 opacity-70" aria-hidden />
+          <span>Acesso seguro por criptografia</span>
         </p>
       </div>
     </CardContent>
