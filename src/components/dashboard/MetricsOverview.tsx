@@ -200,6 +200,7 @@ function consolidateMaterials(orders: ServiceOrder[]): ServiceOrder[] {
 }
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { TechnicianServicesDetailModal } from "@/components/dashboard/TechnicianServicesDetailModal";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
 import { cn } from "@/lib/utils";
@@ -3104,6 +3105,12 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
   const [originalServiceTypeFilter, setOriginalServiceTypeFilter] = useState<string>("");
   // Estado para o filtro de data de habilitação (usado nos componentes de permanência)
   const [filtroDataHabilitacao, setFiltroDataHabilitacao] = useState<string[]>([]);
+
+  const [technicianServicesDetail, setTechnicianServicesDetail] = useState<{
+    name: string;
+    orders: ServiceOrder[];
+    servicesByType: Record<string, number>;
+  } | null>(null);
   
   // Estado para controlar indicadores selecionados no ranking de excelência
   const [selectedExcellenceIndicators, setSelectedExcellenceIndicators] = useState({
@@ -8612,7 +8619,27 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                                   {renderPosition()}
                                 </TableCell>
                                 <TableCell className={`sticky left-16 z-10 font-semibold border-r-2 border-gray-200 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
-                                  {tech.name}
+                                  <div className="flex items-center justify-between gap-2 min-w-0">
+                                    <span className="truncate">{tech.name}</span>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 shrink-0 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50"
+                                      title="Ver serviços deste técnico"
+                                      onClick={() =>
+                                        setTechnicianServicesDetail({
+                                          name: tech.name,
+                                          orders: filteredServiceOrders.filter(
+                                            (o) => o.nome_tecnico === tech.name && o.status !== "Cancelada",
+                                          ),
+                                          servicesByType: tech.servicesByType,
+                                        })
+                                      }
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 </TableCell>
                                 <TableCell className="text-center border-l-2 border-gray-300">{tech.servicesByType['Corretiva']}</TableCell>
                                 {selectedYear && parseInt(selectedYear) < 2026 && (
@@ -8717,6 +8744,20 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
             </div>
           </div>
         )}
+      <TechnicianServicesDetailModal
+        open={technicianServicesDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setTechnicianServicesDetail(null);
+        }}
+        technicianName={technicianServicesDetail?.name ?? ""}
+        orders={technicianServicesDetail?.orders ?? []}
+        servicesByType={technicianServicesDetail?.servicesByType ?? {}}
+        periodLabel={
+          selectedMonth && selectedYear
+            ? `${getMonthName(selectedMonth)} de ${selectedYear}`
+            : "Período não selecionado"
+        }
+      />
       </TabsContent>
       
       {/* Users Management Tab */}
