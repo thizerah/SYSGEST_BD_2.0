@@ -34,6 +34,7 @@ import { fetchMetas } from '@/lib/metas';
 import type { Venda, VendaMeta, VendaFibra, VendaMovel, VendaNovaParabolica, Meta } from '@/types';
 import { Eye, Loader2, FilterX, TrendingUp } from 'lucide-react';
 import { DetalheVendaSheet } from './DetalheVendaSheet';
+import { mapearTipoDeCategoriaVenda, type TipoVendaComercial } from '@/utils/propostas';
 
 const STATUS_OPCOES = [
   'Aguardando',
@@ -51,7 +52,7 @@ const MESES_NOMES: Record<number, string> = {
   7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro',
 };
 
-export type TipoVendaUnificada = 'POS' | 'PRE' | 'SKY+' | 'FIBRA' | 'MÓVEL' | 'NOVA PARABÓLICA';
+export type TipoVendaUnificada = TipoVendaComercial;
 
 export interface VendaUnificada {
   id: string;
@@ -104,19 +105,6 @@ function formatarData(data: string | undefined): string {
   } catch {
     return data;
   }
-}
-
-/** Mapeia categoria (vendas_meta) ou agrupamento_produto (vendas) para tipo exibido. */
-function mapearTipoDeCategoria(valor: string): TipoVendaUnificada {
-  const v = (valor || '').toUpperCase().trim();
-  if (!v) return 'POS';
-  if (v === 'PRE' || v.includes('PRÉ-PAGO') || v.includes('FLEX') || v.includes('CONFORTO')) return 'PRE';
-  if (v === 'POS' || v.includes('PÓS-PAGO')) return 'POS';
-  if (v.includes('SKY MAIS') || v.includes('SKY+') || v.includes('DGO')) return 'SKY+';
-  if (v.includes('FIBRA') || v.includes('BL-DGO')) return 'FIBRA';
-  if (v.includes('MÓVEL') || v.includes('MOVEL') || v.includes('CELULAR')) return 'MÓVEL';
-  if (v.includes('NOVA PARABÓLICA') || v === 'NP') return 'NOVA PARABÓLICA';
-  return 'POS';
 }
 
 function verificarSeguro(produtosSecundarios?: string, formaPagamento?: string): boolean {
@@ -331,7 +319,7 @@ export function VisualizarVendasPage() {
     vendas
       .filter((v) => vendedorCorresponde(v))
       .forEach((v) => {
-        const tipo = mapearTipoDeCategoria(v.agrupamento_produto || '');
+        const tipo = mapearTipoDeCategoriaVenda(v.agrupamento_produto || '');
         const ma = extrairMesAno(v.data_habilitacao || '');
         if (!ma) return;
         list.push({
@@ -354,7 +342,7 @@ export function VisualizarVendasPage() {
     vendasMeta
       .filter((v) => vendedorCorresponde(v))
       .forEach((v) => {
-        const tipo = mapearTipoDeCategoria(v.categoria || '');
+        const tipo = mapearTipoDeCategoriaVenda(v.categoria || '');
         const mes = v.mes && v.mes >= 1 && v.mes <= 12 ? v.mes : (extrairMesAno(v.data_venda || '')?.mes ?? 0);
         const ano = v.ano && v.ano >= 2000 ? v.ano : (extrairMesAno(v.data_venda || '')?.ano ?? 0);
         if (!mes || !ano) return;

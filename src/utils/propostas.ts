@@ -9,6 +9,40 @@ import type {
   PropostaUnificada,
 } from '@/types';
 
+/** Igual à guia Vendas (`VisualizarVendasPage`): usado nas métricas para o selo “Pós” / “Flex”. */
+export type TipoVendaComercial = 'POS' | 'PRE' | 'SKY+' | 'FIBRA' | 'MÓVEL' | 'NOVA PARABÓLICA';
+
+export function mapearTipoDeCategoriaVenda(valor: string): TipoVendaComercial {
+  const v = (valor || '').toUpperCase().trim();
+  if (!v) return 'POS';
+  if (v === 'PRE' || v.includes('PRÉ-PAGO') || v.includes('FLEX') || v.includes('CONFORTO')) return 'PRE';
+  if (v === 'POS' || v.includes('PÓS-PAGO')) return 'POS';
+  if (v.includes('SKY MAIS') || v.includes('SKY+') || v.includes('DGO')) return 'SKY+';
+  if (v.includes('FIBRA') || v.includes('BL-DGO')) return 'FIBRA';
+  if (v.includes('MÓVEL') || v.includes('MOVEL') || v.includes('CELULAR')) return 'MÓVEL';
+  if (v.includes('NOVA PARABÓLICA') || v === 'NP') return 'NOVA PARABÓLICA';
+  return 'POS';
+}
+
+/** Mesma regra que `buscarTodasVendasDoPeriodo` na aba Metas (`MetricsOverview`): mês/ano pedidos +, se for o mês calendário atual, inclui registros «Aguardando» do mês anterior. */
+export function filtrarPropostasPorPeriodoComAguardandoMesAnterior<
+  T extends { mes: number; ano: number; status_proposta?: string },
+>(lista: T[], mes: number, ano: number): T[] {
+  const hoje = new Date();
+  const ehMesCorrente = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
+  if (ehMesCorrente) {
+    const mesAnt = mes === 1 ? 12 : mes - 1;
+    const anoAnt = mes === 1 ? ano - 1 : ano;
+    const aguardando = (s: string | undefined) => (s ?? '').toUpperCase().includes('AGUARDANDO');
+    return lista.filter(
+      (p) =>
+        (p.mes === mes && p.ano === ano) ||
+        (p.mes === mesAnt && p.ano === anoAnt && aguardando(p.status_proposta)),
+    );
+  }
+  return lista.filter((p) => p.mes === mes && p.ano === ano);
+}
+
 function extrairMesAno(dataStr: string | undefined | null): { mes: number; ano: number } {
   if (!dataStr) return { mes: new Date().getMonth() + 1, ano: new Date().getFullYear() };
   const d = new Date(dataStr);

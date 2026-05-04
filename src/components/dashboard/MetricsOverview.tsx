@@ -270,6 +270,7 @@ import { getReopeningColorByServiceType, getTimeAttendanceColorByServiceType, ge
 import { BaseMetricsSection } from "@/components/dashboard/BaseMetricsSection";
 import { useBaseMetrics } from "@/hooks/useBaseMetrics";
 import { VendasMetaCleaner } from "@/components/dashboard/VendasMetaCleaner";
+import { filtrarPropostasPorPeriodoComAguardandoMesAnterior } from "@/utils/propostas";
 
 // Componente para o conteúdo da guia Metas
 function MetasTabContent() {
@@ -306,20 +307,8 @@ function MetasTabContent() {
   };
 
   // Buscar todas as propostas do período (sem filtro de status) — usada no detalhamento de propostas
-  const buscarTodasVendasDoPeriodo = (mes: number, ano: number) => {
-    const hoje = new Date();
-    const isCurrentMonth = ano === hoje.getFullYear() && mes === hoje.getMonth() + 1;
-    if (isCurrentMonth) {
-      const mesAnterior = mes === 1 ? 12 : mes - 1;
-      const anoAnterior = mes === 1 ? ano - 1 : ano;
-      const isAguardando = (s: string | undefined) => (s ?? '').toUpperCase().includes('AGUARDANDO');
-      return propostasUnificadas.filter(p =>
-        (p.mes === mes && p.ano === ano) ||
-        (p.mes === mesAnterior && p.ano === anoAnterior && isAguardando(p.status_proposta))
-      );
-    }
-    return propostasUnificadas.filter(p => p.mes === mes && p.ano === ano);
-  };
+  const buscarTodasVendasDoPeriodo = (mes: number, ano: number) =>
+    filtrarPropostasPorPeriodoComAguardandoMesAnterior(propostasUnificadas, mes, ano);
 
   // Função auxiliar para calcular dias úteis (sem domingos) de um mês
   const calcularDiasUteisMes = (mes: number, ano: number) => {

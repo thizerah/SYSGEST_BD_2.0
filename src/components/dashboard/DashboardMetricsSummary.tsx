@@ -1,4 +1,8 @@
 import { useMemo, useState, useCallback } from "react";
+import {
+  filtrarPropostasPorPeriodoComAguardandoMesAnterior,
+  mapearTipoDeCategoriaVenda,
+} from "@/utils/propostas";
 import useData from "@/context/useData";
 import { useOptimizationCounts } from "@/hooks/useOptimizationCounts";
 import { useReopeningMetricsByMonth } from "@/hooks/useReopeningMetricsByMonth";
@@ -428,31 +432,48 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
   );
 
   // Breakdown de status das propostas do mês atual
-  const propostasMes = useMemo(
-    () => propostasUnificadas.filter((p) => p.mes === mesAtual && p.ano === anoAtual),
-    [propostasUnificadas, mesAtual, anoAtual]
+  // Mesmo recorte temporal da aba Metas («Vendas por status»): mês atual + aguardando do mês anterior
+  const propostasPeriodoStatusMetas = useMemo(
+    () => filtrarPropostasPorPeriodoComAguardandoMesAnterior(propostasUnificadas, mesAtual, anoAtual),
+    [propostasUnificadas, mesAtual, anoAtual],
   );
 
+  const metaFunilEhMesCalendarioAtual =
+    anoAtual === new Date().getFullYear() && mesAtual === new Date().getMonth() + 1;
+
   const empresaBreakdown = useMemo(() => {
-    const s = (v?: string) => (v ?? "").toUpperCase();
-    const isFinalizados = (p: typeof propostasMes[0]) => s(p.status_proposta).includes("FINALIZ") || s(p.status_proposta).includes("HABILIT");
-    const isAgPgto = (p: typeof propostasMes[0]) => s(p.status_proposta).includes("AGUARDANDO") && s(p.status_proposta).includes("PAGAMENTO");
-    const isAgHab = (p: typeof propostasMes[0]) => s(p.status_proposta).includes("AGUARDANDO") && s(p.status_proposta).includes("HABILIT");
-    // categoria pode ser "pos"/"pos_pago" (venda normal) ou "flex_conforto"/"pre" (vendaMeta)
-    const isPos = (p: typeof propostasMes[0]) =>
-      p.categoria === "pos_pago" || p.categoria === "pos";
-    const isFlex = (p: typeof propostasMes[0]) =>
-      p.categoria === "flex_conforto" || p.categoria === "pre";
-    return {
-      finalizado: propostasMes.filter(isFinalizados).length,
-      agPagamento: propostasMes.filter(isAgPgto).length,
-      agPagamentoPos: propostasMes.filter((p) => isAgPgto(p) && isPos(p)).length,
-      agPagamentoFlex: propostasMes.filter((p) => isAgPgto(p) && isFlex(p)).length,
-      agHabilitacao: propostasMes.filter(isAgHab).length,
-      agHabilitacaoPos: propostasMes.filter((p) => isAgHab(p) && isPos(p)).length,
-      agHabilitacaoFlex: propostasMes.filter((p) => isAgHab(p) && isFlex(p)).length,
+    const props = propostasPeriodoStatusMetas;
+    type P = (typeof props)[number];
+    const statusU = (v?: string) => (v ?? "").trim().toUpperCase();
+    /** Mesmo critério da guia Vendas — evita contar "Aguardando Habilitação" como finalizado (substring "HABILIT"). */
+    const isFinalizado = (u: string) =>
+      u === "FINALIZADA" || u === "FINALIZADO" || u === "HABILITADO";
+    const isAgPgto = (u: string) => u.includes("AGUARDANDO") && u.includes("PAGAMENTO");
+    const isAgHab = (u: string) =>
+      u.includes("AGUARDANDO") && u.includes("HABILIT") && !u.includes("PAGAMENTO");
+
+    const bucket = (status?: string) => {
+      const u = statusU(status);
+      if (isFinalizado(u)) return "fin" as const;
+      if (isAgPgto(u)) return "pg" as const;
+      if (isAgHab(u)) return "hab" as const;
+      return null;
     };
-  }, [propostasMes]);
+
+    const tipo = (p: P) => mapearTipoDeCategoriaVenda(p.categoria ?? "");
+    const isPos = (p: P) => tipo(p) === "POS";
+    const isFlex = (p: P) => tipo(p) === "PRE";
+
+    return {
+      finalizado: props.filter((p) => bucket(p.status_proposta) === "fin").length,
+      agPagamento: props.filter((p) => bucket(p.status_proposta) === "pg").length,
+      agPagamentoPos: props.filter((p) => bucket(p.status_proposta) === "pg" && isPos(p)).length,
+      agPagamentoFlex: props.filter((p) => bucket(p.status_proposta) === "pg" && isFlex(p)).length,
+      agHabilitacao: props.filter((p) => bucket(p.status_proposta) === "hab").length,
+      agHabilitacaoPos: props.filter((p) => bucket(p.status_proposta) === "hab" && isPos(p)).length,
+      agHabilitacaoFlex: props.filter((p) => bucket(p.status_proposta) === "hab" && isFlex(p)).length,
+    };
+  }, [propostasPeriodoStatusMetas]);
 
   // Otimização — consumo percentual (AT = antenas, PP = LNBF)
   const { volumeOS, volumeConsumoAntena, volumeConsumoLnbs } = useOptimizationCounts(osDoMes);
@@ -769,11 +790,11 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
               className="overflow-hidden"
             >
               <CardContent className="p-5 pt-0">
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-                  <div className="w-full shrink-0 rounded-xl border border-border/50 bg-muted/20 p-4 lg:w-56">
-                    <p className="mb-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Total geral</p>
+                <div className="flex flex-col overflow-hidden rounded-xl border border-border/65 bg-muted/25 lg:flex-row lg:items-stretch">
+                  <div className="flex w-full shrink-0 flex-col border-border/55 p-3 sm:p-4 lg:max-w-[13.75rem] lg:border-e lg:bg-muted/30">
+                    <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Total geral</p>
                     <div className="flex items-baseline gap-1">
-                      <span className={cn("text-4xl font-bold tracking-tight", pctColor(metaEmpresa.percentual_geral, 100))}>
+                      <span className={cn("text-3xl font-bold leading-none tracking-tight sm:text-[2rem]", pctColor(metaEmpresa.percentual_geral, 100))}>
                         <NumberTicker
                           key={`meta-${tickerReplay}`}
                           value={metaEmpresa.percentual_geral}
@@ -782,81 +803,98 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
                         %
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
                       <span className="font-semibold text-foreground">{metaEmpresa.total_vendas}</span>
                       <span> / {metaEmpresa.total_meta} vendas</span>
                     </p>
                     <Progress
                       value={Math.min(metaEmpresa.percentual_geral, 100)}
-                      className="mb-5 mt-3 h-2.5 rounded-full bg-muted [&>div]:bg-primary"
+                      className="mb-0 mt-2 h-2 rounded-full bg-muted [&>div]:bg-primary"
                     />
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                          <span className="text-[11px] text-muted-foreground">Finalizado</span>
+                    <div className="mt-3 border-t border-border/55 pt-2.5">
+                      <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Funil no período
+                      </p>
+                      <dl className="divide-y divide-border/50 overflow-hidden rounded-md border border-border/50 bg-background/55">
+                        <div className="flex items-center justify-between gap-2 px-2 py-1">
+                          <dt className="flex min-w-0 items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+                            <span className="text-[11px] font-medium leading-tight text-foreground">Finalizado</span>
+                          </dt>
+                          <dd className="shrink-0 text-right tabular-nums">
+                            <span className="text-sm font-semibold tracking-tight text-emerald-800">
+                              {empresaBreakdown.finalizado}
+                            </span>
+                          </dd>
                         </div>
-                        <span className="text-sm font-bold text-emerald-700">{empresaBreakdown.finalizado}</span>
-                      </div>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <div className="mt-0.5 h-2 w-2 rounded-full bg-amber-400" />
-                          <span className="text-[11px] text-muted-foreground">Ag. Pgto</span>
+                        <div className="flex items-start justify-between gap-2 px-2 py-1">
+                          <dt className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="mt-[3px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden />
+                              <span className="text-[11px] font-medium leading-tight text-foreground" title="Aguardando pagamento">
+                                Ag. pagamento
+                              </span>
+                            </div>
+                            {(empresaBreakdown.agPagamentoPos > 0 || empresaBreakdown.agPagamentoFlex > 0) && (
+                              <p className="mt-px pl-[0.9375rem] text-[9px] leading-snug text-muted-foreground">
+                                {[empresaBreakdown.agPagamentoPos > 0 && `Pós ${empresaBreakdown.agPagamentoPos}`, empresaBreakdown.agPagamentoFlex > 0 && `Flex ${empresaBreakdown.agPagamentoFlex}`]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </p>
+                            )}
+                          </dt>
+                          <dd className="shrink-0 text-right tabular-nums leading-none">
+                            <span className="text-sm font-semibold tracking-tight text-amber-900">{empresaBreakdown.agPagamento}</span>
+                          </dd>
                         </div>
-                        <div className="text-right">
-                          <span className="text-sm font-bold text-amber-800">{empresaBreakdown.agPagamento}</span>
-                          {(empresaBreakdown.agPagamentoPos > 0 || empresaBreakdown.agPagamentoFlex > 0) && (
-                            <p className="mt-0.5 text-[9px] leading-tight text-amber-700">
-                              {[
-                                empresaBreakdown.agPagamentoPos > 0 ? `${empresaBreakdown.agPagamentoPos} Pós` : null,
-                                empresaBreakdown.agPagamentoFlex > 0 ? `${empresaBreakdown.agPagamentoFlex} Flex` : null,
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </p>
-                          )}
+                        <div className="flex items-start justify-between gap-2 px-2 py-1">
+                          <dt className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="mt-[3px] h-1.5 w-1.5 shrink-0 rounded-full bg-orange-400" aria-hidden />
+                              <span className="text-[11px] font-medium leading-tight text-foreground" title="Aguardando habilitação">
+                                Ag. habilitação
+                              </span>
+                            </div>
+                            {(empresaBreakdown.agHabilitacaoPos > 0 || empresaBreakdown.agHabilitacaoFlex > 0) && (
+                              <p className="mt-px pl-[0.9375rem] text-[9px] leading-snug text-muted-foreground">
+                                {[empresaBreakdown.agHabilitacaoPos > 0 && `Pós ${empresaBreakdown.agHabilitacaoPos}`, empresaBreakdown.agHabilitacaoFlex > 0 && `Flex ${empresaBreakdown.agHabilitacaoFlex}`]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </p>
+                            )}
+                          </dt>
+                          <dd className="shrink-0 text-right tabular-nums leading-none">
+                            <span className="text-sm font-semibold tracking-tight text-orange-900">{empresaBreakdown.agHabilitacao}</span>
+                          </dd>
                         </div>
-                      </div>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <div className="mt-0.5 h-2 w-2 rounded-full bg-orange-400" />
-                          <span className="text-[11px] text-muted-foreground">Ag. Hab.</span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-sm font-bold text-orange-800">{empresaBreakdown.agHabilitacao}</span>
-                          {(empresaBreakdown.agHabilitacaoPos > 0 || empresaBreakdown.agHabilitacaoFlex > 0) && (
-                            <p className="mt-0.5 text-[9px] leading-tight text-orange-700">
-                              {[
-                                empresaBreakdown.agHabilitacaoPos > 0 ? `${empresaBreakdown.agHabilitacaoPos} Pós` : null,
-                                empresaBreakdown.agHabilitacaoFlex > 0 ? `${empresaBreakdown.agHabilitacaoFlex} Flex` : null,
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                      </dl>
+                      {metaFunilEhMesCalendarioAtual && (
+                        <p className="mt-2 text-[9px] leading-snug text-muted-foreground">
+                          Inclui <span className="font-medium text-foreground/85">Aguardando</span> do mês anterior — mesma base da aba Metas.
+                        </p>
+                      )}
                     </div>
 
-                    <DetailLink className="mt-4">
+                    <DetailLink className="mt-3">
                       Ver detalhes <ArrowRight className="h-3 w-3" />
                     </DetailLink>
                   </div>
 
                   {(categoriasComMeta.length > 0 ||
                     (cartaoCreditoResumo && cartaoCreditoResumo.totalPosPago > 0)) && (
-                    <div className="min-w-0 flex-1 space-y-2.5 overflow-hidden px-0.5 pt-3 sm:pt-4">
-                      <div className="grid grid-cols-[minmax(0,1fr)_3rem_3.25rem] items-center gap-x-3 border-b border-border/60 border-l-2 border-l-transparent pb-2.5 pl-3 sm:grid-cols-[minmax(0,1fr)_3.5rem_4rem]">
-                        <span className="min-w-0 py-0.5 text-[9px] font-semibold uppercase leading-snug tracking-widest text-muted-foreground">
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-border/55 bg-muted/10 p-3 sm:border-t-0 sm:p-4">
+                      <div className="grid grid-cols-[minmax(0,1fr)_2.75rem_2.875rem] items-end gap-x-2 border-b border-border/60 pb-1.5 pl-3 sm:grid-cols-[minmax(0,1fr)_3.25rem_3.375rem]">
+                        <span className="min-w-0 text-[8px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
                           Categoria
                         </span>
-                        <span className="w-full py-0.5 text-right text-[9px] font-semibold uppercase leading-snug tracking-widest text-muted-foreground">
+                        <span className="py-0.5 text-center text-[8px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
                           %
                         </span>
-                        <span className="w-full py-0.5 text-right text-[9px] font-semibold uppercase leading-snug tracking-widest text-muted-foreground">
+                        <span className="py-0.5 text-center text-[8px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
                           Vendas
                         </span>
                       </div>
+                      <div className="mt-1.5 flex min-h-0 flex-1 flex-col justify-between gap-1">
                       {categoriasComMeta.map((cat) => {
                         const borderAccent =
                           cat.percentual_atingido >= 80
@@ -875,36 +913,36 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
                                 ? "[&>div]:bg-orange-500"
                                 : "[&>div]:bg-muted-foreground/35";
                         return (
-                          <div key={cat.categoria} className={cn("min-w-0 rounded-r-lg border-l-2 pl-3", borderAccent)}>
-                            <div className="mb-1 grid grid-cols-[minmax(0,1fr)_3rem_3.25rem] items-center gap-x-3 sm:grid-cols-[minmax(0,1fr)_3.5rem_4rem]">
-                              <span className="min-w-0 truncate text-[10px] font-semibold uppercase text-foreground/80">
+                          <div key={cat.categoria} className={cn("min-w-0 rounded-r-md border-l-2 pl-3", borderAccent)}>
+                            <div className="grid grid-cols-[minmax(0,1fr)_2.75rem_2.875rem] items-center gap-x-2 sm:grid-cols-[minmax(0,1fr)_3.25rem_3.375rem]">
+                              <span className="min-w-0 truncate py-0.5 text-[10px] font-semibold uppercase leading-none text-foreground/80">
                                 {cat.categoria}
                               </span>
-                              <span className={cn("text-right text-xs font-bold tabular-nums", pctColor(cat.percentual_atingido, 100))}>
+                              <span className={cn("py-0.5 text-right text-[11px] font-bold tabular-nums leading-none", pctColor(cat.percentual_atingido, 100))}>
                                 {cat.percentual_atingido.toFixed(2)}%
                               </span>
-                              <span className="text-right text-[10px] tabular-nums text-muted-foreground">
+                              <span className="py-0.5 text-right text-[10px] tabular-nums leading-none text-muted-foreground">
                                 {cat.vendas_realizadas}/{cat.meta_definida}
                               </span>
                             </div>
                             <Progress
                               value={Math.min(cat.percentual_atingido, 100)}
-                              className={cn("h-1.5 rounded-full bg-muted", fillClass)}
+                              className={cn("mt-0.5 h-1 rounded-full bg-muted", fillClass)}
                             />
                           </div>
                         );
                       })}
 
                       {cartaoCreditoResumo && cartaoCreditoResumo.totalPosPago > 0 && (
-                        <div className="min-w-0 rounded-r-lg border-l-2 border-l-amber-500 pl-3">
-                          <div className="mb-1 grid grid-cols-[minmax(0,1fr)_3rem_3.25rem] items-center gap-x-3 sm:grid-cols-[minmax(0,1fr)_3.5rem_4rem]">
-                            <span className="flex min-w-0 items-center gap-1.5 truncate text-[10px] font-semibold uppercase text-amber-950">
+                        <div className="min-w-0 rounded-r-md border-l-2 border-l-amber-500 pl-3">
+                          <div className="grid grid-cols-[minmax(0,1fr)_2.75rem_2.875rem] items-center gap-x-2 sm:grid-cols-[minmax(0,1fr)_3.25rem_3.375rem]">
+                            <span className="flex min-w-0 items-center gap-1.5 truncate py-0.5 text-[10px] font-semibold uppercase leading-none text-amber-950">
                               <CreditCard className="h-3 w-3 shrink-0 text-amber-700" strokeWidth={2.25} />
                               <span className="truncate">Cartão de crédito</span>
                             </span>
                             <span
                               className={cn(
-                                "text-right text-xs font-bold tabular-nums",
+                                "py-0.5 text-right text-[11px] font-bold tabular-nums leading-none",
                                 cartaoCreditoResumo.atingiuMeta
                                   ? "text-emerald-600"
                                   : cartaoCreditoResumo.percentualCartao >=
@@ -915,7 +953,7 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
                             >
                               {cartaoCreditoResumo.percentualCartao.toFixed(2)}%
                             </span>
-                            <span className="text-right text-[10px] tabular-nums text-muted-foreground">
+                            <span className="py-0.5 text-right text-[10px] tabular-nums leading-none text-muted-foreground">
                               {cartaoCreditoResumo.totalCartao}/{cartaoCreditoResumo.metaCartaoQtd}
                             </span>
                           </div>
@@ -927,7 +965,7 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
                                 100
                             )}
                             className={cn(
-                              "h-1.5 rounded-full bg-muted",
+                              "mt-0.5 h-1 rounded-full bg-muted",
                               cartaoCreditoResumo.atingiuMeta
                                 ? "[&>div]:bg-emerald-500"
                                 : cartaoCreditoResumo.percentualCartao >=
@@ -938,6 +976,7 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
                           />
                         </div>
                       )}
+                      </div>
                     </div>
                   )}
                 </div>
