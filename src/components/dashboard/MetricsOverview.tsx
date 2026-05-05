@@ -1448,7 +1448,10 @@ function MetasTabContent() {
                          fibra: dados.fibra,
                          movel: dados.movel,
                          sky_mais: dados.sky_mais,
-                         percentual: (dados.total / (metaMetrics?.total_vendas || 1)) * 100
+                         percentual:
+                           ((dados.pos_pago + dados.flex_conforto + dados.nova_parabolica) /
+                             (metaMetrics?.total_vendas || 1)) *
+                           100,
                        }))
                        .sort((a, b) => b.total - a.total)
                        .slice(0, 10);

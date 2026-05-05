@@ -2778,9 +2778,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     ];
     
-    // Calcular totais (quantidade de vendas)
-    const totalMeta = metaDoMes.total;
-    const totalVendas = Object.values(vendasPorCategoria).reduce((sum, val) => sum + val, 0);
+    // Total geral PayTV: apenas Pós + Flex/Conforto + Nova Parabólica (não soma seguros, fibra,
+    // móvel, etc. — alinhado a getPayTvMeta / getPayTvRealizadas na MetasEmpresaPage)
+    const totalVendas =
+      vendasPorCategoria.pos_pago +
+      vendasPorCategoria.flex_conforto +
+      vendasPorCategoria.nova_parabolica;
+    const totalMeta =
+      (metaDoMes.pos_pago ?? 0) + (metaDoMes.flex_conforto ?? 0) + (metaDoMes.nova_parabolica ?? 0);
     const percentualGeral = totalMeta > 0 ? (totalVendas / totalMeta) * 100 : 0;
     
     // Calcular dias e projeções baseado no mês/ano selecionado
