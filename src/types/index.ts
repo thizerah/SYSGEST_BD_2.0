@@ -153,6 +153,7 @@ export interface User {
   empresa: string; // Nome da empresa do usuário
   data_adesao?: string; // Data de pagamento no formato ISO
   acesso_liberado: boolean; // Status de acesso do usuário
+  modulos_habilitados?: string[] | null; // Módulos que a empresa pode acessar (null = sem restrição)
   sessionId?: string;
   password?: string;
 }
@@ -231,6 +232,8 @@ export interface Venda {
   valor: number;
   status_proposta: string;
   data_habilitacao: string;
+  data_criacao?: string;     // Data de criação da proposta no Sirius
+  updated_at?: string;       // Timestamp da última atualização no banco
   dias_corridos?: number; // Calculado: data_habilitacao - data_atual
   telefone_celular?: string; // Telefone celular do cliente
   cidade?: string;           // Cidade do cliente
@@ -339,6 +342,8 @@ export interface VendaMeta {
   ano: number;
   /** Status da Proposta (qualquer texto: Aguardando, Habilitado, etc.) */
   status_proposta?: string;
+  data_criacao?: string;  // Data de criação da proposta no Sirius
+  updated_at?: string;    // Timestamp da última atualização no banco
 }
 
 /** Plano FIBRA (catálogo admin) */
@@ -480,6 +485,8 @@ export interface PropostaUnificada {
   plano_movel_id?: string;
   // Campo específico de Nova Parabólica para regra de meta
   info_recarga?: InfoRecargaTipo | string;
+  data_criacao?: string;  // Data de criação da proposta no Sirius
+  updated_at?: string;    // Timestamp da última atualização no banco
 }
 
 export interface BaseData {
@@ -560,6 +567,8 @@ export interface MaterialRota {
   serial_ids?: string[]; // IDs dos seriais da tabela seriais
   /** Números de IRD/serial (espelho para exibição no roteiro; persistido no JSON da OS). */
   numeros_seriais?: string[];
+  /** Quantidade explícita de unidades reuso consumidas (materiais RET). Quando definido, substitui o FIFO automático. */
+  qtd_reuso?: number;
 }
 
 // Foto antes/depois

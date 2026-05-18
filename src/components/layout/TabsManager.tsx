@@ -58,7 +58,7 @@ export function TabsManager({
   };
 
   return (
-    <div className="flex items-center bg-gray-50 border-b border-gray-200 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+    <div className="sticky top-14 z-[8] flex items-center bg-gray-50 border-b border-gray-200 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent sm:top-16">
       <div className="flex items-center min-w-0 flex-1">
         {tabs.map((tab) => {
           const isActive = activeTabId === tab.id;

@@ -9,6 +9,7 @@ import {
   getPermissionsAnyForPage,
   isAdminOnlyPage,
   isDonoOrAdminOnlyPage,
+  MODULE_PAGES,
 } from '@/lib/permissoes';
 
 interface AuthContextType {
@@ -139,6 +140,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!user) return false;
       if (isAdminOnlyPage(pageId)) return user.role === 'admin';
       if (isDonoOrAdminOnlyPage(pageId)) return !authExtras.isSubUser;
+
+      // Verificação de módulos habilitados para a empresa (admin não tem restrição)
+      if (user.role !== 'admin' && MODULE_PAGES.includes(pageId)) {
+        const modulos = user.modulos_habilitados;
+        if (modulos && modulos.length > 0 && !modulos.includes(pageId)) {
+          return false;
+        }
+      }
+
       const permsAny = getPermissionsAnyForPage(pageId);
       if (permsAny && permsAny.length > 0) {
         return permsAny.some((p) => hasPermissao(p));

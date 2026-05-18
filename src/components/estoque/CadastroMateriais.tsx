@@ -23,7 +23,8 @@ const FORM_INICIAL: MaterialForm = {
   unidade_medida: 'PEÇ',
   serializado: false,
   ativo: true,
-  categoria: null, // mantido no tipo mas não exposto na UI
+  categoria: null,
+  valor_reais: null,
 };
 
 export function CadastroMateriais() {
@@ -69,7 +70,7 @@ export function CadastroMateriais() {
 
   const abrirEditar = (m: Material) => {
     setEditando(m);
-    setForm({ codigo_material: m.codigo_material, descricao: m.descricao, unidade_medida: m.unidade_medida, serializado: m.serializado, ativo: m.ativo, categoria: m.categoria });
+    setForm({ codigo_material: m.codigo_material, descricao: m.descricao, unidade_medida: m.unidade_medida, serializado: m.serializado, ativo: m.ativo, categoria: m.categoria, valor_reais: m.valor_reais });
     setModalOpen(true);
   };
 
@@ -131,7 +132,8 @@ export function CadastroMateriais() {
                 <TableHead>Código</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead>UMB</TableHead>
-                    <TableHead>Serial.</TableHead>
+                <TableHead>Serial.</TableHead>
+                <TableHead>Valor (R$)</TableHead>
                 <TableHead>Ativo</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
@@ -146,6 +148,7 @@ export function CadastroMateriais() {
                     <TableCell>{m.descricao}</TableCell>
                     <TableCell>{m.unidade_medida}</TableCell>
                     <TableCell>{m.serializado ? <Badge variant="secondary">Sim</Badge> : <span className="text-muted-foreground text-sm">Não</span>}</TableCell>
+                    <TableCell className="text-sm">{m.serializado && m.valor_reais != null ? `R$ ${m.valor_reais.toFixed(2)}` : <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell>{m.ativo ? <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Ativo</Badge> : <Badge variant="outline" className="text-muted-foreground">Inativo</Badge>}</TableCell>
                     <TableCell><Button variant="ghost" size="icon" onClick={() => abrirEditar(m)}><Pencil className="h-4 w-4" /></Button></TableCell>
 
@@ -188,7 +191,7 @@ export function CadastroMateriais() {
             </div>
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
-                <Switch id="serializado" checked={form.serializado} onCheckedChange={(v) => setForm((f) => ({ ...f, serializado: v }))} />
+                <Switch id="serializado" checked={form.serializado} onCheckedChange={(v) => setForm((f) => ({ ...f, serializado: v, valor_reais: v ? f.valor_reais : null }))} />
                 <Label htmlFor="serializado">Serializado</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -196,6 +199,19 @@ export function CadastroMateriais() {
                 <Label htmlFor="ativo">Ativo</Label>
               </div>
             </div>
+            {form.serializado && (
+              <div className="space-y-1.5">
+                <Label>Valor do aparelho (R$)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Ex: 350.00"
+                  value={form.valor_reais ?? ''}
+                  onChange={(e) => setForm((f) => ({ ...f, valor_reais: e.target.value ? parseFloat(e.target.value) : null }))}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>

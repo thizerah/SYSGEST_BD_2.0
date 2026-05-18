@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { TrendingUp, Scan, CheckCircle2, Package, User, Plus, X } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
@@ -17,6 +18,9 @@ import {
   getOrCreateLocalTecnico,
   buscarSerialDisponivelEstoqueCentral,
   fetchEstoqueTecnico,
+  isMaterialRetiradaRet,
+  avancarUnidadesReusoFifo,
+  fetchUnidadesReusoDisponiveis,
 } from '@/lib/estoque';
 import { fetchEquipe, type EquipeRow } from '@/lib/equipe';
 import { randomClientId, cn } from '@/lib/utils';
@@ -38,17 +42,20 @@ type ItemSessao =
       descricao: string;
       quantidade: number;
       unidade: string;
+      comReuso?: boolean;
     };
 
 type LinhaSemSerial = {
   id: string;
   material_id: string;
-  /** Vazio até o usuário informar (evita “1” ao adicionar linha). */
+  /** Vazio até o usuário informar (evita "1" ao adicionar linha). */
   quantidade: string;
+  /** Para materiais RET: se true, avança unidades reuso (FIFO) junto com a transferência. */
+  avancarReuso: boolean;
 };
 
 function novaLinhaSemSerial(): LinhaSemSerial {
-  return { id: randomClientId(), material_id: '', quantidade: '' };
+  return { id: randomClientId(), material_id: '', quantidade: '', avancarReuso: false };
 }
 
 function qtdLinhaNumero(q: string): number {
@@ -81,6 +88,9 @@ export function AvancoDeMaterial() {
   const [scanIrd, setScanIrd] = useState('');
   const [pendenteIrd, setPendenteIrd] = useState<{ serial: Serial; material: Material } | null>(null);
   const inputIrdRef = useRef<HTMLInputElement>(null);
+
+  /** Qtd de unidades reuso disponíveis por material_id (só para materiais RET). */
+  const [reusoDisponivel, setReusoDisponivel] = useState<Map<string, number>>(new Map());
 
   /** Só materiais sem serial que tenham saldo > 0 no Estoque Central (evita escolher item sem estoque). */
   const materiaisComSaldoNoCentral = useMemo(() => {
@@ -116,7 +126,7 @@ export function AvancoDeMaterial() {
       prev.map((l) => {
         if (!l.material_id) return l;
         if (!materiaisComSaldoNoCentral.some((m) => m.id === l.material_id)) {
-          return { ...l, material_id: '', quantidade: '' };
+          return { ...l, material_id: '', quantidade: '', avancarReuso: false };
         }
         return l;
       })
@@ -140,6 +150,27 @@ export function AvancoDeMaterial() {
 
   const atualizarLinhaSemSerial = (id: string, patch: Partial<LinhaSemSerial>) => {
     setLinhasSemSerial((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+
+    // Ao trocar o material, busca quantas unidades reuso estão disponíveis
+    if (patch.material_id !== undefined && donoUserId) {
+      const mat = materiais.find((m) => m.id === patch.material_id);
+      if (mat && isMaterialRetiradaRet(mat.codigo_material)) {
+        fetchUnidadesReusoDisponiveis(donoUserId, patch.material_id)
+          .then((units) => {
+            setReusoDisponivel((prev) => {
+              const next = new Map(prev);
+              next.set(patch.material_id!, units.length);
+              return next;
+            });
+          })
+          .catch(() => null);
+      } else {
+        // Limpa o checkbox se o material trocado não for RET
+        setLinhasSemSerial((prev) =>
+          prev.map((l) => (l.id === id ? { ...l, avancarReuso: false } : l))
+        );
+      }
+    }
   };
 
   const adicionarLinhaSemSerial = () => setLinhasSemSerial((prev) => [...prev, novaLinhaSemSerial()]);
@@ -330,6 +361,12 @@ export function AvancoDeMaterial() {
           quantidade: q,
           observacao: obs,
         });
+
+        // Marca unidades reuso como com_tecnico (FIFO) apenas se o estoquista optou por isso
+        if (linha.avancarReuso && isMaterialRetiradaRet(mat.codigo_material)) {
+          await avancarUnidadesReusoFifo(donoUserId, linha.material_id, q, tecnicoEquipeId);
+        }
+
         novosItens.push({
           id: randomClientId(),
           tipo: 'nao_serial',
@@ -337,6 +374,7 @@ export function AvancoDeMaterial() {
           descricao: mat.descricao,
           quantidade: q,
           unidade: mat.unidade_medida,
+          comReuso: linha.avancarReuso,
         });
       }
 
@@ -461,6 +499,11 @@ export function AvancoDeMaterial() {
                         <span>
                           <span className="font-mono text-xs mr-1">{item.codigoMaterial}</span>
                           {item.descricao} — <span className="font-semibold">{item.quantidade}</span> {item.unidade}
+                          {item.tipo === 'nao_serial' && item.comReuso && (
+                            <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-1.5 py-0.5">
+                              reuso
+                            </span>
+                          )}
                         </span>
                       )}
                     </div>
@@ -501,6 +544,8 @@ export function AvancoDeMaterial() {
               {linhasSemSerial.map((linha, idx) => {
                 const mat = materiais.find((m) => m.id === linha.material_id);
                 const maxQ = linha.material_id ? saldoRestanteParaLinha(linha.material_id, linha.id) : 0;
+                const isRet = mat ? isMaterialRetiradaRet(mat.codigo_material) : false;
+                const qtdReuso = isRet ? (reusoDisponivel.get(linha.material_id) ?? 0) : 0;
                 const variasLinhas = linhasSemSerial.length > 1;
                 const cardClass = cn(
                   'rounded-lg border p-3 space-y-3 shadow-sm',
@@ -528,32 +573,70 @@ export function AvancoDeMaterial() {
                       <MaterialCombobox
                         materiais={materiaisComSaldoNoCentral}
                         value={linha.material_id}
-                        onValueChange={(id) => atualizarLinhaSemSerial(linha.id, { material_id: id, quantidade: '' })}
+                        onValueChange={(id) => atualizarLinhaSemSerial(linha.id, { material_id: id, quantidade: '', avancarReuso: false })}
                         placeholder="Buscar por código ou nome…"
                       />
                     </div>
                     {linha.material_id && mat && (
-                      <div className="space-y-1.5 w-full min-w-0">
-                        <Label className="text-xs">
-                          Quantidade * <span className="text-muted-foreground font-normal">(máx: {maxQ})</span>
-                        </Label>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Input
-                            type="number"
-                            min={0}
-                            step="any"
-                            max={maxQ > 0 ? maxQ : undefined}
-                            value={linha.quantidade === '' ? '' : linha.quantidade}
-                            onChange={(e) => atualizarLinhaSemSerial(linha.id, { quantidade: e.target.value })}
-                            className="min-w-0 w-full max-w-[140px] sm:max-w-none sm:flex-1 sm:min-w-[100px]"
-                          />
-                          <span className="inline-flex items-center rounded-md border border-border bg-muted/60 px-2.5 py-1.5 text-xs font-medium">
-                            {mat.unidade_medida}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            Saldo central: {saldoCentral.find((s) => s.material_id === linha.material_id)?.quantidade ?? 0}
-                          </span>
+                      <div className="space-y-2 w-full min-w-0">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">
+                            Quantidade * <span className="text-muted-foreground font-normal">(máx: {maxQ})</span>
+                          </Label>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Input
+                              type="number"
+                              min={0}
+                              step="any"
+                              max={maxQ > 0 ? maxQ : undefined}
+                              value={linha.quantidade === '' ? '' : linha.quantidade}
+                              onChange={(e) => atualizarLinhaSemSerial(linha.id, { quantidade: e.target.value })}
+                              className="min-w-0 w-full max-w-[140px] sm:max-w-none sm:flex-1 sm:min-w-[100px]"
+                            />
+                            <span className="inline-flex items-center rounded-md border border-border bg-muted/60 px-2.5 py-1.5 text-xs font-medium">
+                              {mat.unidade_medida}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              Saldo central: {saldoCentral.find((s) => s.material_id === linha.material_id)?.quantidade ?? 0}
+                            </span>
+                          </div>
                         </div>
+
+                        {/* Opção de reuso — apenas para materiais RET */}
+                        {isRet && (
+                          <div className={cn(
+                            'flex items-start gap-2 rounded-md border px-3 py-2.5',
+                            qtdReuso > 0
+                              ? 'border-amber-200 bg-amber-50/70 dark:border-amber-800/40 dark:bg-amber-900/10'
+                              : 'border-muted bg-muted/30'
+                          )}>
+                            <Checkbox
+                              id={`reuso-${linha.id}`}
+                              checked={linha.avancarReuso}
+                              disabled={qtdReuso === 0}
+                              onCheckedChange={(checked) =>
+                                atualizarLinhaSemSerial(linha.id, { avancarReuso: checked === true })
+                              }
+                              className="mt-0.5 h-3.5 w-3.5 border-amber-400 data-[state=checked]:bg-amber-600 data-[state=checked]:border-amber-600"
+                            />
+                            <div className="min-w-0">
+                              <label
+                                htmlFor={`reuso-${linha.id}`}
+                                className={cn(
+                                  'text-[11px] font-medium leading-snug',
+                                  qtdReuso > 0 ? 'text-amber-800 dark:text-amber-300 cursor-pointer' : 'text-muted-foreground cursor-not-allowed'
+                                )}
+                              >
+                                Avançar como reuso (FIFO)
+                              </label>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {qtdReuso > 0
+                                  ? `${qtdReuso} unidade${qtdReuso !== 1 ? 's' : ''} reuso disponível${qtdReuso !== 1 ? 'is' : ''}`
+                                  : 'Nenhuma unidade reuso disponível no estoque central'}
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -577,14 +660,12 @@ export function AvancoDeMaterial() {
             ) : (
               <ul className="space-y-1.5 text-sm">
                 {estoqueTecnicoPreview.map((row) => (
-                  <li key={row.id} className="flex flex-wrap items-baseline gap-x-2 border-b border-slate-200/80 pb-1.5 last:border-0 last:pb-0">
-                    <Package className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-                    <span className="font-mono text-xs text-muted-foreground">{row.material?.codigo_material}</span>
-                    <span>{row.material?.descricao ?? '—'}</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {row.quantidade} {row.material?.unidade_medida ?? ''}
-                      {row.material?.serializado ? ' (serializado)' : ''}
-                    </Badge>
+                  <li key={row.id} className="flex items-center gap-2 text-xs text-slate-700">
+                    <Package className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                    <span className="font-mono">{row.material?.codigo_material}</span>
+                    <span className="text-slate-500">—</span>
+                    <span className="truncate">{row.material?.descricao}</span>
+                    <span className="ml-auto font-semibold shrink-0">{row.quantidade} {row.material?.unidade_medida}</span>
                   </li>
                 ))}
               </ul>
@@ -592,21 +673,25 @@ export function AvancoDeMaterial() {
           </div>
         )}
 
+        {/* Observação */}
         <div className="space-y-1.5">
           <Label>Observação</Label>
-          <Textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} placeholder="Observações para os próximos avanços…" rows={2} />
+          <Textarea
+            placeholder="Opcional…"
+            rows={2}
+            value={observacao}
+            onChange={(e) => setObservacao(e.target.value)}
+          />
         </div>
 
         <div className="flex justify-end">
           <Button
+            type="button"
             onClick={() => void handleSubmit()}
-            disabled={salvando || !tecnicoEquipeId || !linhasSemSerial.some((l) => l.material_id.trim())}
+            disabled={salvando || !tecnicoEquipeId}
+            className="min-w-[140px]"
           >
-            {salvando
-              ? 'Avançando…'
-              : linhasSemSerial.filter((l) => l.material_id.trim()).length > 1
-                ? 'Avançar materiais (sem serial)'
-                : 'Avançar material (sem serial)'}
+            {salvando ? 'Avançando…' : 'Avançar material'}
           </Button>
         </div>
       </CardContent>

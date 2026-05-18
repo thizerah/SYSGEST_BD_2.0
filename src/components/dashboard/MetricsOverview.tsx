@@ -72,6 +72,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFoo
 import { ServiceOrder, User, VALID_STATUS, Venda, PrimeiroPagamento, Meta, VendaMeta, BaseData, TODOS_MATERIAIS, PropostaUnificada } from "@/types";
 import { useAuth } from "@/context/auth";
 import { fetchEquipe, type EquipeRow } from "@/lib/equipe";
+import { MODULOS_CATEGORIAS } from "@/lib/permissoes";
 
 // Função para consolidar materiais de OSs duplicadas
 function consolidateMaterials(orders: ServiceOrder[]): ServiceOrder[] {
@@ -204,6 +205,7 @@ import { TechnicianServicesDetailModal } from "@/components/dashboard/Technician
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -2721,7 +2723,7 @@ function MetasDetalhamentoContent({
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-gradient-to-r from-slate-100 to-gray-100 border-b-2 border-slate-200">
-                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider sticky left-0 bg-slate-100 z-10">Proposta</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Proposta</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Origem</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">CPF</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Cliente</TableHead>
@@ -2732,6 +2734,8 @@ function MetasDetalhamentoContent({
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Produto</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Vendedor</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Status</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Data de Criação</TableHead>
+                      <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Data de Habilitação</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Data da Atualização</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider">Forma</TableHead>
                       <TableHead className="text-xs p-3 font-bold text-slate-700 uppercase tracking-wider text-right">Valor</TableHead>
@@ -2769,7 +2773,7 @@ function MetasDetalhamentoContent({
                               index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
                             }`}
                           >
-                            <TableCell className="text-xs p-3 font-bold text-indigo-700 sticky left-0 bg-inherit z-10">
+                            <TableCell className="text-xs p-3 font-bold text-indigo-700">
                               {venda.numero_proposta || '-'}
                             </TableCell>
                             <TableCell className="text-xs p-3">
@@ -2842,9 +2846,21 @@ function MetasDetalhamentoContent({
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell className="text-xs p-3 text-gray-700">
-                              {dataHabilitacao ? 
-                                new Date(dataHabilitacao).toLocaleDateString('pt-BR') : 
+                            <TableCell className="text-xs p-3 text-gray-700 whitespace-nowrap">
+                              {(venda as any).data_criacao ?
+                                new Date((venda as any).data_criacao).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) :
+                                '-'
+                              }
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-700 whitespace-nowrap">
+                              {dataHabilitacao ?
+                                new Date(dataHabilitacao).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) :
+                                '-'
+                              }
+                            </TableCell>
+                            <TableCell className="text-xs p-3 text-gray-700 whitespace-nowrap">
+                              {(venda as any).updated_at ?
+                                new Date((venda as any).updated_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) :
                                 '-'
                               }
                             </TableCell>
@@ -2889,7 +2905,7 @@ function MetasDetalhamentoContent({
                   </TableBody>
                   <TableFooter>
                     <TableRow className="bg-gradient-to-r from-slate-100 to-slate-200 border-t-2 border-slate-300">
-                      <TableCell colSpan={12} className="text-xs p-3 font-bold text-slate-900 sticky left-0 bg-slate-100 z-10">
+                      <TableCell colSpan={12} className="text-xs p-3 font-bold text-slate-900">
                         Total ({vendasFiltradas.length} vendas)
                       </TableCell>
                       <TableCell className="text-xs p-3 text-right font-bold text-emerald-700 text-sm">
@@ -9032,7 +9048,8 @@ function UserManagement({
         role: ((u.role as string) || 'user') as 'admin' | 'user',
         empresa: (u.empresa as string) || 'Sysnex',
         data_adesao: (u.data_adesao as string) || new Date().toISOString(),
-        acesso_liberado: u.acesso_liberado === undefined ? true : Boolean(u.acesso_liberado)
+        acesso_liberado: u.acesso_liberado === undefined ? true : Boolean(u.acesso_liberado),
+        modulos_habilitados: Array.isArray(u.modulos_habilitados) ? u.modulos_habilitados as string[] : null,
       }));
       
       setUsers(mappedUsers);
@@ -9087,7 +9104,8 @@ function UserManagement({
           email: editingUser.email,
           role: editingUser.role,
           empresa: editingUser.empresa,
-          acesso_liberado: editingUser.acesso_liberado
+          acesso_liberado: editingUser.acesso_liberado,
+          modulos_habilitados: editingUser.role === 'admin' ? null : (editingUser.modulos_habilitados ?? null),
         };
         
         // Atualizar na tabela public.users
@@ -9388,6 +9406,71 @@ function UserManagement({
                   </Label>
                 </div>
               </div>
+
+                  {editingUser.role === 'user' && (
+                    <div className="space-y-3">
+                      <Label className="text-gray-700 font-semibold text-sm">Módulos Habilitados</Label>
+                      <div className="rounded-xl border-2 border-gray-200 bg-gray-50/50 p-4 space-y-4">
+                        <p className="text-xs text-gray-500">
+                          Selecione quais módulos esta empresa poderá acessar. Deixar vazio libera tudo.
+                        </p>
+                        {MODULOS_CATEGORIAS.map((cat) => {
+                          const catIds = cat.modulos.map((m) => m.id);
+                          const modulosAtuais = editingUser.modulos_habilitados ?? [];
+                          const todosOn = catIds.every((id) => modulosAtuais.includes(id));
+                          const algunsOn = catIds.some((id) => modulosAtuais.includes(id));
+                          const toggleModuloEdit = (id: string) => {
+                            const atual = editingUser.modulos_habilitados ?? [];
+                            setEditingUser({
+                              ...editingUser,
+                              modulos_habilitados: atual.includes(id)
+                                ? atual.filter((m) => m !== id)
+                                : [...atual, id],
+                            });
+                          };
+                          const toggleCatEdit = (ids: string[], on: boolean) => {
+                            const atual = new Set(editingUser.modulos_habilitados ?? []);
+                            ids.forEach((id) => (on ? atual.add(id) : atual.delete(id)));
+                            setEditingUser({ ...editingUser, modulos_habilitados: Array.from(atual) });
+                          };
+                          return (
+                            <div key={cat.id} className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`edit-cat-${cat.id}`}
+                                  checked={todosOn}
+                                  onCheckedChange={(v) => toggleCatEdit(catIds, !!v)}
+                                  className={algunsOn && !todosOn ? "opacity-60" : ""}
+                                />
+                                <Label htmlFor={`edit-cat-${cat.id}`} className="font-semibold text-sm text-gray-700 cursor-pointer">
+                                  {cat.label}
+                                </Label>
+                              </div>
+                              <div className="ml-6 grid grid-cols-2 gap-1">
+                                {cat.modulos.map((mod) => (
+                                  <div key={mod.id} className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`edit-mod-${mod.id}`}
+                                      checked={modulosAtuais.includes(mod.id)}
+                                      onCheckedChange={() => toggleModuloEdit(mod.id)}
+                                    />
+                                    <Label htmlFor={`edit-mod-${mod.id}`} className="text-sm text-gray-600 cursor-pointer font-normal">
+                                      {mod.label}
+                                    </Label>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {(editingUser.modulos_habilitados?.length ?? 0) > 0 && (
+                          <p className="text-xs text-blue-600 font-medium">
+                            {editingUser.modulos_habilitados!.length} módulo(s) selecionado(s)
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
             </div>
               </div>
               <DialogFooter className="p-6 bg-gray-50/50 border-t border-gray-200 gap-3">
@@ -9430,11 +9513,13 @@ function UserManagement({
           </DialogHeader>
           </div>
           <div className="p-6 bg-white">
-            <RegisterForm onRegisterSuccess={() => {
-              // Atualizar a lista de usuários após o registro bem-sucedido
-              setIsCreateUserOpen(false);
-              loadUsers();
-            }} />
+            <RegisterForm
+              showModulos
+              onRegisterSuccess={() => {
+                setIsCreateUserOpen(false);
+                loadUsers();
+              }}
+            />
           </div>
         </DialogContent>
       </Dialog>
@@ -11169,7 +11254,8 @@ function ImportData() {
       const valor = findColumn("Valor");
       const statusProposta = findColumn("Status da Proposta");
       const dataHabilitacao = findColumn("Data da Habilitação");
-      
+      const dataCriacaoColumn = findColumnContaining("data de criação") || findColumnContaining("data de criacao");
+
       // Buscar os novos campos opcionais
       const cpfColumn = findColumnContaining("cpf");
       const nomeFantasiaColumn = findColumnContaining("nome fantasia");
@@ -11241,6 +11327,7 @@ function ImportData() {
         })(),
         status_proposta: isNP ? npDefaults!.status_proposta : String(row[statusProposta]),
         data_habilitacao: isNP ? npDefaults!.data_habilitacao : formatDate(String(row[dataHabilitacao])),
+        data_criacao: dataCriacaoColumn && row[dataCriacaoColumn] ? formatDate(String(row[dataCriacaoColumn])) : undefined,
         // Campos para produtos diferenciais
         produtos_secundarios: produtosSecundariosColumn ? String(row[produtosSecundariosColumn] || "") : undefined,
         forma_pagamento: formaPagamentoColumn ? String(row[formaPagamentoColumn] || "") : undefined
@@ -11515,7 +11602,8 @@ function ImportData() {
         const bairroRaw = row["Bairro"] || row["BAIRRO"];
         const subtotalAdesaoRaw = row["Subtotal Adesão"] || row["Subtotal Adesao"];
         const statusPropostaRaw = row["Status da Proposta"];
-        
+        const dataCriacaoRaw = row["Data de criação"] || row["Data de Criação"] || row["Data De Criação"];
+
         // Obrigatórios apenas: número da proposta e vendedor
         if (numeroPropostaRaw === undefined || numeroPropostaRaw === null || numeroPropostaRaw === '' ||
             idVendedorRaw === undefined || idVendedorRaw === null || idVendedorRaw === '') {
@@ -11543,16 +11631,12 @@ function ImportData() {
         
         let dataHabilitacao = '';
         if (dataHabilitacaoRaw instanceof Date) {
-          dataHabilitacao = dataHabilitacaoRaw.toISOString().split('T')[0];
+          dataHabilitacao = dataHabilitacaoRaw.toISOString();
         } else if (dataHabilitacaoRaw && String(dataHabilitacaoRaw).trim()) {
           dataHabilitacao = String(dataHabilitacaoRaw).trim();
         }
-        
+
         const now = new Date();
-        if (!dataHabilitacao) {
-          dataHabilitacao = now.toISOString().split('T')[0];
-        }
-        
         let mes = now.getMonth() + 1;
         let ano = now.getFullYear();
         const parts = dataHabilitacao.split('-');
@@ -11565,10 +11649,18 @@ function ImportData() {
           ? String(statusPropostaRaw).trim()
           : undefined;
         
+        let dataCriacao: string | undefined;
+        if (dataCriacaoRaw instanceof Date) {
+          dataCriacao = dataCriacaoRaw.toISOString();
+        } else if (dataCriacaoRaw && String(dataCriacaoRaw).trim()) {
+          dataCriacao = String(dataCriacaoRaw).trim();
+        }
+
         const vendaMeta: VendaMeta = {
           numero_proposta: String(numeroPropostaRaw),
           valor,
           data_venda: dataHabilitacao,
+          data_criacao: dataCriacao,
           vendedor: String(idVendedorRaw),
           nome_proprietario: nomeProprietarioRaw ? String(nomeProprietarioRaw) : String(idVendedorRaw),
           categoria: String(agrupamentoProdutoRaw || ''),
@@ -11968,6 +12060,14 @@ function ImportData() {
   );
 }
 
+// Status válidos para permanência — apenas propostas efetivamente finalizadas/habilitadas
+const STATUS_FINALIZADOS_PERMANENCIA = ['FINALIZADA', 'FINALIZADO', 'HABILITADO', 'HABILITADA'];
+const ehStatusFinalizadoPermanencia = (status: string | undefined): boolean => {
+  const s = (status ?? '').trim().toUpperCase();
+  if (s === '') return true; // registro legado sem status, incluir
+  return STATUS_FINALIZADOS_PERMANENCIA.some(f => s.includes(f));
+};
+
 // Componente separado para o conteúdo da tab Permanência
 function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dispatch<React.SetStateAction<string[]>> }) {
   // UseData hook para obter dados do contexto
@@ -12287,19 +12387,20 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   }, [primeirosPagamentos, obterInclusoes]);
 
   // Filtrar vendas baseado nos filtros de mês e ano de permanência
+  // Apenas propostas com status finalizado/habilitado são consideradas na permanência
   const vendasFiltradas = useMemo(() => {
-    if (filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0) {
-      return vendas; // Sem filtros, retorna todas as vendas
-    }
-
     return vendas.filter(venda => {
+      if (!ehStatusFinalizadoPermanencia(venda.status_proposta)) return false;
+
+      if (filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0) {
+        return true;
+      }
+
       if (!venda.data_habilitacao) return false;
 
-      // Calcular mês e ano de permanência para esta venda
       const mesPermanencia = calcularMesPermanencia(venda.data_habilitacao);
       const anoPermanencia = calcularAnoPermanencia(venda.data_habilitacao);
 
-      // Verificar se está nos filtros selecionados
       const mesMatch = filtroMesPermanencia.length === 0 || filtroMesPermanencia.includes(mesPermanencia);
       const anoMatch = filtroAnoPermanencia.length === 0 || filtroAnoPermanencia.includes(anoPermanencia.toString());
 
@@ -12606,8 +12707,10 @@ function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dis
   
   // Filtrar propostas com base nos critérios selecionados
   const propostasFiltradas = useMemo(() => {
-    // Primeiro, filtrar apenas propostas POS e BL-DGO
+    // Apenas propostas POS e BL-DGO com status finalizado/habilitado
     const todasPropostas = vendas.filter(venda => {
+      if (!ehStatusFinalizadoPermanencia(venda.status_proposta)) return false;
+
       const agrupamento = venda.agrupamento_produto || '';
       const produto = venda.produto_principal || '';
       
@@ -14058,19 +14161,20 @@ function VendedorPermanenciaContent() {
   }, []);
 
   // Filtrar vendas baseado nos filtros de mês e ano de permanência
+  // Apenas propostas com status finalizado/habilitado são consideradas na permanência
   const vendasFiltradas = useMemo(() => {
-    if (filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0) {
-      return vendas; // Sem filtros, retorna todas as vendas
-    }
-
     return vendas.filter(venda => {
+      if (!ehStatusFinalizadoPermanencia(venda.status_proposta)) return false;
+
+      if (filtroMesPermanencia.length === 0 && filtroAnoPermanencia.length === 0) {
+        return true;
+      }
+
       if (!venda.data_habilitacao) return false;
 
-      // Calcular mês e ano de permanência para esta venda
       const mesPermanencia = calcularMesPermanencia(venda.data_habilitacao);
       const anoPermanencia = calcularAnoPermanencia(venda.data_habilitacao);
 
-      // Verificar se está nos filtros selecionados
       const mesMatch = filtroMesPermanencia.length === 0 || filtroMesPermanencia.includes(mesPermanencia);
       const anoMatch = filtroAnoPermanencia.length === 0 || filtroAnoPermanencia.includes(anoPermanencia.toString());
 

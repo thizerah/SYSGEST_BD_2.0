@@ -12,6 +12,7 @@ export type SupabaseUser = {
   empresa: string;
   data_adesao: string;
   acesso_liberado: boolean;
+  modulos_habilitados?: string[] | null;
 };
 
 // Variáveis de configuração do Supabase
@@ -38,5 +39,6 @@ export const mapSupabaseUser = (supabaseUser: User, userData?: SupabaseUser): Sy
     empresa: userData?.empresa || 'Sysnex',
     data_adesao: userData?.data_adesao || new Date().toISOString(),
     acesso_liberado: userData?.acesso_liberado ?? true,
+    modulos_habilitados: userData?.modulos_habilitados ?? null,
   };
 }; 

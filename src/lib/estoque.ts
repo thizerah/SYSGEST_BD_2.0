@@ -17,6 +17,9 @@ import type {
   TipoOrigem,
   StatusSerial,
   LinhaHistoricoSerial,
+  LinhaOtimizacaoMaterial,
+  BreakdownReusoMaterial,
+  StatusUnidadeReuso,
   ContextoHistoricoKey,
   HistoricoFiltroContexto,
 } from '@/types/estoque';
@@ -121,11 +124,24 @@ export async function getOrCreateLocalTecnico(
     .limit(1);
 
   if (selErr) throw selErr;
-  if (rows && rows.length > 0) return rows[0] as Local;
+  if (rows && rows.length > 0) {
+    const existing = rows[0] as Local;
+    // Atualiza o nome se estiver vazio e temos um nome válido agora
+    if (!existing.nome?.trim() && nomeTecnico.trim()) {
+      const { data: updated } = await supabase
+        .from('locais')
+        .update({ nome: nomeTecnico.trim() })
+        .eq('id', existing.id)
+        .select()
+        .single();
+      return (updated ?? existing) as Local;
+    }
+    return existing;
+  }
 
   const { data, error } = await supabase
     .from('locais')
-    .insert({ dono_user_id: donoUserId, nome: nomeTecnico, tipo: 'tecnico', equipe_id: equipeId })
+    .insert({ dono_user_id: donoUserId, nome: nomeTecnico.trim() || equipeId, tipo: 'tecnico', equipe_id: equipeId })
     .select()
     .single();
   if (error) throw error;
@@ -225,7 +241,7 @@ export async function fetchEstoque(
   let query = supabase
     .from('estoque')
     .select(
-      '*, material:materiais(codigo_material, descricao, unidade_medida, serializado), local:locais(nome, tipo)'
+      '*, material:materiais(codigo_material, descricao, unidade_medida, serializado), local:locais(nome, tipo, equipe_id)'
     )
     .eq('dono_user_id', donoUserId);
 
@@ -249,7 +265,7 @@ export async function fetchMovimentacoes(
   let query = supabase
     .from('movimentacoes')
     .select(
-      '*, material:materiais(codigo_material, descricao, unidade_medida, serializado), local_origem:locais!local_origem_id(nome, tipo), local_destino:locais!local_destino_id(nome, tipo)'
+      '*, material:materiais(codigo_material, descricao, unidade_medida, serializado), local_origem:locais!local_origem_id(nome, tipo, equipe:equipe_id(nome_completo)), local_destino:locais!local_destino_id(nome, tipo, equipe:equipe_id(nome_completo))'
     )
     .eq('dono_user_id', donoUserId);
 
@@ -337,13 +353,14 @@ export async function fetchMateriaisComSaldoParaHistorico(
   donoUserId: string,
   serializado: boolean
 ): Promise<Material[]> {
-  const { data: estRows, error: e1 } = await supabase
-    .from('estoque')
+  // Usa movimentacoes para encontrar materiais com historico, independente do saldo atual.
+  // Isso permite buscar o rastro de seriais instalados (quantidade = 0 em estoque_saldo).
+  const { data: movRows, error: e1 } = await supabase
+    .from('movimentacoes')
     .select('material_id')
-    .eq('dono_user_id', donoUserId)
-    .gt('quantidade', 0);
+    .eq('dono_user_id', donoUserId);
   if (e1) throw e1;
-  const ids = [...new Set((estRows ?? []).map((r) => r.material_id).filter(Boolean))] as string[];
+  const ids = [...new Set((movRows ?? []).map((r) => r.material_id).filter(Boolean))] as string[];
   if (ids.length === 0) return [];
   const { data: mats, error: e2 } = await supabase
     .from('materiais')
@@ -733,7 +750,7 @@ async function seekHistoricoQuantidadePorContexto(
   };
 
   const sel =
-    '*, material:materiais(codigo_material, descricao, unidade_medida, serializado), local_origem:locais!local_origem_id(nome, tipo), local_destino:locais!local_destino_id(nome, tipo)';
+    '*, material:materiais(codigo_material, descricao, unidade_medida, serializado), local_origem:locais!local_origem_id(nome, tipo, equipe:equipe_id(nome_completo)), local_destino:locais!local_destino_id(nome, tipo, equipe:equipe_id(nome_completo))';
 
   const startIdx = page * HISTORICO_PAGE_SIZE;
   const endIdx = (page + 1) * HISTORICO_PAGE_SIZE;
@@ -852,7 +869,9 @@ async function enriquecerLinhasHistoricoSerial(
       };
     }
     const idMov = l.mov.roteiro_os_id?.trim() || null;
-    const idSerialOs = s?.roteiro_os_id?.trim() || null;
+    // O roteiro_os do serial (instalação) só é relevante para movimentações de saída.
+    // Em transferências, o serial pode já ter OS vinculada de depois — não exibir.
+    const idSerialOs = l.mov.tipo_movimentacao === 'saida' ? (s?.roteiro_os_id?.trim() || null) : null;
     const idEff = idMov || idSerialOs;
     const r = idEff ? resumo[idEff] : null;
     const codigo_os = r?.codigo_os?.length ? r.codigo_os : undefined;
@@ -959,7 +978,7 @@ export async function fetchHistoricoMaterialQuantidadePaginado(
   }
 
   const sel =
-    '*, material:materiais(codigo_material, descricao, unidade_medida, serializado), local_origem:locais!local_origem_id(nome, tipo), local_destino:locais!local_destino_id(nome, tipo)';
+    '*, material:materiais(codigo_material, descricao, unidade_medida, serializado), local_origem:locais!local_origem_id(nome, tipo, equipe:equipe_id(nome_completo)), local_destino:locais!local_destino_id(nome, tipo, equipe:equipe_id(nome_completo))';
 
   const paramsComFiltro: HistoricoMovBaseParams = { materialIds, ...rest, busca, contextoFiltro: ctx };
 
@@ -1019,7 +1038,7 @@ export async function fetchHistoricoMaterialSeriaisPaginado(
   let lastBatchFull = false;
 
   const sel =
-    '*, material:materiais(codigo_material, descricao, unidade_medida, serializado), local_origem:locais!local_origem_id(nome, tipo), local_destino:locais!local_destino_id(nome, tipo)';
+    '*, material:materiais(codigo_material, descricao, unidade_medida, serializado), local_origem:locais!local_origem_id(nome, tipo, equipe:equipe_id(nome_completo)), local_destino:locais!local_destino_id(nome, tipo, equipe:equipe_id(nome_completo))';
 
   while (flat.length < targetEnd + 1) {
     let q = aplicarFiltrosHistoricoQuery(
@@ -1073,6 +1092,42 @@ export async function fetchHistoricoMaterialSeriaisPaginado(
         arr.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       }
     }
+    // Fallback para transferências: após instalação o seriais.movimentacao_id aponta para a saida,
+    // perdendo o link com a transferência. Recuperamos pelo local_destino_id + material_id.
+    const fallbackTransfers = batch.filter(
+      (m) =>
+        m.material?.serializado &&
+        m.tipo_movimentacao === 'transferencia' &&
+        m.local_destino_id &&
+        !(porMov[m.id]?.length)
+    );
+    if (fallbackTransfers.length > 0) {
+      const localIds = [...new Set(fallbackTransfers.map((m) => m.local_destino_id).filter(Boolean))] as string[];
+      const matIds = [...new Set(fallbackTransfers.map((m) => m.material_id).filter(Boolean))] as string[];
+      const { data: seriaisTransf } = await supabase
+        .from('seriais')
+        .select('numero_serial, local_id, material_id')
+        .eq('dono_user_id', donoUserId)
+        .in('local_id', localIds)
+        .in('material_id', matIds);
+      const serialsByKey = new Map<string, string[]>();
+      for (const s of seriaisTransf ?? []) {
+        const r = s as { numero_serial: string; local_id: string; material_id: string };
+        const k = `${r.local_id}|${r.material_id}`;
+        (serialsByKey.get(k) ?? (serialsByKey.set(k, []) && serialsByKey.get(k)!)).push(r.numero_serial);
+      }
+      const transferConsumed = new Map<string, number>();
+      for (const m of fallbackTransfers) {
+        const k = `${m.local_destino_id}|${m.material_id}`;
+        const all = serialsByKey.get(k) ?? [];
+        const start = transferConsumed.get(k) ?? 0;
+        const q = Math.max(1, Number(m.quantidade) || 1);
+        const nums = all.slice(start, start + q);
+        if (nums.length > 0) porMov[m.id] = nums;
+        transferConsumed.set(k, start + nums.length);
+      }
+    }
+
     const fallbackConsumido = new Map<string, number>();
 
     for (const mov of batch) {
@@ -1129,7 +1184,8 @@ export { HISTORICO_PAGE_SIZE };
 export async function registrarEntrada(
   donoUserId: string,
   usuarioId: string,
-  form: EntradaMaterialForm
+  form: EntradaMaterialForm,
+  extras?: { entregue_por_equipe_id?: string | null }
 ): Promise<Movimentacao> {
   const { data: mov, error: movError } = await supabase
     .from('movimentacoes')
@@ -1146,6 +1202,7 @@ export async function registrarEntrada(
       numero_nota_fiscal: form.numero_nota_fiscal,
       data_nota_fiscal: form.data_nota_fiscal,
       observacao: form.observacao,
+      entregue_por_equipe_id: extras?.entregue_por_equipe_id ?? null,
     })
     .select()
     .single();
@@ -1519,6 +1576,8 @@ export interface MaterialUtilizadoOS {
   material_id: string;
   quantidade: number;
   serial_ids?: string[]; // para serializados
+  /** Quantidade explícita de unidades reuso consumidas. Quando definido, substitui o FIFO automático. */
+  qtd_reuso?: number;
 }
 
 export async function abaterMateriaisOS(
@@ -1565,6 +1624,33 @@ export async function abaterMateriaisOS(
           .eq('id', serialId);
         if (error) throw error;
       }
+    }
+  }
+
+  // Vincula unidades reuso para materiais RET consumidos na OS.
+  // Se qtd_reuso for definido explicitamente (novo fluxo), usa esse valor.
+  // Caso contrário (dados legados sem qtd_reuso), detecta pelo código e usa FIFO total.
+  const itensLoteComReuso = itens.filter((i) => !i.serial_ids && i.quantidade && i.quantidade > 0 && i.qtd_reuso !== undefined && i.qtd_reuso > 0);
+  const itensLoteLegado = itens.filter((i) => !i.serial_ids && i.quantidade && i.quantidade > 0 && i.qtd_reuso === undefined);
+
+  for (const item of itensLoteComReuso) {
+    await vincularUnidadesReusoOsFifo(donoUserId, equipeId, item.material_id, item.qtd_reuso!, roteiroOsId);
+  }
+
+  if (itensLoteLegado.length > 0) {
+    const { data: matRows } = await supabase
+      .from('materiais')
+      .select('id, codigo_material')
+      .in('id', itensLoteLegado.map((i) => i.material_id));
+
+    const codigoPorId = new Map(
+      ((matRows ?? []) as Array<{ id: string; codigo_material: string }>).map((m) => [m.id, m.codigo_material])
+    );
+
+    for (const item of itensLoteLegado) {
+      const codigo = codigoPorId.get(item.material_id);
+      if (!codigo || !isMaterialRetiradaRet(codigo)) continue;
+      await vincularUnidadesReusoOsFifo(donoUserId, equipeId, item.material_id, item.quantidade, roteiroOsId);
     }
   }
 
@@ -1876,6 +1962,376 @@ export async function sincronizarOsComEstoque(
   }
 
   return { sincronizados, erros };
+}
+
+// ─────────────────────────────────────────────
+// Codigos de material sujeitos a retirada RET
+// ─────────────────────────────────────────────
+
+export const CODIGOS_MATERIAL_RETIRADA_RET = ['602246', '605766', '601699', '601743'] as const;
+
+/** Verifica se um codigo de material e de retirada RET (antena / LNBF). */
+export function isMaterialRetiradaRet(codigoMaterial: string): boolean {
+  return (CODIGOS_MATERIAL_RETIRADA_RET as readonly string[]).includes(codigoMaterial);
+}
+
+/** Gera o valor padrao de NF para retirada: RET + data no formato DDMMAAAA. */
+function gerarNfPrefixoData(prefixo: string, data?: Date): string {
+  const d = data ?? new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const aaaa = String(d.getFullYear());
+  return `${prefixo}${dd}${mm}${aaaa}`;
+}
+
+/** NF automatica para retirada de cliente: RET + DDMMAAAA. */
+export function gerarNfRetirada(data?: Date): string {
+  return gerarNfPrefixoData('RET', data);
+}
+
+/** NF automatica para qualquer entrada reuso generico: REU + DDMMAAAA. */
+export function gerarNfReuso(data?: Date): string {
+  return gerarNfPrefixoData('REU', data);
+}
+
+/** Retorna true se a NF foi gerada automaticamente (REU ou RET + data). */
+export function isNfAutoGerada(nf: string): boolean {
+  return /^(REU|RET)\d{8}$/.test(nf);
+}
+
+// ─────────────────────────────────────────────
+// Otimizacao de Material (retiradas RET)
+// ─────────────────────────────────────────────
+
+type MovRawRow = {
+  id: string;
+  data_movimentacao: string;
+  quantidade: number;
+  numero_nota_fiscal: string | null;
+  material: { codigo_material: string; descricao: string } | null;
+  entregue_por_equipe: { nome_completo: string } | null;
+};
+
+/**
+ * Lista entradas RET dos materiais de retirada, uma linha por unidade fisica.
+ * Cria as linhas em otimizacao_material_unidades caso ainda nao existam (lazy).
+ */
+export async function fetchOtimizacaoMaterial(donoUserId: string): Promise<LinhaOtimizacaoMaterial[]> {
+  // 1. Busca movimentacoes RET
+  const { data: movs, error: movErr } = await supabase
+    .from('movimentacoes')
+    .select(
+      'id, data_movimentacao, quantidade, numero_nota_fiscal, material:material_id(codigo_material, descricao), entregue_por_equipe:entregue_por_equipe_id(nome_completo)'
+    )
+    .eq('dono_user_id', donoUserId)
+    .eq('tipo_movimentacao', 'entrada')
+    .eq('tipo_origem', 'reuso')
+    .ilike('numero_nota_fiscal', 'RET%')
+    .order('data_movimentacao', { ascending: false });
+
+  if (movErr) throw movErr;
+
+  // Filtra apenas os materiais de retirada RET pelo codigo
+  const movList = ((movs ?? []) as MovRawRow[]).filter(
+    (r) => r.material !== null && isMaterialRetiradaRet(r.material.codigo_material)
+  );
+
+  if (movList.length === 0) return [];
+
+  const movIds = movList.map((m) => m.id);
+
+  // 2. Busca unidades ja existentes
+  const { data: unidadesExistentes, error: unErr } = await supabase
+    .from('otimizacao_material_unidades')
+    .select('id, movimentacao_id, numero_unidade, apta_para_uso')
+    .in('movimentacao_id', movIds);
+
+  if (unErr) throw unErr;
+
+  // 3. Garante que todas as unidades existam (lazy creation)
+  const existentesPorMov = new Map<string, Set<number>>();
+  for (const u of unidadesExistentes ?? []) {
+    const s = existentesPorMov.get(u.movimentacao_id) ?? new Set<number>();
+    s.add(u.numero_unidade);
+    existentesPorMov.set(u.movimentacao_id, s);
+  }
+
+  const toInsert: Array<{ movimentacao_id: string; dono_user_id: string; numero_unidade: number }> = [];
+  for (const mov of movList) {
+    const existentes = existentesPorMov.get(mov.id) ?? new Set<number>();
+    const qtd = mov.quantidade ?? 1;
+    for (let i = 1; i <= qtd; i++) {
+      if (!existentes.has(i)) {
+        toInsert.push({ movimentacao_id: mov.id, dono_user_id: donoUserId, numero_unidade: i });
+      }
+    }
+  }
+
+  if (toInsert.length > 0) {
+    const { error: insErr } = await supabase
+      .from('otimizacao_material_unidades')
+      .upsert(toInsert, { onConflict: 'movimentacao_id,numero_unidade', ignoreDuplicates: true });
+    if (insErr) throw insErr;
+  }
+
+  // 4. Re-busca todas as unidades atualizadas (com campos de rastreamento)
+  const { data: todasUnidades, error: allErr } = await supabase
+    .from('otimizacao_material_unidades')
+    .select('id, movimentacao_id, numero_unidade, apta_para_uso, status, tecnico_equipe_id, roteiro_os_id, roteiro_os:roteiro_os_id(codigo_os), tecnico:tecnico_equipe_id(nome_completo)')
+    .in('movimentacao_id', movIds)
+    .order('numero_unidade', { ascending: true });
+
+  if (allErr) throw allErr;
+
+  // 5. Monta o map de movimentacoes para cruzamento
+  const movMap = new Map(movList.map((m) => [m.id, m]));
+
+  return ((todasUnidades ?? []) as Array<{
+    id: string;
+    movimentacao_id: string;
+    numero_unidade: number;
+    apta_para_uso: boolean | null;
+    status: StatusUnidadeReuso;
+    tecnico_equipe_id: string | null;
+    roteiro_os_id: string | null;
+    roteiro_os: { codigo_os: string } | null;
+    tecnico: { nome_completo: string } | null;
+  }>).flatMap((u) => {
+    const mov = movMap.get(u.movimentacao_id);
+    if (!mov) return [];
+    return [{
+      unidade_id: u.id,
+      movimentacao_id: u.movimentacao_id,
+      data_movimentacao: mov.data_movimentacao,
+      numero_unidade: u.numero_unidade,
+      quantidade_total: mov.quantidade,
+      numero_nota_fiscal: mov.numero_nota_fiscal,
+      apta_para_uso: u.apta_para_uso,
+      entregue_por_nome: mov.entregue_por_equipe?.nome_completo ?? null,
+      material_descricao: mov.material!.descricao,
+      material_codigo: mov.material!.codigo_material,
+      status: u.status,
+      tecnico_nome: u.tecnico?.nome_completo ?? null,
+      roteiro_os_id: u.roteiro_os_id,
+      roteiro_os_codigo: u.roteiro_os?.codigo_os ?? null,
+    }];
+  });
+}
+
+/** Breakdown de unidades reuso ativas por material (para Saldo). */
+export async function fetchBreakdownReusoMateriais(
+  donoUserId: string
+): Promise<Map<string, BreakdownReusoMaterial>> {
+  const { data, error } = await supabase
+    .from('otimizacao_material_unidades')
+    .select('status, apta_para_uso, tecnico_equipe_id, movimentacao:movimentacao_id(material_id)')
+    .eq('dono_user_id', donoUserId)
+    .in('status', ['disponivel', 'com_tecnico']);
+
+  if (error) throw error;
+
+  const emptyAval = (): AvaliacaoReuso => ({ apto: 0, inapto: 0, nao_avaliado: 0 });
+
+  const result = new Map<string, BreakdownReusoMaterial>();
+  for (const row of (data ?? []) as Array<{
+    status: string;
+    apta_para_uso: boolean | null;
+    tecnico_equipe_id: string | null;
+    movimentacao: { material_id: string } | null;
+  }>) {
+    const materialId = row.movimentacao?.material_id;
+    if (!materialId) continue;
+
+    const cur = result.get(materialId) ?? {
+      disponivel: 0, com_tecnico: 0,
+      apto: 0, nao_avaliado: 0, inapto: 0,
+      central: emptyAval(),
+      por_tecnico: {},
+    };
+
+    // Totais globais
+    if (row.apta_para_uso === true) cur.apto++;
+    else if (row.apta_para_uso === false) cur.inapto++;
+    else cur.nao_avaliado++;
+
+    if (row.status === 'disponivel') {
+      cur.disponivel++;
+      if (row.apta_para_uso === true) cur.central.apto++;
+      else if (row.apta_para_uso === false) cur.central.inapto++;
+      else cur.central.nao_avaliado++;
+    } else if (row.status === 'com_tecnico' && row.tecnico_equipe_id) {
+      cur.com_tecnico++;
+      const tid = row.tecnico_equipe_id;
+      if (!cur.por_tecnico[tid]) cur.por_tecnico[tid] = emptyAval();
+      if (row.apta_para_uso === true) cur.por_tecnico[tid].apto++;
+      else if (row.apta_para_uso === false) cur.por_tecnico[tid].inapto++;
+      else cur.por_tecnico[tid].nao_avaliado++;
+    }
+
+    result.set(materialId, cur);
+  }
+  return result;
+}
+
+/** Unidades reuso disponíveis (status=disponivel) para um material, ordenadas por created_at. */
+export async function fetchUnidadesReusoDisponiveis(
+  donoUserId: string,
+  materialId: string
+): Promise<Array<{ id: string; numero_unidade: number; apta_para_uso: boolean | null }>> {
+  const { data, error } = await supabase
+    .from('otimizacao_material_unidades')
+    .select('id, numero_unidade, apta_para_uso, movimentacao:movimentacao_id(material_id)')
+    .eq('dono_user_id', donoUserId)
+    .eq('status', 'disponivel')
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+
+  return ((data ?? []) as Array<{
+    id: string;
+    numero_unidade: number;
+    apta_para_uso: boolean | null;
+    movimentacao: { material_id: string } | null;
+  }>)
+    .filter((r) => r.movimentacao?.material_id === materialId)
+    .map((r) => ({ id: r.id, numero_unidade: r.numero_unidade, apta_para_uso: r.apta_para_uso }));
+}
+
+/**
+ * Conta quantas unidades reuso estao com um tecnico, agrupadas por material_id.
+ */
+export async function fetchContagemReusoComTecnico(
+  donoUserId: string,
+  tecnicoEquipeId: string
+): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('otimizacao_material_unidades')
+    .select('id, movimentacao:movimentacao_id(material_id)')
+    .eq('dono_user_id', donoUserId)
+    .eq('status', 'com_tecnico')
+    .eq('tecnico_equipe_id', tecnicoEquipeId);
+
+  if (error) throw error;
+
+  const map = new Map<string, number>();
+  for (const row of (data ?? []) as Array<{ movimentacao: { material_id: string } | null }>) {
+    const mid = row.movimentacao?.material_id;
+    if (mid) map.set(mid, (map.get(mid) ?? 0) + 1);
+  }
+  return map;
+}
+
+/**
+ * Move N unidades reuso (FIFO) de um tecnico para outro ou de volta ao central.
+ * Deve ser chamado apos registrarTransferencia para manter consistencia.
+ * tecnicoDestinoEquipeId = null => volta ao central (status = disponivel).
+ */
+export async function moverUnidadesReusoTecnico(
+  donoUserId: string,
+  materialId: string,
+  quantidade: number,
+  tecnicoOrigemEquipeId: string,
+  tecnicoDestinoEquipeId: string | null
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('otimizacao_material_unidades')
+    .select('id, movimentacao:movimentacao_id(material_id)')
+    .eq('dono_user_id', donoUserId)
+    .eq('status', 'com_tecnico')
+    .eq('tecnico_equipe_id', tecnicoOrigemEquipeId)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+
+  const ids = ((data ?? []) as Array<{ id: string; movimentacao: { material_id: string } | null }>)
+    .filter((r) => r.movimentacao?.material_id === materialId)
+    .slice(0, quantidade)
+    .map((r) => r.id);
+
+  if (ids.length === 0) return;
+
+  const update = tecnicoDestinoEquipeId
+    ? { status: 'com_tecnico' as const, tecnico_equipe_id: tecnicoDestinoEquipeId, updated_at: new Date().toISOString() }
+    : { status: 'disponivel' as const, tecnico_equipe_id: null as string | null, updated_at: new Date().toISOString() };
+
+  const { error: upErr } = await supabase
+    .from('otimizacao_material_unidades')
+    .update(update)
+    .in('id', ids);
+
+  if (upErr) throw upErr;
+}
+
+/**
+ * Avanca as N unidades reuso mais antigas (FIFO) para um tecnico.
+ * Chamado apos registrarTransferencia para materiais RET.
+ */
+export async function avancarUnidadesReusoFifo(
+  donoUserId: string,
+  materialId: string,
+  quantidade: number,
+  tecnicoEquipeId: string
+): Promise<void> {
+  const disponiveis = await fetchUnidadesReusoDisponiveis(donoUserId, materialId);
+  const ids = disponiveis.slice(0, quantidade).map((u) => u.id);
+  if (ids.length === 0) return;
+
+  const { error } = await supabase
+    .from('otimizacao_material_unidades')
+    .update({ status: 'com_tecnico', tecnico_equipe_id: tecnicoEquipeId, updated_at: new Date().toISOString() })
+    .in('id', ids)
+    .eq('dono_user_id', donoUserId);
+  if (error) throw error;
+}
+
+/**
+ * Vincula as N unidades reuso mais antigas (FIFO) do tecnico a uma OS.
+ * Chamado automaticamente em abaterMateriaisOS para materiais RET.
+ */
+async function vincularUnidadesReusoOsFifo(
+  donoUserId: string,
+  tecnicoEquipeId: string,
+  materialId: string,
+  quantidade: number,
+  roteiroOsId: string
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('otimizacao_material_unidades')
+    .select('id, movimentacao:movimentacao_id(material_id)')
+    .eq('dono_user_id', donoUserId)
+    .eq('status', 'com_tecnico')
+    .eq('tecnico_equipe_id', tecnicoEquipeId)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+
+  const ids = ((data ?? []) as Array<{ id: string; movimentacao: { material_id: string } | null }>)
+    .filter((r) => r.movimentacao?.material_id === materialId)
+    .slice(0, quantidade)
+    .map((r) => r.id);
+
+  if (ids.length === 0) return;
+
+  const { error: updErr } = await supabase
+    .from('otimizacao_material_unidades')
+    .update({ status: 'usado_os', roteiro_os_id: roteiroOsId, updated_at: new Date().toISOString() })
+    .in('id', ids)
+    .eq('dono_user_id', donoUserId);
+  if (updErr) throw updErr;
+}
+
+/** Atualiza o campo apta_para_uso de uma unidade individual (otimizacao_material_unidades). */
+export async function atualizarAptaParaUso(
+  donoUserId: string,
+  unidadeId: string,
+  apta: boolean | null
+): Promise<void> {
+  const { error } = await supabase
+    .from('otimizacao_material_unidades')
+    .update({ apta_para_uso: apta, updated_at: new Date().toISOString() })
+    .eq('id', unidadeId)
+    .eq('dono_user_id', donoUserId);
+  if (error) throw error;
 }
 
 export async function registrarBaixaOs(

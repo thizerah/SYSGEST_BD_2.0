@@ -71,12 +71,21 @@ const CLASSES_TABELA_HISTORICO = 'text-xs [&_th]:!h-7 [&_th]:!px-2 [&_th]:!py-1.
 
 function formatarData(iso: string) {
   return new Date(iso).toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/** Retorna o nome exibível de um local: usa nome direto ou, se vazio, nome do equipe vinculado. */
+function nomeLocal(local: { nome?: string; equipe?: { nome_completo: string } | null } | null | undefined): string | null {
+  if (!local) return null;
+  const nome = local.nome?.trim();
+  if (nome) return nome;
+  return local.equipe?.nome_completo?.trim() ?? null;
 }
 
 type Resultado =
@@ -189,7 +198,7 @@ export function HistoricoMovimentacoes() {
       if (materialIdsParaBusca.length === 0) {
         toast({
           title: 'Sem materiais',
-          description: 'Não há materiais com saldo neste modo para consultar.',
+          description: 'Nenhum material com movimentação registrada encontrado neste modo.',
           variant: 'destructive',
         });
         return;
@@ -279,10 +288,10 @@ export function HistoricoMovimentacoes() {
         <CardTitle className="text-base">Histórico de material</CardTitle>
         <p className="text-xs text-muted-foreground font-normal">
           Escolha o modo (quantidade ou serial), preencha os filtros e clique em Buscar. Exibimos até {HISTORICO_PAGE_SIZE}{' '}
-          {modo === 'quantidade' ? 'movimentações' : 'linhas (1 por serial)'} por página. Materiais listados têm saldo &gt; 0 no
-          estoque. Técnicos listados têm material (estoque ou serial disponível) no local. Busca por serial usa o número exato
-          (após normalizar espaços). No modo seriais, para baixa vinculada à OS mostramos o técnico (origem), o cliente
-          (destino), o código da OS e a NF da entrada do aparelho quando houver.
+          {modo === 'quantidade' ? 'movimentações' : 'linhas (1 por serial)'} por página. Materiais listados tiveram pelo menos
+          uma movimentação registrada (inclui seriais já instalados). Busca por serial usa o número exato (após normalizar
+          espaços). No modo seriais, para baixa vinculada à OS mostramos o técnico (origem), o cliente (destino), o código da
+          OS e a NF da entrada do aparelho quando houver.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -524,10 +533,10 @@ export function HistoricoMovimentacoes() {
                         {m.quantidade} {m.material?.unidade_medida}
                       </TableCell>
                       <TableCell>
-                        {m.local_origem?.nome ? (
+                        {nomeLocal(m.local_origem) ? (
                           <div>
-                            <span className="leading-tight">{m.local_origem.nome}</span>
-                            {m.local_origem.tipo === 'tecnico' && (
+                            <span className="leading-tight">{nomeLocal(m.local_origem)}</span>
+                            {m.local_origem?.tipo === 'tecnico' && (
                               <span className="block text-[10px] text-muted-foreground">Técnico</span>
                             )}
                           </div>
@@ -545,8 +554,8 @@ export function HistoricoMovimentacoes() {
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )
-                        ) : m.local_destino?.nome ? (
-                          m.local_destino.nome
+                        ) : nomeLocal(m.local_destino) ? (
+                          nomeLocal(m.local_destino)
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
@@ -632,24 +641,20 @@ export function HistoricoMovimentacoes() {
                         </TableCell>
                         <TableCell className="font-mono align-top">
                           {row.numero_serial ? (
-                            <div
-                              className={cn(
-                                'inline-block max-w-full text-[11px] leading-snug transition-colors',
-                                tipoEx.label === 'Instalado' &&
-                                  (row.ird_confirmado_planilha
-                                    ? 'rounded border border-emerald-500/45 bg-emerald-50/90 px-1.5 py-0.5 shadow-sm dark:bg-emerald-950/35 dark:border-emerald-500/35'
-                                    : 'rounded border border-border/80 bg-muted/50 px-1.5 py-0.5 dark:bg-muted/30')
-                              )}
-                              title={
-                                tipoEx.label === 'Instalado'
-                                  ? row.ird_confirmado_planilha
+                            tipoEx.label === 'Instalado' ? (
+                              <span
+                                className="inline-block px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 text-xs font-semibold tracking-wide break-all"
+                                title={
+                                  row.ird_confirmado_planilha
                                     ? 'IRD conferido na importação (service_orders)'
                                     : 'Aguardando conferência na planilha importada (service_orders)'
-                                  : undefined
-                              }
-                            >
-                              <span className="break-all">{row.numero_serial}</span>
-                            </div>
+                                }
+                              >
+                                {row.numero_serial}
+                              </span>
+                            ) : (
+                              <span className="break-all text-xs font-semibold leading-snug">{row.numero_serial}</span>
+                            )
                           ) : (
                             <span className="text-muted-foreground text-[11px]">
                               Sem serial vinculado
@@ -658,10 +663,10 @@ export function HistoricoMovimentacoes() {
                           )}
                         </TableCell>
                         <TableCell className="align-top">
-                          {m.local_origem?.nome ? (
+                          {nomeLocal(m.local_origem) ? (
                             <div>
-                              <span className="leading-tight">{m.local_origem.nome}</span>
-                              {m.local_origem.tipo === 'tecnico' && (
+                              <span className="leading-tight">{nomeLocal(m.local_origem)}</span>
+                              {m.local_origem?.tipo === 'tecnico' && (
                                 <span className="block text-[10px] text-muted-foreground">Técnico</span>
                               )}
                             </div>
@@ -686,8 +691,8 @@ export function HistoricoMovimentacoes() {
                               <span className="font-medium leading-tight">{row.nome_cliente_instalacao}</span>
                               <span className="block text-[10px] text-muted-foreground">Cliente</span>
                             </div>
-                          ) : m.local_destino?.nome ? (
-                            m.local_destino.nome
+                          ) : nomeLocal(m.local_destino) ? (
+                            nomeLocal(m.local_destino)
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}

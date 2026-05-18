@@ -114,10 +114,10 @@ export function useSupabaseData() {
   const getTimestampFields = (tableName: string): string[] => {
     const timestampFields: Record<string, string[]> = {
       service_orders: ['data_criacao', 'data_finalizacao'],
-      vendas: ['data_habilitacao'],
+      vendas: ['data_habilitacao', 'data_criacao'],
       pagamentos: ['data_passo_cobranca', 'vencimento_fatura', 'data_importacao'],
       metas: ['data_criacao', 'data_atualizacao'],
-      vendas_meta: ['data_venda'],
+      vendas_meta: ['data_venda', 'data_criacao'],
       base_data: [] // base_data não tem campos de timestamp específicos dos dados do usuário
     };
     return timestampFields[tableName] || [];
@@ -530,7 +530,7 @@ export function useSupabaseData() {
           const sanitizedToUpdate = sanitizeDataForSupabase(registrosParaAtualizar, 'vendas_meta');
           for (const registro of sanitizedToUpdate) {
             const numeroProposta = registro.numero_proposta as string;
-            const { valor, data_venda, vendedor, nome_proprietario, categoria, produto, produtos_secundarios, cidade, forma_pagamento, cpf, nome_fantasia, telefone_celular, bairro, mes, ano, status_proposta } = registro;
+            const { valor, data_venda, data_criacao, vendedor, nome_proprietario, categoria, produto, produtos_secundarios, cidade, forma_pagamento, cpf, nome_fantasia, telefone_celular, bairro, mes, ano, status_proposta } = registro;
             const existingRow = existingByProposta.get(numeroProposta);
             const finalStatus = resolveStatusPropostaOnMetaImport(
               existingRow?.status_proposta as string | undefined,
@@ -541,6 +541,7 @@ export function useSupabaseData() {
               .update({
                 valor,
                 data_venda,
+                data_criacao: data_criacao ?? null,
                 vendedor,
                 nome_proprietario,
                 categoria,
@@ -555,7 +556,8 @@ export function useSupabaseData() {
                 mes,
                 ano,
                 status_proposta: finalStatus ?? null,
-                imported_at: new Date().toISOString()
+                imported_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
               })
               .eq('user_id', uid)
               .eq('numero_proposta', numeroProposta);

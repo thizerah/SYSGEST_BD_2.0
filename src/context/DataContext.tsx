@@ -1127,16 +1127,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     
     // Processar as vendas
+    const importTimestamp = new Date().toISOString();
     const processedVendas = novasVendas.map(venda => {
       // Calcular dias corridos desde a habilitação
       const dataHabilitacao = new Date(venda.data_habilitacao);
       const hoje = new Date();
       const diffTime = Math.abs(hoje.getTime() - dataHabilitacao.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
+
       return {
         ...venda,
-        dias_corridos: diffDays
+        dias_corridos: diffDays,
+        updated_at: importTimestamp
       };
     });
     
@@ -1413,11 +1415,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (append) {
         // Upsert: por numero_proposta, atualizar existente ou inserir novo (importação sempre sobrescreve)
+        const importTimestamp = new Date().toISOString();
         const mapByProposta = new Map<string, VendaMeta>();
         vendasMeta.forEach((v) => mapByProposta.set(v.numero_proposta, v));
         novasVendasMeta.forEach((v) => {
           const existing = mapByProposta.get(v.numero_proposta);
-          const normalized = { ...v };
+          const normalized = { ...v, updated_at: importTimestamp };
           if (existing) {
             normalized.status_proposta = resolveStatusPropostaOnMetaImport(
               existing.status_proposta,
@@ -1446,7 +1449,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setVendasMeta(finalVendasMeta);
         infoLog(`Vendas meta: ${newRecords} novas, ${updatedRecords} atualizadas (${updatedRecordsOnlyDate} só data, ${updatedRecordsStatusChange} com mudança de status)`);
       } else {
-        finalVendasMeta = [...novasVendasMeta];
+        const importTimestamp = new Date().toISOString();
+        finalVendasMeta = novasVendasMeta.map(v => ({ ...v, updated_at: importTimestamp }));
         setVendasMeta(finalVendasMeta);
         newRecords = novasVendasMeta.length;
         infoLog(`Importadas ${novasVendasMeta.length} vendas de meta`);

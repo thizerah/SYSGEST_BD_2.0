@@ -4,7 +4,7 @@
 
 import type { User } from './index';
 
-export type PapelCodigo = 'tecnico' | 'vendedor' | 'controlador' | 'estoquista' | 'backoffice';
+export type PapelCodigo = 'tecnico' | 'vendedor' | 'controlador' | 'estoquista' | 'backoffice' | 'retirador';
 
 export interface AuthExtras {
   isSubUser: boolean;

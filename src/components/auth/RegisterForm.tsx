@@ -3,9 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle, CheckCircle2, User, Mail, Building2, Lock, Key, UserCog, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, User, Mail, Building2, Lock, Key, UserCog, Loader2, LayoutGrid } from "lucide-react";
 import { useAuth } from "@/context/useAuth";
 import { useToast } from "@/components/ui/use-toast";
 import { type AuthErrorType } from "@/utils/AuthService";
@@ -16,12 +17,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MODULOS_CATEGORIAS } from "@/lib/permissoes";
 
 interface RegisterFormProps {
   onRegisterSuccess?: () => void;
+  /** Exibe o seletor de módulos habilitados (apenas no contexto do admin). */
+  showModulos?: boolean;
 }
 
-export function RegisterForm({ onRegisterSuccess }: RegisterFormProps) {
+export function RegisterForm({ onRegisterSuccess, showModulos = false }: RegisterFormProps) {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -29,11 +33,26 @@ export function RegisterForm({ onRegisterSuccess }: RegisterFormProps) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<"admin" | "user">("user");
+  const [modulosSelecionados, setModulosSelecionados] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const { register, loading } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+
+  const toggleModulo = (id: string) => {
+    setModulosSelecionados((prev) =>
+      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
+    );
+  };
+
+  const toggleCategoria = (ids: string[], on: boolean) => {
+    setModulosSelecionados((prev) => {
+      const set = new Set(prev);
+      ids.forEach((id) => (on ? set.add(id) : set.delete(id)));
+      return Array.from(set);
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +90,10 @@ export function RegisterForm({ onRegisterSuccess }: RegisterFormProps) {
       username,
       email,
       empresa,
-      role
+      role,
+      modulos_habilitados: showModulos && role === 'user' && modulosSelecionados.length > 0
+        ? modulosSelecionados
+        : null,
     };
 
     // Tentar registrar o usuário
@@ -238,6 +260,59 @@ export function RegisterForm({ onRegisterSuccess }: RegisterFormProps) {
           </div>
         </div>
         
+        {showModulos && role === 'user' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <LayoutGrid className="text-gray-400" size={20} />
+              <Label className="text-gray-700 font-semibold text-sm">Módulos Habilitados</Label>
+            </div>
+            <div className="rounded-xl border-2 border-gray-200 bg-gray-50/50 p-4 space-y-4">
+              <p className="text-xs text-gray-500">
+                Selecione quais módulos esta empresa poderá acessar. Deixar vazio libera tudo.
+              </p>
+              {MODULOS_CATEGORIAS.map((cat) => {
+                const catIds = cat.modulos.map((m) => m.id);
+                const todosOn = catIds.every((id) => modulosSelecionados.includes(id));
+                const algunsOn = catIds.some((id) => modulosSelecionados.includes(id));
+                return (
+                  <div key={cat.id} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id={`cat-${cat.id}`}
+                        checked={todosOn}
+                        onCheckedChange={(v) => toggleCategoria(catIds, !!v)}
+                        className={algunsOn && !todosOn ? "opacity-60" : ""}
+                      />
+                      <Label htmlFor={`cat-${cat.id}`} className="font-semibold text-sm text-gray-700 cursor-pointer">
+                        {cat.label}
+                      </Label>
+                    </div>
+                    <div className="ml-6 grid grid-cols-2 gap-1">
+                      {cat.modulos.map((mod) => (
+                        <div key={mod.id} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`mod-${mod.id}`}
+                            checked={modulosSelecionados.includes(mod.id)}
+                            onCheckedChange={() => toggleModulo(mod.id)}
+                          />
+                          <Label htmlFor={`mod-${mod.id}`} className="text-sm text-gray-600 cursor-pointer font-normal">
+                            {mod.label}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {modulosSelecionados.length > 0 && (
+                <p className="text-xs text-blue-600 font-medium">
+                  {modulosSelecionados.length} módulo(s) selecionado(s)
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="space-y-3">
           <Label htmlFor="password" className="text-gray-700 font-semibold text-sm">Senha</Label>
           <div className="relative group">

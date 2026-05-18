@@ -68,7 +68,10 @@ export function RotaDoDia() {
   const { osRotas, tecnicos, atualizarOS, buscarOSPorTecnico, removerOS, removerAtribuicao, atribuirTecnico, obterMediaTempoPorTipo, atualizarMediaTempo, recarregarDados, ultimaAtualizacao } = useRotas();
   const { user, authExtras } = useAuth();
   const { toast } = useToast();
-  const isTecnico = authExtras?.papelCodigo === 'tecnico' && !!authExtras?.equipeId;
+  /** Papel é técnico — determina o fluxo de finalização (pre_finalizada vs finalizada). */
+  const papelEhTecnico = authExtras?.papelCodigo === 'tecnico';
+  /** Técnico com equipe configurada — usado para filtrar OS e carregar estoque do modal. */
+  const isTecnico = papelEhTecnico && !!authExtras?.equipeId;
   const equipeId = authExtras?.equipeId ?? null;
   const donoUserId = authExtras?.donoUserId ?? user?.id ?? null;
   const usuarioId = user?.id ?? '';
@@ -810,7 +813,7 @@ Em breve entraremos em contato para mais informações.`;
 
     if (statusFinalizada) {
       // Técnico finaliza → pré-finalizada (aguarda confirmação do estoquista)
-      novoStatus = isTecnico ? 'pre_finalizada' : 'finalizada';
+      novoStatus = papelEhTecnico ? 'pre_finalizada' : 'finalizada';
       // Preencher hora de saída automaticamente se não tiver
       if (!horarioSaida) {
         setHorarioSaida(horarioAgora);
@@ -969,7 +972,7 @@ Em breve entraremos em contato para mais informações.`;
     const pending = preFinalizacaoRef.current;
     if (!pending) return;
 
-    if (isTecnico) {
+    if (papelEhTecnico) {
       const atualizacoes: Partial<RotaOS> = {
         ...pending.atualizacoes,
         materiais_utilizados: materiais,
@@ -1023,6 +1026,7 @@ Em breve entraremos em contato para mais informações.`;
               material_id: m.material_id!,
               quantidade: m.quantidade,
               serial_ids: m.serial_ids,
+              qtd_reuso: m.qtd_reuso,
             }))
         );
       }
@@ -1085,6 +1089,7 @@ Em breve entraremos em contato para mais informações.`;
               material_id: m.material_id!,
               quantidade: m.quantidade,
               serial_ids: m.serial_ids,
+              qtd_reuso: m.qtd_reuso,
             }))
         );
       }
@@ -2244,7 +2249,7 @@ Em breve entraremos em contato para mais informações.`;
                     <div className="space-y-2 border-t pt-4 rounded-md border border-dashed border-primary/30 bg-primary/5 px-3 py-3">
                       <p className="text-sm font-medium text-foreground">Materiais do serviço</p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        {isTecnico ? (
+                        {papelEhTecnico ? (
                           <>
                             Ao clicar em <strong>Finalizar serviço</strong>, será aberta uma tabela com o que você tem no
                             estoque (numerado). Preencha só o que usou; aparelhos serializados — um IRD por linha.
@@ -2276,7 +2281,7 @@ Em breve entraremos em contato para mais informações.`;
                   )}
 
                   {/* Confirmação de OS pré-finalizada – apenas para estoquista/admin */}
-                  {!isTecnico && osSelecionada?.status === 'pre_finalizada' && (
+                  {!papelEhTecnico && osSelecionada?.status === 'pre_finalizada' && (
                     <div className="space-y-3 border border-amber-200 bg-amber-50 rounded-lg p-3">
                       <p className="text-sm font-semibold text-amber-800">OS aguardando confirmação do estoquista</p>
                       {(osSelecionada.materiais_utilizados ?? []).length > 0 && (
@@ -2669,8 +2674,8 @@ Em breve entraremos em contato para mais informações.`;
           donoUserId={donoUserId}
           equipeId={isTecnico ? (equipeId ?? '') : (osSelecionada.tecnico_id ?? '')}
           codigoOs={osSelecionada.codigo_os}
-          fluxoTecnico={isTecnico}
-          tecnicoEstoqueNome={!isTecnico ? osSelecionada.tecnico_nome : null}
+          fluxoTecnico={papelEhTecnico}
+          tecnicoEstoqueNome={!papelEhTecnico ? osSelecionada.tecnico_nome : null}
           onConfirm={completarSalvarFinalizacaoTecnico}
         />
       )}

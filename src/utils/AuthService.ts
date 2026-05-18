@@ -37,6 +37,7 @@ async function resolveUserWithExtras(authUser: {
     return { kind: 'ok', user, authExtras: defaultAuthExtras() };
   }
 
+
   const { data: ue, error: ueError } = await supabase
     .from('usuarios_empresa')
     .select('id, user_id, dono_user_id, papel_id, equipe_id, papeis(codigo)')
@@ -51,7 +52,7 @@ async function resolveUserWithExtras(authUser: {
 
   const { data: dono } = await supabase
     .from('users')
-    .select('empresa')
+    .select('empresa, modulos_habilitados')
     .eq('id', donoUserId)
     .single();
 
@@ -64,15 +65,17 @@ async function resolveUserWithExtras(authUser: {
     .map((r) => (r.permissoes as { codigo?: string } | null)?.codigo)
     .filter((c): c is string => !!c);
 
+  const donoData = dono as { empresa?: string; modulos_habilitados?: string[] | null } | null;
   const user: User = {
     id: authUser.id,
     username: authUser.email?.split('@')[0] ?? '',
     name: authUser.user_metadata?.name ?? authUser.email ?? 'Subusuário',
     email: authUser.email ?? '',
     role: 'user',
-    empresa: (dono as { empresa?: string } | null)?.empresa ?? 'Empresa',
+    empresa: donoData?.empresa ?? 'Empresa',
     data_adesao: new Date().toISOString(),
     acesso_liberado: true,
+    modulos_habilitados: donoData?.modulos_habilitados ?? null,
   };
 
   const authExtras: AuthExtras = {
@@ -194,7 +197,8 @@ export const AuthService = {
           role: userData.role,
           empresa: userData.empresa,
           data_adesao: new Date().toISOString(),
-          acesso_liberado: true
+          acesso_liberado: true,
+          modulos_habilitados: userData.modulos_habilitados ?? null,
         });
 
       if (insertError) {

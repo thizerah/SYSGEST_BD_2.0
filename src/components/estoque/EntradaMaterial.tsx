@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { PackagePlus, Plus } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { PackagePlus, Plus, RotateCcw } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/context/useAuth';
 import {
@@ -14,7 +15,13 @@ import {
   getOrCreateEstoqueCentral,
   checkSeriaisMesmaChaveEntrada,
   normalizarChaveEntradaParaSeriais,
+  CODIGOS_MATERIAL_RETIRADA_RET,
+  isMaterialRetiradaRet,
+  gerarNfRetirada,
+  gerarNfReuso,
+  isNfAutoGerada,
 } from '@/lib/estoque';
+import { fetchEquipe, type EquipeRow } from '@/lib/equipe';
 import type { Material } from '@/types/estoque';
 import { EntradaMaterialLinha, type LinhaEntrada, novaLinhaEntrada } from './EntradaMaterialLinha';
 
@@ -36,6 +43,8 @@ const CABECALHO_INICIAL: CabecalhoEntrada = {
   observacao: '',
 };
 
+const FUNCOES_RETIRADA = ['tecnico', 'retirador'];
+
 export function EntradaMaterial() {
   const { user, authExtras } = useAuth();
   const { toast } = useToast();
@@ -43,17 +52,25 @@ export function EntradaMaterial() {
   const usuarioId = user?.id ?? '';
 
   const [materiais, setMateriais] = useState<Material[]>([]);
+  const [equipe, setEquipe] = useState<EquipeRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [cabecalho, setCabecalho] = useState<CabecalhoEntrada>(CABECALHO_INICIAL);
   const [linhas, setLinhas] = useState<LinhaEntrada[]>(() => [novaLinhaEntrada()]);
+  const [isRetirada, setIsRetirada] = useState(false);
+  const [entreguePortEquipeId, setEntreguePortEquipeId] = useState('');
   const lineSerialRefs = useRef<Record<string, (HTMLInputElement | null)[]>>({});
 
   const load = useCallback(async () => {
     if (!donoUserId) return;
     setLoading(true);
     try {
-      setMateriais((await fetchMateriais(donoUserId)).filter((m) => m.ativo));
+      const [mats, eq] = await Promise.all([
+        fetchMateriais(donoUserId).then((list) => list.filter((m) => m.ativo)),
+        fetchEquipe(donoUserId),
+      ]);
+      setMateriais(mats);
+      setEquipe(eq.filter((e) => FUNCOES_RETIRADA.includes(e.funcao.toLowerCase())));
     } catch (e) {
       toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao carregar materiais.', variant: 'destructive' });
     } finally {
@@ -64,6 +81,27 @@ export function EntradaMaterial() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Detecta se algum material selecionado e de retirada RET
+  const temMaterialRetirada = useMemo(
+    () =>
+      linhas.some((l) => {
+        const mat = materiais.find((m) => m.id === l.material_id);
+        return mat ? isMaterialRetiradaRet(mat.codigo_material) : false;
+      }),
+    [linhas, materiais]
+  );
+
+  const handleToggleRetirada = (checked: boolean) => {
+    setIsRetirada(checked);
+    if (checked) {
+      setCabecalho((c) => ({ ...c, numero_nota_fiscal: gerarNfRetirada() }));
+    } else {
+      // Volta para REU ao desmarcar
+      setCabecalho((c) => ({ ...c, numero_nota_fiscal: gerarNfReuso() }));
+      setEntreguePortEquipeId('');
+    }
+  };
 
   const chaveEntradaAtual = useMemo(
     () =>
@@ -196,7 +234,7 @@ export function EntradaMaterial() {
 
     const serialNorm = todosSeriais.map((s) => s.trim().toLowerCase());
     if (serialNorm.length !== new Set(serialNorm).size) {
-      toast({ title: 'Serial repetido', description: 'Há o mesmo serial em mais de uma linha ou duplicado na lista.', variant: 'destructive' });
+      toast({ title: 'Serial repetido', description: 'Ha o mesmo serial em mais de uma linha ou duplicado na lista.', variant: 'destructive' });
       return;
     }
 
@@ -205,7 +243,7 @@ export function EntradaMaterial() {
       if (existentes.length > 0) {
         toast({
           title: 'Entrada duplicada',
-          description: `Já existe registro com o mesmo serial, origem (${cabecalho.tipo_origem === 'novo' ? 'Novo' : 'Reuso'}) e NF/data informados. Ex.: ${existentes.slice(0, 5).join(', ')}${existentes.length > 5 ? '…' : ''}`,
+          description: `Ja existe registro com o mesmo serial, origem (${cabecalho.tipo_origem === 'novo' ? 'Novo' : 'Reuso'}) e NF/data informados. Ex.: ${existentes.slice(0, 5).join(', ')}${existentes.length > 5 ? '...' : ''}`,
           variant: 'destructive',
         });
         return;
@@ -219,19 +257,25 @@ export function EntradaMaterial() {
       const obs = cabecalho.observacao.trim() || null;
       const nf = cabecalho.numero_nota_fiscal.trim() || null;
       const dataNf = cabecalho.data_nota_fiscal || null;
+      const extras = isRetirada && entreguePortEquipeId ? { entregue_por_equipe_id: entreguePortEquipeId } : undefined;
 
       for (const p of payloads) {
-        await registrarEntrada(donoUserId, usuarioId, {
-          material_id: p.material_id,
-          local_destino_id: estoqueCentral.id,
-          quantidade: p.quantidade,
-          tipo_origem: tipoOrigem,
-          numero_nota_fiscal: nf,
-          data_nota_fiscal: dataNf,
-          data_movimentacao: cabecalho.data_movimentacao,
-          observacao: obs,
-          seriais: p.seriais,
-        });
+        await registrarEntrada(
+          donoUserId,
+          usuarioId,
+          {
+            material_id: p.material_id,
+            local_destino_id: estoqueCentral.id,
+            quantidade: p.quantidade,
+            tipo_origem: tipoOrigem,
+            numero_nota_fiscal: nf,
+            data_nota_fiscal: dataNf,
+            data_movimentacao: cabecalho.data_movimentacao,
+            observacao: obs,
+            seriais: p.seriais,
+          },
+          extras
+        );
       }
 
       toast({
@@ -242,6 +286,8 @@ export function EntradaMaterial() {
             : `${payloads.length} itens na mesma nota: ${payloads.map((p) => p.rotulo).join('; ')}`,
       });
       setLinhas([novaLinhaEntrada()]);
+      setIsRetirada(false);
+      setEntreguePortEquipeId('');
       setCabecalho((c) => ({
         ...CABECALHO_INICIAL,
         tipo_origem: c.tipo_origem,
@@ -258,7 +304,9 @@ export function EntradaMaterial() {
 
   const podeEnviar = linhas.some((l) => Boolean(l.material_id));
 
-  if (loading) return <p className="text-sm text-muted-foreground py-8 text-center">Carregando…</p>;
+  if (loading) return <p className="text-sm text-muted-foreground py-8 text-center">Carregando...</p>;
+
+  const mostrarCampoEntregue = isRetirada && cabecalho.tipo_origem === 'reuso';
 
   return (
     <Card>
@@ -268,8 +316,8 @@ export function EntradaMaterial() {
           Entrada de material
         </CardTitle>
         <p className="text-xs text-muted-foreground font-normal">
-          Inclua uma linha por item da nota fiscal (cabo, antena, LNB, aparelhos etc.). Os dados da NF e o tipo de origem (Novo/Reuso) valem para todos os itens deste envio. O mesmo IRD pode ser cadastrado de novo se a combinação{' '}
-          <strong>origem + número da NF + data da NF</strong> for diferente (ex.: novo com NF da DHL vs. reuso após retirada).
+          Inclua uma linha por item da nota fiscal (cabo, antena, LNB, aparelhos etc.). Os dados da NF e o tipo de origem (Novo/Reuso) valem para todos os itens deste envio. O mesmo IRD pode ser cadastrado de novo se a combinacao{' '}
+          <strong>origem + numero da NF + data da NF</strong> for diferente (ex.: novo com NF da DHL vs. reuso apos retirada).
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -278,7 +326,21 @@ export function EntradaMaterial() {
             <Label>Tipo de origem *</Label>
             <Select
               value={cabecalho.tipo_origem}
-              onValueChange={(v) => setCabecalho((c) => ({ ...c, tipo_origem: v as TipoOrigem }))}
+              onValueChange={(v) => {
+                const next = v as TipoOrigem;
+                if (next === 'reuso') {
+                  setCabecalho((c) => ({ ...c, tipo_origem: next, numero_nota_fiscal: gerarNfReuso() }));
+                } else {
+                  setCabecalho((c) => ({
+                    ...c,
+                    tipo_origem: next,
+                    // Limpa apenas NF auto-geradas; preserva entradas manuais
+                    numero_nota_fiscal: isNfAutoGerada(c.numero_nota_fiscal) ? '' : c.numero_nota_fiscal,
+                  }));
+                  setIsRetirada(false);
+                  setEntreguePortEquipeId('');
+                }
+              }}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -300,11 +362,31 @@ export function EntradaMaterial() {
           </div>
 
           <div className="space-y-1.5">
-            <Label>Nota fiscal</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label>Nota fiscal</Label>
+              {cabecalho.tipo_origem === 'reuso' && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 p-0 text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={() =>
+                    setCabecalho((c) => ({
+                      ...c,
+                      numero_nota_fiscal: isRetirada ? gerarNfRetirada() : gerarNfReuso(),
+                    }))
+                  }
+                  title="Restaurar NF automatica"
+                >
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Restaurar
+                </Button>
+              )}
+            </div>
             <Input
               value={cabecalho.numero_nota_fiscal}
               onChange={(e) => setCabecalho((c) => ({ ...c, numero_nota_fiscal: e.target.value }))}
-              placeholder="Número da NF"
+              placeholder={cabecalho.tipo_origem === 'reuso' ? 'NF gerada automaticamente' : 'Numero da NF'}
             />
           </div>
 
@@ -316,6 +398,54 @@ export function EntradaMaterial() {
               onChange={(e) => setCabecalho((c) => ({ ...c, data_nota_fiscal: e.target.value }))}
             />
           </div>
+
+          {/* Checkbox de retirada — aparece so quando tipo_origem = reuso */}
+          {cabecalho.tipo_origem === 'reuso' && (
+            <div className="sm:col-span-2">
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2.5 dark:border-amber-800/50 dark:bg-amber-950/20">
+                <Checkbox
+                  id="retirada-ret"
+                  checked={isRetirada}
+                  onCheckedChange={(v) => handleToggleRetirada(Boolean(v))}
+                  className="mt-0.5"
+                />
+                <div>
+                  <Label htmlFor="retirada-ret" className="cursor-pointer text-sm font-medium leading-tight">
+                    Retirada (RET)
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                    Material recuperado de cliente. A NF e preenchida automaticamente com RET + data de hoje.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Campo "Entregue por" — aparece quando retirada + material RET selecionado */}
+          {mostrarCampoEntregue && (
+            <div className="sm:col-span-2 space-y-1.5">
+              <Label>Entregue por (tecnico / retirador)</Label>
+              <Select value={entreguePortEquipeId} onValueChange={setEntreguePortEquipeId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione quem entregou o material..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {equipe.length === 0 ? (
+                    <SelectItem value="__none__" disabled>
+                      Nenhum tecnico ou retirador cadastrado
+                    </SelectItem>
+                  ) : (
+                    equipe.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.nome_completo}
+                        <span className="ml-1 text-xs text-muted-foreground capitalize">({e.funcao})</span>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
         <div className="space-y-3">
@@ -326,6 +456,16 @@ export function EntradaMaterial() {
               Adicionar item
             </Button>
           </div>
+
+          {isRetirada && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-tight">
+              Materiais sujeitos a retirada RET:{' '}
+              {CODIGOS_MATERIAL_RETIRADA_RET.map((c) => {
+                const mat = materiais.find((m) => m.codigo_material === c);
+                return mat ? `${mat.codigo_material} — ${mat.descricao}` : c;
+              }).join(' · ')}
+            </p>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {linhas.map((linha, index) => (
@@ -356,18 +496,18 @@ export function EntradaMaterial() {
         </div>
 
         <div className="space-y-1.5">
-          <Label>Observação</Label>
+          <Label>Observacao</Label>
           <Textarea
             value={cabecalho.observacao}
             onChange={(e) => setCabecalho((c) => ({ ...c, observacao: e.target.value }))}
-            placeholder="Observações sobre a entrada…"
+            placeholder="Observacoes sobre a entrada..."
             rows={2}
           />
         </div>
 
         <div className="flex justify-end">
           <Button onClick={handleSubmit} disabled={salvando || !podeEnviar}>
-            {salvando ? 'Registrando…' : linhas.filter((l) => l.material_id).length > 1 ? 'Registrar todas as entradas' : 'Registrar entrada'}
+            {salvando ? 'Registrando...' : linhas.filter((l) => l.material_id).length > 1 ? 'Registrar todas as entradas' : 'Registrar entrada'}
           </Button>
         </div>
       </CardContent>

@@ -70,6 +70,8 @@ export function normalizarVenda(v: Venda): PropostaUnificada {
     produto: v.produto_principal,
     valor: v.valor ?? 0,
     forma_pagamento: v.forma_pagamento,
+    data_criacao: v.data_criacao,
+    updated_at: v.updated_at,
   };
 }
 
@@ -93,6 +95,8 @@ export function normalizarVendaMeta(v: VendaMeta): PropostaUnificada {
     produto: v.produto,
     valor: v.valor ?? 0,
     forma_pagamento: v.forma_pagamento,
+    data_criacao: v.data_criacao,
+    updated_at: v.updated_at,
   };
 }
 

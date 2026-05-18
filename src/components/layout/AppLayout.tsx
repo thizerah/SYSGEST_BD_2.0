@@ -88,7 +88,7 @@ export function AppLayout({
     <SidebarProvider defaultOpen={true}>
       <AppSidebar activePage={activePage} onPageChange={onPageChange} />
       <SidebarInset>
-        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:h-16 sm:px-4">
+        <header className="sticky top-0 z-[9] flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:h-16 sm:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger className="-ml-0.5 text-foreground" />
             <Separator orientation="vertical" className="h-4 bg-border" />

@@ -95,6 +95,48 @@ export const ROTEIRO_TAB_TO_PERMISSION: Record<string, PermissaoCodigo> = {
   importacao: 'importar_os',
 };
 
+/** Categorias e módulos controlados por empresa. Páginas não listadas aqui são sempre visíveis. */
+export const MODULOS_CATEGORIAS = [
+  {
+    id: 'comercial',
+    label: 'Comercial',
+    modulos: [
+      { id: 'metas', label: 'Vendas' },
+      { id: 'permanencia', label: 'Permanência' },
+      { id: 'cadastro_comercial', label: 'Cadastro Comercial' },
+      { id: 'visualizar_vendas', label: 'Visualizar Vendas' },
+      { id: 'vendedor', label: 'Rel. de Vendedores' },
+    ],
+  },
+  {
+    id: 'operacional',
+    label: 'Operacional',
+    modulos: [
+      { id: 'roteiro', label: 'Roteiro' },
+      { id: 'estoque', label: 'Estoque' },
+      { id: 'time', label: 'Tempos e Otimização' },
+      { id: 'reopening', label: 'Reaberturas' },
+      { id: 'technicians', label: 'Rel. de Técnicos' },
+    ],
+  },
+  {
+    id: 'gestao',
+    label: 'Gestão',
+    modulos: [
+      { id: 'indicadores', label: 'Projeção Variável' },
+      { id: 'base', label: 'Base' },
+      { id: 'metas_empresa', label: 'Meta Vendas Empresa' },
+      { id: 'metas_vendedor', label: 'Meta Vendas Vendedor' },
+      { id: 'mailing', label: 'Mailing' },
+    ],
+  },
+] as const;
+
+/** IDs de todas as páginas sujeitas ao controle de módulos por empresa. */
+export const MODULE_PAGES: string[] = MODULOS_CATEGORIAS.flatMap((c) =>
+  c.modulos.map((m) => m.id)
+);
+
 /** Códigos das permissões que exibem dica para técnico (Rota do Dia e Rotas). */
 const PERMISSOES_ROTEIRO_TECNICO = ['rota_do_dia', 'rotas'] as const;
 

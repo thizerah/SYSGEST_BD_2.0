@@ -15,6 +15,7 @@ export const FUNCOES_EQUIPE = [
   { codigo: 'supervisor_operacional', nome: 'Supervisor Operacional' },
   { codigo: 'supervisor_comercial', nome: 'Supervisor Comercial' },
   { codigo: 'supervisor', nome: 'Supervisor' },
+  { codigo: 'retirador', nome: 'Retirador' },
 ] as const;
 
 export type FuncaoEquipeCodigo = (typeof FUNCOES_EQUIPE)[number]['codigo'];

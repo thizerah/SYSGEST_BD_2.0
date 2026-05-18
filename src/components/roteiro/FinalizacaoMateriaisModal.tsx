@@ -10,10 +10,15 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/components/ui/use-toast';
-import { fetchEstoqueTecnico, fetchSeriaisTecnicoPorMaterial } from '@/lib/estoque';
+import {
+  fetchEstoqueTecnico,
+  fetchSeriaisTecnicoPorMaterial,
+  fetchContagemReusoComTecnico,
+  isMaterialRetiradaRet,
+} from '@/lib/estoque';
 import type { EstoqueSaldo, Serial } from '@/types/estoque';
 import type { MaterialRota } from '@/types';
 import { Loader2 } from 'lucide-react';
@@ -26,6 +31,8 @@ type LinhaLote = {
   descricao: string;
   unidade: string;
   quantidade_disponivel: number;
+  /** 'reuso' apenas para materiais RET com unidades reuso disponíveis */
+  tipoOrigem: 'reuso' | 'novo';
 };
 
 type LinhaSerial = {
@@ -39,6 +46,11 @@ type LinhaSerial = {
 };
 
 export type LinhaEstoqueFinalizacao = LinhaLote | LinhaSerial;
+
+/** Chave única para usoLote: composite material_id + tipoOrigem */
+function chaveUsoLote(materialId: string, tipoOrigem: 'reuso' | 'novo'): string {
+  return `${materialId}|${tipoOrigem}`;
+}
 
 type Props = {
   open: boolean;
@@ -67,7 +79,11 @@ function mergeSaldosPorMaterial(saldos: EstoqueSaldo[]): EstoqueSaldo[] {
   return [...map.values()];
 }
 
-function montarLinhas(saldos: EstoqueSaldo[], seriaisPorMaterial: Record<string, Serial[]>): LinhaEstoqueFinalizacao[] {
+function montarLinhas(
+  saldos: EstoqueSaldo[],
+  seriaisPorMaterial: Record<string, Serial[]>,
+  reusoComTecnico: Map<string, number>
+): LinhaEstoqueFinalizacao[] {
   const ordenados = [...saldos].sort((a, b) => {
     const ca = a.material?.codigo_material ?? '';
     const cb = b.material?.codigo_material ?? '';
@@ -100,15 +116,45 @@ function montarLinhas(saldos: EstoqueSaldo[], seriaisPorMaterial: Record<string,
         });
       }
     } else {
-      linhas.push({
-        tipo: 'lote',
-        ordem: ordem++,
-        material_id: s.material_id,
-        codigo,
-        descricao,
-        unidade: mat.unidade_medida ?? 'UN',
-        quantidade_disponivel: s.quantidade,
-      });
+      const isRet = isMaterialRetiradaRet(codigo);
+      const qtdReuso = isRet ? (reusoComTecnico.get(s.material_id) ?? 0) : 0;
+      const qtdNovo = s.quantidade - qtdReuso;
+
+      if (isRet && qtdReuso > 0) {
+        linhas.push({
+          tipo: 'lote',
+          ordem: ordem++,
+          material_id: s.material_id,
+          codigo,
+          descricao,
+          unidade: mat.unidade_medida ?? 'UN',
+          quantidade_disponivel: qtdReuso,
+          tipoOrigem: 'reuso',
+        });
+        if (qtdNovo > 0) {
+          linhas.push({
+            tipo: 'lote',
+            ordem: ordem++,
+            material_id: s.material_id,
+            codigo,
+            descricao,
+            unidade: mat.unidade_medida ?? 'UN',
+            quantidade_disponivel: qtdNovo,
+            tipoOrigem: 'novo',
+          });
+        }
+      } else {
+        linhas.push({
+          tipo: 'lote',
+          ordem: ordem++,
+          material_id: s.material_id,
+          codigo,
+          descricao,
+          unidade: mat.unidade_medida ?? 'UN',
+          quantidade_disponivel: s.quantidade,
+          tipoOrigem: 'novo',
+        });
+      }
     }
   }
 
@@ -124,7 +170,8 @@ function construirMateriaisRota(
 
   for (const linha of linhas) {
     if (linha.tipo === 'lote') {
-      const raw = (usoLote[linha.material_id] ?? '').trim();
+      const key = chaveUsoLote(linha.material_id, linha.tipoOrigem);
+      const raw = (usoLote[key] ?? '').trim();
       if (raw === '') continue;
       const q = Number(raw);
       if (!Number.isFinite(q) || q <= 0) continue;
@@ -134,12 +181,16 @@ function construirMateriaisRota(
       const prev = porMaterial.get(linha.material_id);
       if (prev) {
         prev.quantidade += qtd;
+        if (linha.tipoOrigem === 'reuso') {
+          prev.qtd_reuso = (prev.qtd_reuso ?? 0) + qtd;
+        }
       } else {
         porMaterial.set(linha.material_id, {
           material_id: linha.material_id,
           nome: linha.descricao,
           unidade: linha.unidade,
           quantidade: qtd,
+          qtd_reuso: linha.tipoOrigem === 'reuso' ? qtd : 0,
         });
       }
     } else {
@@ -186,7 +237,7 @@ export function FinalizacaoMateriaisModal({
     const lote: Record<string, string> = {};
     const ser: Record<string, boolean> = {};
     for (const l of ls) {
-      if (l.tipo === 'lote') lote[l.material_id] = '';
+      if (l.tipo === 'lote') lote[chaveUsoLote(l.material_id, l.tipoOrigem)] = '';
       else ser[l.serial_id] = false;
     }
     setUsoLote(lote);
@@ -205,7 +256,10 @@ export function FinalizacaoMateriaisModal({
 
     (async () => {
       try {
-        const saldos = mergeSaldosPorMaterial(await fetchEstoqueTecnico(donoUserId, equipeId));
+        const [saldos, reusoComTecnico] = await Promise.all([
+          fetchEstoqueTecnico(donoUserId, equipeId).then(mergeSaldosPorMaterial),
+          fetchContagemReusoComTecnico(donoUserId, equipeId),
+        ]);
         if (cancel) return;
 
         const seriaisPorMaterial: Record<string, Serial[]> = {};
@@ -219,7 +273,7 @@ export function FinalizacaoMateriaisModal({
         );
 
         if (cancel) return;
-        const ls = montarLinhas(saldos, seriaisPorMaterial);
+        const ls = montarLinhas(saldos, seriaisPorMaterial, reusoComTecnico);
         setLinhas(ls);
         resetCampos(ls);
       } catch {
@@ -246,12 +300,13 @@ export function FinalizacaoMateriaisModal({
   const validar = useCallback((): string | null => {
     for (const l of linhas) {
       if (l.tipo !== 'lote') continue;
-      const raw = (usoLote[l.material_id] ?? '').trim();
+      const key = chaveUsoLote(l.material_id, l.tipoOrigem);
+      const raw = (usoLote[key] ?? '').trim();
       if (raw === '') continue;
       const q = Number(raw);
       if (!Number.isFinite(q) || q < 0) return `Quantidade inválida para ${l.descricao}.`;
       if (q > l.quantidade_disponivel) {
-        return `Quantidade usada maior que o disponível (${l.quantidade_disponivel}) em ${l.descricao}.`;
+        return `Quantidade usada maior que o disponível (${l.quantidade_disponivel}) em ${l.descricao}${l.tipoOrigem === 'reuso' ? ' [REUSO]' : ''}.`;
       }
     }
     return null;
@@ -322,15 +377,25 @@ export function FinalizacaoMateriaisModal({
                 </thead>
                 <tbody>
                   {linhas.map((linha) => (
-                    <tr key={`${linha.tipo}-${linha.ordem}`} className="border-b">
+                    <tr
+                      key={`${linha.tipo}-${linha.ordem}`}
+                      className={`border-b ${linha.tipo === 'lote' && linha.tipoOrigem === 'reuso' ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`}
+                    >
                       <td className="text-center font-mono tabular-nums text-muted-foreground border-r bg-muted/30 sticky left-0 z-[1] px-1 py-2">
                         {linha.ordem}
                       </td>
                       <td className={colDisponivelClass}>
                         {linha.tipo === 'lote' ? (
                           <div>
-                            <span className="font-medium text-foreground">{linha.codigo}</span>
-                            <span className="text-muted-foreground"> — {linha.descricao}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-medium text-foreground">{linha.codigo}</span>
+                              <span className="text-muted-foreground">— {linha.descricao}</span>
+                              {linha.tipoOrigem === 'reuso' && (
+                                <Badge className="text-[10px] px-1.5 py-0 h-4 bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700">
+                                  REUSO
+                                </Badge>
+                              )}
+                            </div>
                             <div className="text-xs text-muted-foreground mt-0.5">
                               Saldo: <strong className="text-foreground">{linha.quantidade_disponivel}</strong>{' '}
                               {linha.unidade}
@@ -356,9 +421,12 @@ export function FinalizacaoMateriaisModal({
                             inputMode="numeric"
                             className="h-9 w-24 font-mono tabular-nums"
                             placeholder="—"
-                            value={usoLote[linha.material_id] ?? ''}
+                            value={usoLote[chaveUsoLote(linha.material_id, linha.tipoOrigem)] ?? ''}
                             onChange={(e) =>
-                              setUsoLote((prev) => ({ ...prev, [linha.material_id]: e.target.value }))
+                              setUsoLote((prev) => ({
+                                ...prev,
+                                [chaveUsoLote(linha.material_id, linha.tipoOrigem)]: e.target.value,
+                              }))
                             }
                           />
                         ) : (

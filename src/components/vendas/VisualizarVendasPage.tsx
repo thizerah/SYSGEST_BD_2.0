@@ -60,6 +60,8 @@ export interface VendaUnificada {
   produto: string;
   cliente: string;
   dataVenda: string;
+  dataHabilitacao?: string;
+  dataCriacao?: string;
   mes: number;
   ano: number;
   formaPagamento: string;
@@ -101,7 +103,7 @@ function formatarData(data: string | undefined): string {
   if (!data) return '—';
   try {
     const d = new Date(data);
-    return d.toLocaleDateString('pt-BR');
+    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   } catch {
     return data;
   }
@@ -328,6 +330,8 @@ export function VisualizarVendasPage() {
           produto: v.produto_principal || v.agrupamento_produto || '—',
           cliente: v.nome_fantasia || v.nome_proprietario || '—',
           dataVenda: v.data_habilitacao || '',
+          dataHabilitacao: v.data_habilitacao || undefined,
+          dataCriacao: v.data_criacao || undefined,
           mes: ma.mes,
           ano: ma.ano,
           formaPagamento: v.forma_pagamento || '—',
@@ -352,6 +356,8 @@ export function VisualizarVendasPage() {
           produto: v.produto || v.categoria || '—',
           cliente: v.nome_fantasia || v.nome_proprietario || '—',
           dataVenda: v.data_venda || '',
+          dataHabilitacao: v.data_venda || undefined,
+          dataCriacao: v.data_criacao || undefined,
           mes,
           ano,
           formaPagamento: v.forma_pagamento || '—',
@@ -811,7 +817,8 @@ export function VisualizarVendasPage() {
                       <TableHead className="font-semibold text-gray-700 py-3">Tipo</TableHead>
                       <TableHead className="font-semibold text-gray-700">Produto</TableHead>
                       <TableHead className="font-semibold text-gray-700">Cliente</TableHead>
-                      <TableHead className="font-semibold text-gray-700">Data</TableHead>
+                      <TableHead className="font-semibold text-gray-700 whitespace-nowrap">Data de Criação</TableHead>
+                      <TableHead className="font-semibold text-gray-700 whitespace-nowrap">Data de Habilitação</TableHead>
                       <TableHead className="font-semibold text-gray-700">Forma Pagamento</TableHead>
                       <TableHead className="font-semibold text-gray-700 text-center">Seguro</TableHead>
                       <TableHead className="font-semibold text-gray-700">Status</TableHead>
@@ -830,7 +837,8 @@ export function VisualizarVendasPage() {
                         </TableCell>
                         <TableCell className="text-sm text-gray-700">{row.produto}</TableCell>
                         <TableCell className="font-medium text-gray-800">{row.cliente}</TableCell>
-                        <TableCell className="text-sm text-gray-600 whitespace-nowrap">{formatarData(row.dataVenda)}</TableCell>
+                        <TableCell className="text-sm text-gray-600 whitespace-nowrap">{row.dataCriacao ? formatarData(row.dataCriacao) : '—'}</TableCell>
+                        <TableCell className="text-sm text-gray-600 whitespace-nowrap">{row.dataHabilitacao ? formatarData(row.dataHabilitacao) : '—'}</TableCell>
                         <TableCell className="text-sm text-gray-600">{row.formaPagamento}</TableCell>
                         <TableCell className="text-center">
                           {row.temSeguro ? (

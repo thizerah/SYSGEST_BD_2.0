@@ -139,7 +139,9 @@ export function DetalheVendaSheet({ venda, onClose, onStatusChange, savingId }: 
 
           {/* ── Dados gerais ── */}
           <Secao titulo="Dados gerais">
-            <Campo label="Data" value={formatarData(venda.dataVenda)} />
+            <Campo label="Data de Criação" value={formatarData(venda.dataCriacao)} />
+            <Campo label="Data de Habilitação" value={formatarData(venda.dataHabilitacao)} />
+            <Campo label="Data da Atualização" value={formatarData((raw as any).updated_at)} />
             <Campo label="Vendedor" value={venda.vendedor} />
             <Campo label="Forma de Pagamento" value={venda.formaPagamento} />
             <Campo label="Seguro" value={venda.temSeguro} />

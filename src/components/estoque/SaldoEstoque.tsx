@@ -10,9 +10,30 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Search, List, ChevronRight, ChevronDown } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/context/useAuth';
-import { fetchEstoque, fetchSeriais, fetchMateriais } from '@/lib/estoque';
-import type { EstoqueSaldo, Serial, StatusSerial, Material } from '@/types/estoque';
+import { fetchEstoque, fetchSeriais, fetchMateriais, fetchBreakdownReusoMateriais, CODIGOS_MATERIAL_RETIRADA_RET } from '@/lib/estoque';
+import type { EstoqueSaldo, Serial, StatusSerial, Material, BreakdownReusoMaterial, AvaliacaoReuso } from '@/types/estoque';
 import { MaterialCombobox } from './MaterialCombobox';
+
+// ── Helpers de cálculo ajustado ──────────────────────────────────────────────
+
+/** Qtd ajustada = novo + reuso_apto (inapto e nao_avaliado não contam). */
+function qtdAjustadaLocal(
+  saldoQtd: number,
+  breakdown: AvaliacaoReuso
+): number {
+  const totalReuso = breakdown.apto + breakdown.inapto + breakdown.nao_avaliado;
+  const novo = Math.max(0, saldoQtd - totalReuso);
+  return novo + breakdown.apto;
+}
+
+function qtdAjustadaGrupo(
+  totalSaldo: number,
+  bd: BreakdownReusoMaterial
+): number {
+  const totalReuso = bd.disponivel + bd.com_tecnico;
+  const novo = Math.max(0, totalSaldo - totalReuso);
+  return novo + bd.apto;
+}
 
 const STATUS_BADGE: Record<StatusSerial, string> = {
   disponivel: 'bg-green-100 text-green-800 hover:bg-green-100',
@@ -76,6 +97,7 @@ export function SaldoEstoque() {
 
   const [saldo, setSaldo] = useState<EstoqueSaldo[]>([]);
   const [materiais, setMateriais] = useState<Material[]>([]);
+  const [breakdownReuso, setBreakdownReuso] = useState<Map<string, BreakdownReusoMaterial>>(new Map());
   const [loading, setLoading] = useState(false);
   const [busca, setBusca] = useState('');
   const [materialFiltroId, setMaterialFiltroId] = useState('');
@@ -89,9 +111,14 @@ export function SaldoEstoque() {
     if (!donoUserId) return;
     setLoading(true);
     try {
-      const [est, mats] = await Promise.all([fetchEstoque(donoUserId), fetchMateriais(donoUserId)]);
+      const [est, mats, breakdown] = await Promise.all([
+        fetchEstoque(donoUserId, { apenasComSaldo: true }),
+        fetchMateriais(donoUserId),
+        fetchBreakdownReusoMateriais(donoUserId),
+      ]);
       setSaldo(est);
       setMateriais(mats.filter((m) => m.ativo));
+      setBreakdownReuso(breakdown);
     } catch (e) {
       toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao carregar estoque.', variant: 'destructive' });
     } finally {
@@ -143,7 +170,15 @@ export function SaldoEstoque() {
     });
   }, [saldo, filtroLocal, materialFiltroId, busca]);
 
-  const grupos = useMemo(() => agruparPorMaterial(saldoPorFiltros), [saldoPorFiltros]);
+  const grupos = useMemo(() =>
+    agruparPorMaterial(saldoPorFiltros).filter((g) => {
+      const isRet = CODIGOS_MATERIAL_RETIRADA_RET.includes(g.material.codigo_material);
+      const bd = isRet ? breakdownReuso.get(g.material_id) : undefined;
+      const qtd = bd ? qtdAjustadaGrupo(g.totalQuantidade, bd) : g.totalQuantidade;
+      return qtd > 0;
+    }),
+    [saldoPorFiltros, breakdownReuso]
+  );
 
   const limparFiltrosMaterial = () => {
     setMaterialFiltroId('');
@@ -304,7 +339,14 @@ export function SaldoEstoque() {
                           <TableCell className="max-w-[280px] sm:max-w-md">
                             <span className="line-clamp-2">{g.material.descricao}</span>
                           </TableCell>
-                          <TableCell className="text-right font-semibold tabular-nums">{g.totalQuantidade}</TableCell>
+                          <TableCell className="text-right font-semibold tabular-nums">
+                            {(() => {
+                              const isRet = CODIGOS_MATERIAL_RETIRADA_RET.includes(g.material.codigo_material);
+                              const bd = isRet ? breakdownReuso.get(g.material_id) : undefined;
+                              if (!bd) return g.totalQuantidade;
+                              return qtdAjustadaGrupo(g.totalQuantidade, bd);
+                            })()}
+                          </TableCell>
                           <TableCell>{g.material.unidade_medida}</TableCell>
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                             {new Date(g.atualizadoEm).toLocaleDateString('pt-BR')}
@@ -329,29 +371,67 @@ export function SaldoEstoque() {
                       const childRows = g.linhas
                         .slice()
                         .sort((a, b) => (a.local?.nome ?? '').localeCompare(b.local?.nome ?? ''))
-                        .map((s) => (
-                          <TableRow key={s.id} className="bg-background hover:bg-muted/30">
-                            <TableCell />
-                            <TableCell colSpan={2} className="text-sm pl-6 border-l-2 border-muted-foreground/20">
-                              <span className="text-muted-foreground mr-2">↳</span>
-                              {s.local?.nome ?? '—'}
-                            </TableCell>
-                            <TableCell className="text-right font-medium tabular-nums">{s.quantidade}</TableCell>
-                            <TableCell className="text-muted-foreground text-xs">{g.material.unidade_medida}</TableCell>
-                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                              {new Date(s.data_atualizacao).toLocaleDateString('pt-BR')}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              {g.material.serializado ? (
-                                <Button variant="ghost" size="icon" title="Seriais disponíveis neste local" onClick={() => void abrirSeriais(s)}>
-                                  <List className="h-4 w-4" />
-                                </Button>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">—</span>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ));
+                        .map((s) => {
+                          const isRet = CODIGOS_MATERIAL_RETIRADA_RET.includes(g.material.codigo_material);
+                          const bd = isRet ? breakdownReuso.get(g.material_id) : undefined;
+                          const equipeId = s.local?.equipe_id ?? null;
+                          const localBreakdown: AvaliacaoReuso | undefined = bd
+                            ? equipeId
+                              ? bd.por_tecnico[equipeId]
+                              : bd.central
+                            : undefined;
+                          const qtdMostrada = localBreakdown
+                            ? qtdAjustadaLocal(s.quantidade, localBreakdown)
+                            : s.quantidade;
+                          return (
+                            <TableRow key={s.id} className="bg-background hover:bg-muted/30">
+                              <TableCell />
+                              <TableCell colSpan={2} className="text-sm pl-6 border-l-2 border-muted-foreground/20">
+                                <span className="text-muted-foreground mr-2">↳</span>
+                                {s.local?.nome ?? '—'}
+                                {localBreakdown && (
+                                  <div className="mt-1 space-y-0.5 pl-2 border-l border-dashed border-muted-foreground/30">
+                                    {localBreakdown.apto > 0 && (
+                                      <div className="text-[10px] flex items-center gap-1">
+                                        <span className="font-medium text-amber-700 dark:text-amber-400">{localBreakdown.apto} reuso</span>
+                                        <span className="text-muted-foreground">— apto para uso</span>
+                                      </div>
+                                    )}
+                                    {localBreakdown.nao_avaliado > 0 && (
+                                      <div className="text-[10px] flex items-center gap-1">
+                                        <span className="font-medium text-muted-foreground">{localBreakdown.nao_avaliado} reuso</span>
+                                        <span className="text-muted-foreground">— não avaliado (não contabilizado)</span>
+                                      </div>
+                                    )}
+                                    {(() => {
+                                      const totalReusoLocal = localBreakdown.apto + localBreakdown.inapto + localBreakdown.nao_avaliado;
+                                      const novo = Math.max(0, s.quantidade - totalReusoLocal);
+                                      return novo > 0 ? (
+                                        <div className="text-[10px] flex items-center gap-1">
+                                          <span className="font-medium text-foreground/70">{novo} novo</span>
+                                        </div>
+                                      ) : null;
+                                    })()}
+                                  </div>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right font-medium tabular-nums align-top">{qtdMostrada}</TableCell>
+                              <TableCell className="text-muted-foreground text-xs align-top">{g.material.unidade_medida}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap align-top">
+                                {new Date(s.data_atualizacao).toLocaleDateString('pt-BR')}
+                              </TableCell>
+                              <TableCell className="text-center align-top">
+                                {g.material.serializado ? (
+                                  <Button variant="ghost" size="icon" title="Seriais disponíveis neste local" onClick={() => void abrirSeriais(s)}>
+                                    <List className="h-4 w-4" />
+                                  </Button>
+                                ) : (
+                                  <span className="text-muted-foreground text-xs">—</span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        });
                       return [mainRow, ...childRows];
                     })
                   )}

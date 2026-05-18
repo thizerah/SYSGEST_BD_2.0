@@ -23,6 +23,9 @@ import {
   getOrCreateLocalTecnico,
   getOrCreateEstoqueCentral,
   registrarTransferencia,
+  isMaterialRetiradaRet,
+  fetchContagemReusoComTecnico,
+  moverUnidadesReusoTecnico,
 } from '@/lib/estoque';
 import { fetchEquipe, type EquipeRow } from '@/lib/equipe';
 import type { EstoqueSaldo, Serial } from '@/types/estoque';
@@ -31,19 +34,41 @@ interface MaterialComSeriais extends EstoqueSaldo {
   seriais?: Serial[];
 }
 
+/** Linha virtual expandida para exibição — pode representar REUSO ou NOVO de um mesmo material */
+interface LinhaVirtual {
+  item: MaterialComSeriais;
+  tipoOrigem: 'reuso' | 'novo';
+  qtd: number;
+}
+
+interface DialogInfo {
+  item: MaterialComSeriais;
+  tipoOrigem: 'reuso' | 'novo';
+  maxQtd: number;
+}
+
+function isFuncaoTecnico(funcao: string | null | undefined): boolean {
+  const f = (funcao ?? '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  return f === 'tecnico';
+}
+
 export function MaterialTecnico() {
-  const { user, authExtras } = useAuth();
+  const { user, authExtras, papelCodigo } = useAuth();
   const { toast } = useToast();
   const donoUserId = authExtras?.donoUserId ?? user?.id ?? null;
   const usuarioId = user?.id ?? '';
+  const equipeIdLogado = authExtras?.equipeId ?? null;
+  /** Subusuário com papel técnico: só enxerga o próprio bolso; não escolhe outro técnico. */
+  const somenteProprioTecnico = papelCodigo === 'tecnico';
 
   const [tecnicos, setTecnicos] = useState<EquipeRow[]>([]);
   const [tecnicoId, setTecnicoId] = useState('');
   const [localOrigemId, setLocalOrigemId] = useState<string | null>(null);
   const [itens, setItens] = useState<MaterialComSeriais[]>([]);
+  const [reusoComTecnico, setReusoComTecnico] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(false);
 
-  const [dialogItem, setDialogItem] = useState<MaterialComSeriais | null>(null);
+  const [dialogInfo, setDialogInfo] = useState<DialogInfo | null>(null);
   const [destinoKey, setDestinoKey] = useState<string>('central');
   const [qtdTransfer, setQtdTransfer] = useState(1);
   const [seriaisSelecionados, setSeriaisSelecionados] = useState<string[]>([]);
@@ -53,15 +78,30 @@ export function MaterialTecnico() {
     if (!donoUserId) return;
     try {
       const eq = await fetchEquipe(donoUserId);
-      setTecnicos(eq.filter((e) => ['tecnico', 'técnico'].includes((e.funcao ?? '').toLowerCase())));
+      let list = eq.filter((e) => isFuncaoTecnico(e.funcao));
+      // Quem entra como técnico deve ver o próprio material mesmo se `funcao` no cadastro divergir do esperado
+      if (somenteProprioTecnico && equipeIdLogado) {
+        const self = eq.find((e) => e.id === equipeIdLogado);
+        if (self && !list.some((t) => t.id === self.id)) {
+          list = [self, ...list];
+        }
+      }
+      setTecnicos(list);
     } catch (e) {
       toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao carregar técnicos.', variant: 'destructive' });
     }
-  }, [donoUserId, toast]);
+  }, [donoUserId, toast, somenteProprioTecnico, equipeIdLogado]);
 
   useEffect(() => {
     loadTecnicos();
   }, [loadTecnicos]);
+
+  /** Pré-seleciona o técnico logado (equipe) quando o papel é só técnico. */
+  useEffect(() => {
+    if (!somenteProprioTecnico || !equipeIdLogado || tecnicos.length === 0) return;
+    if (!tecnicos.some((t) => t.id === equipeIdLogado)) return;
+    setTecnicoId((prev) => (prev === equipeIdLogado ? prev : equipeIdLogado));
+  }, [somenteProprioTecnico, equipeIdLogado, tecnicos]);
 
   useEffect(() => {
     if (!donoUserId || !tecnicoId) {
@@ -83,9 +123,17 @@ export function MaterialTecnico() {
     if (!donoUserId || !tecnicoId) return;
     setLoading(true);
     try {
-      const tecnico = tecnicos.find((t) => t.id === tecnicoId)!;
-      const local = await getOrCreateLocalTecnico(donoUserId, tecnico.id, tecnico.nome_completo);
-      const saldo = await fetchEstoque(donoUserId, { local_id: local.id, apenasComSaldo: true });
+      const tecnico = tecnicos.find((t) => t.id === tecnicoId);
+      const nomeLocal =
+        tecnico?.nome_completo?.trim() ||
+        (somenteProprioTecnico ? (user?.name ?? '').trim() : '') ||
+        tecnicoId;
+      const local = await getOrCreateLocalTecnico(donoUserId, tecnicoId, nomeLocal);
+
+      const [saldo, contagemReuso] = await Promise.all([
+        fetchEstoque(donoUserId, { local_id: local.id, apenasComSaldo: true }),
+        fetchContagemReusoComTecnico(donoUserId, tecnicoId),
+      ]);
 
       const itensComSeriais: MaterialComSeriais[] = await Promise.all(
         saldo.map(async (s) => {
@@ -101,7 +149,6 @@ export function MaterialTecnico() {
         })
       );
 
-      // Só exibe linhas com saldo > 0; serializado some se não houver mais serial nesse local
       setItens(
         itensComSeriais.filter((item) => {
           if (item.quantidade <= 0) return false;
@@ -109,21 +156,43 @@ export function MaterialTecnico() {
           return true;
         })
       );
+      setReusoComTecnico(contagemReuso);
     } catch (e) {
       toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao carregar materiais.', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
-  }, [donoUserId, tecnicoId, tecnicos, toast]);
+  }, [donoUserId, tecnicoId, tecnicos, toast, somenteProprioTecnico, user?.name]);
 
   useEffect(() => {
     loadMateriais();
   }, [loadMateriais]);
 
-  const abrirDialog = (item: MaterialComSeriais) => {
-    setDialogItem(item);
+  /** Expande itens RET com reuso em linhas virtuais REUSO + NOVO quando aplicável. */
+  const linhasVirtuais = (() => {
+    const result: LinhaVirtual[] = [];
+    for (const item of itens) {
+      const isRet = !item.material?.serializado && isMaterialRetiradaRet(item.material?.codigo_material ?? '');
+      const qtdReuso = isRet ? (reusoComTecnico.get(item.material_id) ?? 0) : 0;
+      const qtdNovo = item.quantidade - qtdReuso;
+
+      if (isRet && qtdReuso > 0) {
+        result.push({ item, tipoOrigem: 'reuso', qtd: qtdReuso });
+        if (qtdNovo > 0) {
+          result.push({ item, tipoOrigem: 'novo', qtd: qtdNovo });
+        }
+      } else {
+        // Serializado ou não-RET: exibe como estava
+        result.push({ item, tipoOrigem: 'novo', qtd: item.quantidade });
+      }
+    }
+    return result;
+  })();
+
+  const abrirDialog = (info: DialogInfo) => {
+    setDialogInfo(info);
     setDestinoKey('central');
-    setQtdTransfer(Math.min(item.quantidade, 1));
+    setQtdTransfer(Math.min(info.maxQtd, 1));
     setSeriaisSelecionados([]);
   };
 
@@ -134,21 +203,23 @@ export function MaterialTecnico() {
   const outrosTecnicos = tecnicos.filter((t) => t.id !== tecnicoId);
 
   const executarTransferencia = async () => {
-    if (!donoUserId || !usuarioId || !dialogItem || !localOrigemId) return;
+    if (!donoUserId || !usuarioId || !dialogInfo || !localOrigemId) return;
     if (destinoKey !== 'central' && destinoKey === tecnicoId) {
       toast({ title: 'Destino inválido', description: 'Escolha outro técnico ou o Estoque Central.', variant: 'destructive' });
       return;
     }
 
-    const serializado = !!dialogItem.material?.serializado;
+    const { item, tipoOrigem, maxQtd } = dialogInfo;
+    const serializado = !!item.material?.serializado;
+
     if (serializado) {
       if (seriaisSelecionados.length === 0) {
         toast({ title: 'Selecione os IRDs', description: 'Marque ao menos um serial disponível.', variant: 'destructive' });
         return;
       }
     } else {
-      if (qtdTransfer < 1 || qtdTransfer > dialogItem.quantidade) {
-        toast({ title: 'Quantidade inválida', description: `Informe entre 1 e ${dialogItem.quantidade}.`, variant: 'destructive' });
+      if (qtdTransfer < 1 || qtdTransfer > maxQtd) {
+        toast({ title: 'Quantidade inválida', description: `Informe entre 1 e ${maxQtd}.`, variant: 'destructive' });
         return;
       }
     }
@@ -156,24 +227,40 @@ export function MaterialTecnico() {
     setSubmitting(true);
     try {
       let destinoId: string;
+      let tecnicoDestinoEquipeId: string | null = null;
+
       if (destinoKey === 'central') {
         destinoId = (await getOrCreateEstoqueCentral(donoUserId)).id;
       } else {
         const outro = tecnicos.find((t) => t.id === destinoKey)!;
         destinoId = (await getOrCreateLocalTecnico(donoUserId, outro.id, outro.nome_completo)).id;
+        tecnicoDestinoEquipeId = outro.id;
       }
 
+      const qtdMovida = serializado ? seriaisSelecionados.length : qtdTransfer;
+
       await registrarTransferencia(donoUserId, usuarioId, {
-        material_id: dialogItem.material_id,
+        material_id: item.material_id,
         local_origem_id: localOrigemId,
         local_destino_id: destinoId,
-        quantidade: serializado ? seriaisSelecionados.length : qtdTransfer,
+        quantidade: qtdMovida,
         observacao: 'Devolução/transferência (Material do Técnico)',
         seriais: serializado ? seriaisSelecionados : undefined,
       });
 
+      // Sincroniza unidades reuso se for linha de origem reuso
+      if (tipoOrigem === 'reuso' && !serializado) {
+        await moverUnidadesReusoTecnico(
+          donoUserId,
+          item.material_id,
+          qtdMovida,
+          tecnicoId,
+          tecnicoDestinoEquipeId
+        );
+      }
+
       toast({ title: 'Transferência registrada!' });
-      setDialogItem(null);
+      setDialogInfo(null);
       await loadMateriais();
     } catch (e) {
       toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao transferir.', variant: 'destructive' });
@@ -182,7 +269,7 @@ export function MaterialTecnico() {
     }
   };
 
-  const seriaisDisponiveisDialog = dialogItem?.seriais?.filter((s) => s.status === 'disponivel') ?? [];
+  const seriaisDisponiveisDialog = dialogInfo?.item.seriais?.filter((s) => s.status === 'disponivel') ?? [];
 
   return (
     <Card>
@@ -196,24 +283,48 @@ export function MaterialTecnico() {
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="max-w-xs space-y-1.5">
-          <Label>Técnico</Label>
-          <Select value={tecnicoId} onValueChange={setTecnicoId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Selecione o técnico…" />
-            </SelectTrigger>
-            <SelectContent>
-              {tecnicos.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.nome_completo}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {somenteProprioTecnico ? (
+          <div className="max-w-lg space-y-1">
+            <Label>Técnico</Label>
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              {!equipeIdLogado ? (
+                <span className="text-destructive">
+                  Seu usuário não está vinculado a um registro de equipe. Peça ao administrador para corrigir o cadastro.
+                </span>
+              ) : (
+                <>
+                  <span className="text-muted-foreground">Visualizando material de </span>
+                  <span className="font-medium">
+                    {tecnicos.find((t) => t.id === equipeIdLogado)?.nome_completo ?? user?.name ?? '—'}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="max-w-xs space-y-1.5">
+            <Label>Técnico</Label>
+            <Select value={tecnicoId} onValueChange={setTecnicoId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione o técnico…" />
+              </SelectTrigger>
+              <SelectContent>
+                {tecnicos.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.nome_completo}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
-        {!tecnicoId && (
+        {!somenteProprioTecnico && !tecnicoId && (
           <p className="text-sm text-muted-foreground">Selecione um técnico para ver o material avançado.</p>
+        )}
+
+        {somenteProprioTecnico && equipeIdLogado && !tecnicoId && (
+          <p className="text-sm text-muted-foreground">Carregando seu material…</p>
         )}
 
         {tecnicoId && loading && (
@@ -224,65 +335,123 @@ export function MaterialTecnico() {
           <p className="text-sm text-muted-foreground">Nenhum material avançado para este técnico.</p>
         )}
 
-        {tecnicoId && !loading && itens.length > 0 && (
-          <div className="space-y-4">
-            {itens.map((item) => (
-              <div key={item.id} className="border rounded-lg p-3 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <span className="font-medium text-sm">{item.material?.descricao}</span>
-                    <span className="text-xs text-muted-foreground font-mono ml-2">{item.material?.codigo_material}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {!item.material?.serializado && (
-                      <Badge variant="secondary">
-                        {item.quantidade} {item.material?.unidade_medida}
-                      </Badge>
-                    )}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="gap-1"
-                      onClick={() => abrirDialog(item)}
-                    >
-                      <ArrowLeftRight className="h-3.5 w-3.5" />
-                      Devolver / transferir
-                    </Button>
-                  </div>
-                </div>
+        {tecnicoId && !loading && linhasVirtuais.length > 0 && (
+          <div className="space-y-3">
+            {/* Agrupa linhas virtuais pelo material para exibir o cabeçalho uma vez */}
+            {itens.map((item) => {
+              const linhasDeste = linhasVirtuais.filter((l) => l.item.material_id === item.material_id);
+              if (linhasDeste.length === 0) return null;
+              const temSplit = linhasDeste.length > 1 || linhasDeste[0].tipoOrigem === 'reuso';
 
-                {item.material?.serializado && item.seriais && item.seriais.length > 0 && (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">IRD disponível</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {item.seriais.map((s) => (
-                        <TableRow key={s.id}>
-                          <TableCell className="font-mono text-xs py-1.5">{s.numero_serial}</TableCell>
-                        </TableRow>
+              return (
+                <div key={item.id} className="border rounded-lg p-3 space-y-2">
+                  {/* Cabeçalho do material */}
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{item.material?.descricao}</span>
+                    <span className="text-xs text-muted-foreground font-mono">{item.material?.codigo_material}</span>
+                  </div>
+
+                  {/* Linhas de quantidade: split REUSO/NOVO ou linha única */}
+                  {temSplit ? (
+                    <div className="space-y-1.5 pl-2 border-l-2 border-muted">
+                      {linhasDeste.map((linha) => (
+                        <div
+                          key={`${item.material_id}-${linha.tipoOrigem}`}
+                          className="flex items-center justify-between gap-2"
+                        >
+                          <div className="flex items-center gap-2">
+                            {linha.tipoOrigem === 'reuso' ? (
+                              <Badge className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700">
+                                REUSO
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                NOVO
+                              </Badge>
+                            )}
+                            <span className="text-sm tabular-nums">
+                              {linha.qtd} {item.material?.unidade_medida}
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-1 h-7 text-xs"
+                            onClick={() =>
+                              abrirDialog({ item, tipoOrigem: linha.tipoOrigem, maxQtd: linha.qtd })
+                            }
+                          >
+                            <ArrowLeftRight className="h-3 w-3" />
+                            Devolver / transferir
+                          </Button>
+                        </div>
                       ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
-            ))}
+                    </div>
+                  ) : (
+                    /* Linha sem split (não-RET ou serializado) */
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        {!item.material?.serializado && (
+                          <Badge variant="secondary">
+                            {item.quantidade} {item.material?.unidade_medida}
+                          </Badge>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() =>
+                          abrirDialog({ item, tipoOrigem: 'novo', maxQtd: item.quantidade })
+                        }
+                      >
+                        <ArrowLeftRight className="h-3.5 w-3.5" />
+                        Devolver / transferir
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Seriais */}
+                  {item.material?.serializado && item.seriais && item.seriais.length > 0 && (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">IRD disponível</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {item.seriais.map((s) => (
+                          <TableRow key={s.id}>
+                            <TableCell className="font-mono text-xs py-1.5">{s.numero_serial}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </CardContent>
 
-      <Dialog open={!!dialogItem} onOpenChange={(o) => !o && setDialogItem(null)}>
+      <Dialog open={!!dialogInfo} onOpenChange={(o) => !o && setDialogInfo(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Devolver ou transferir material</DialogTitle>
             <p className="text-sm text-muted-foreground">
-              {dialogItem?.material?.descricao} — saldo disponível para movimentar:{' '}
-              {dialogItem?.material?.serializado
+              {dialogInfo?.item.material?.descricao}
+              {dialogInfo?.tipoOrigem === 'reuso' && (
+                <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0 text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/30 dark:text-amber-300">
+                  REUSO
+                </span>
+              )}
+              {' — '}saldo disponível para movimentar:{' '}
+              {dialogInfo?.item.material?.serializado
                 ? `${seriaisDisponiveisDialog.length} IRD(s) disponível(is)`
-                : `${dialogItem?.quantidade ?? 0} ${dialogItem?.material?.unidade_medida}`}
+                : `${dialogInfo?.maxQtd ?? 0} ${dialogInfo?.item.material?.unidade_medida}`}
             </p>
           </DialogHeader>
 
@@ -304,7 +473,7 @@ export function MaterialTecnico() {
               </Select>
             </div>
 
-            {dialogItem?.material?.serializado ? (
+            {dialogInfo?.item.material?.serializado ? (
               <div className="space-y-2">
                 <Label className="text-xs">IRDs disponíveis (marque os que deseja enviar)</Label>
                 {seriaisDisponiveisDialog.length === 0 ? (
@@ -326,7 +495,7 @@ export function MaterialTecnico() {
                 <Input
                   type="number"
                   min={1}
-                  max={dialogItem?.quantidade ?? 1}
+                  max={dialogInfo?.maxQtd ?? 1}
                   value={qtdTransfer}
                   onChange={(e) => setQtdTransfer(Number(e.target.value))}
                 />
@@ -335,7 +504,7 @@ export function MaterialTecnico() {
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDialogItem(null)} disabled={submitting}>
+            <Button type="button" variant="outline" onClick={() => setDialogInfo(null)} disabled={submitting}>
               Cancelar
             </Button>
             <Button type="button" onClick={() => void executarTransferencia()} disabled={submitting}>
