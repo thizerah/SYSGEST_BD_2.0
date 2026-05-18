@@ -8,11 +8,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
 import type { PermissaoRow } from '@/lib/papeis-permissoes';
-import { getLabelPermissaoRoteiro } from '@/lib/permissoes';
-import { cn } from '@/lib/utils';
+import { PermissoesGroupedPicker } from './PermissoesGroupedPicker';
 
 interface ModalPermissoesProps {
   open: boolean;
@@ -40,44 +37,27 @@ export function ModalPermissoes({
     if (open) setLocal([...selected]);
   }, [open, selected]);
 
-  const toggle = (codigo: string) => {
-    setLocal((prev) =>
-      prev.includes(codigo) ? prev.filter((c) => c !== codigo) : [...prev, codigo]
-    );
-  };
-
   const handleConfirm = async () => {
     await onConfirm(local);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Permissões de acesso</DialogTitle>
           <DialogDescription>
-            Selecione o que este usuário poderá acessar na plataforma.
+            Selecione o que este usuário poderá acessar na plataforma, organizado por módulo.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-3 py-4">
-          {permissoes.map((p) => (
-            <div
-              key={p.id}
-              className={cn(
-                'flex items-center gap-3 rounded-lg border p-3 transition-colors',
-                local.includes(p.codigo) && 'border-primary bg-primary/5'
-              )}
-            >
-              <Checkbox
-                id={p.id}
-                checked={local.includes(p.codigo)}
-                onCheckedChange={() => toggle(p.codigo)}
-              />
-              <Label htmlFor={p.id} className="flex-1 cursor-pointer font-normal">
-                {getLabelPermissaoRoteiro(p.nome, p.codigo, papelCodigo)}
-              </Label>
-            </div>
-          ))}
+        <div className="py-4">
+          <PermissoesGroupedPicker
+            permissoes={permissoes}
+            value={local}
+            onChange={setLocal}
+            papelCodigo={papelCodigo}
+            idPrefix="criar-acesso-"
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>

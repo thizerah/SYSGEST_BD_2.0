@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutList,
@@ -6,33 +6,35 @@ import {
   History,
   TrendingUp,
   UserCheck,
-  Settings,
   ClipboardCheck,
   Wrench,
   ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/useAuth';
+import { ESTOQUE_TAB_TO_PERMISSION } from '@/lib/permissoes';
 import { SaldoEstoque } from './SaldoEstoque';
 import { EntradaMaterial } from './EntradaMaterial';
 import { HistoricoMovimentacoes } from './HistoricoMovimentacoes';
 import { AvancoDeMaterial } from './AvancoDeMaterial';
 import { MaterialTecnico } from './MaterialTecnico';
-import { CadastroMateriais } from './CadastroMateriais';
 import { ConfirmacaoOsEstoque } from './ConfirmacaoOsEstoque';
 import { OtimizacaoMaterial } from './OtimizacaoMaterial';
 import { SessaoInventario } from './SessaoInventario';
 
 type TabDef = { value: string; label: string; icon: LucideIcon };
 
-/** Subusuário técnico: só visualiza o próprio material (uma única guia). */
 const TABS_SOLO_TECNICO: TabDef[] = [{ value: 'tecnico', label: 'Material do Técnico', icon: UserCheck }];
 
-const BASE_TABS: TabDef[] = [
+/** Ordem de exibição das abas internas da página Estoque. */
+const TAB_DEFS_ORDERED: TabDef[] = [
   { value: 'saldo', label: 'Saldo', icon: LayoutList },
   { value: 'entrada', label: 'Entrada', icon: PackagePlus },
   { value: 'avanco', label: 'Avanço de Material', icon: TrendingUp },
   { value: 'tecnico', label: 'Material do Técnico', icon: UserCheck },
+  { value: 'conferencia-os', label: 'Conferência OS', icon: ClipboardCheck },
+  { value: 'inventario', label: 'Inventário', icon: ClipboardList },
+  { value: 'otimizacao-material', label: 'Otimização de Material', icon: Wrench },
   { value: 'movimentacoes', label: 'Histórico de material', icon: History },
 ];
 
@@ -47,28 +49,25 @@ export function EstoqueMain() {
   );
 
   const isDono = !authExtras?.isSubUser;
-  const podeVerOtimizacao = hasPermissao('estoque');
+
+  const podeVerAba = useCallback(
+    (value: string) => {
+      if (isDono) return true;
+      if (hasPermissao('estoque')) return true;
+      const perm = ESTOQUE_TAB_TO_PERMISSION[value];
+      return !!perm && hasPermissao(perm);
+    },
+    [isDono, hasPermissao]
+  );
 
   const tabs = useMemo(() => {
-    if (papelCodigo === 'tecnico') return TABS_SOLO_TECNICO;
-
-    const extras: TabDef[] = [];
-
-    extras.push({ value: 'conferencia-os', label: 'Conferência OS', icon: ClipboardCheck });
-    extras.push({ value: 'inventario', label: 'Inventário', icon: ClipboardList });
-
-    if (podeVerOtimizacao) {
-      extras.push({ value: 'otimizacao-material', label: 'Otimização de Material', icon: Wrench });
+    if (papelCodigo === 'tecnico') {
+      return podeVerAba('tecnico') ? TABS_SOLO_TECNICO : [];
     }
+    return TAB_DEFS_ORDERED.filter((t) => podeVerAba(t.value));
+  }, [papelCodigo, podeVerAba]);
 
-    const base = [...BASE_TABS.slice(0, 4), ...extras, ...BASE_TABS.slice(4)];
-
-    if (isDono) {
-      base.push({ value: 'cadastros', label: 'Cadastros', icon: Settings });
-    }
-
-    return base;
-  }, [papelCodigo, podeVerOtimizacao, isDono]);
+  const podeOtimizacao = podeVerAba('otimizacao-material');
 
   const tabIds = useMemo(() => tabs.map((t) => t.value), [tabs]);
 
@@ -77,6 +76,15 @@ export function EstoqueMain() {
       setActiveTab(tabIds[0] ?? 'saldo');
     }
   }, [tabIds, activeTab]);
+
+  if (tabs.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed bg-muted/30 p-8 text-center text-muted-foreground">
+        <p className="font-medium">Nenhuma aba de estoque disponível</p>
+        <p className="mt-1 text-sm">Solicite ao administrador as permissões correspondentes ao estoque.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full space-y-4">
@@ -121,10 +129,9 @@ export function EstoqueMain() {
         {activeTab === 'avanco' && <AvancoDeMaterial />}
         {activeTab === 'tecnico' && <MaterialTecnico />}
         {papelCodigo !== 'tecnico' && activeTab === 'conferencia-os' && <ConfirmacaoOsEstoque />}
-        {podeVerOtimizacao && activeTab === 'otimizacao-material' && <OtimizacaoMaterial />}
+        {podeOtimizacao && activeTab === 'otimizacao-material' && <OtimizacaoMaterial />}
         {activeTab === 'inventario' && <SessaoInventario />}
         {activeTab === 'movimentacoes' && <HistoricoMovimentacoes />}
-        {isDono && activeTab === 'cadastros' && <CadastroMateriais />}
       </div>
     </div>
   );

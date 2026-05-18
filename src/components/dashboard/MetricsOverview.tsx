@@ -229,6 +229,7 @@ import { OptimizationCountCard } from "@/components/dashboard/OptimizationCountC
 import { Badge } from "@/components/ui/badge";
 import { RoteiroMain } from "@/components/roteiro/RoteiroMain";
 import { EstoqueMain } from "@/components/estoque/EstoqueMain";
+import { CadastroMateriais } from "@/components/estoque/CadastroMateriais";
 import { CadastroTecnicos } from "@/components/cadastro/CadastroTecnicos";
 import { CadastroComercial } from "@/components/cadastro/CadastroComercial";
 import { VisualizarVendasPage } from "@/components/vendas/VisualizarVendasPage";
@@ -8802,6 +8803,11 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
     {/* Estoque */}
     <TabsContent value="estoque" className="space-y-4">
       <EstoqueMain />
+    </TabsContent>
+
+    {/* Catálogo de materiais (admin) */}
+    <TabsContent value="cadastro_material" className="space-y-4">
+      <CadastroMateriais />
     </TabsContent>
 
     {/* Cadastro de Usuários */}

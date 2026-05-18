@@ -152,11 +152,23 @@ export async function getOrCreateLocalTecnico(
 // Materiais
 // ─────────────────────────────────────────────
 
+/**
+ * Dono dos registros na tabela `materiais` quando existe catálogo único (todas as empresas).
+ * Defina `VITE_MATERIAIS_CATALOG_OWNER_ID` no `.env` com o UUID do usuário dono do catálogo global.
+ * Sem env: usa o próprio ID do dono da empresa (comportamento por tenant).
+ */
+export function resolveMateriaisCatalogOwnerId(companyOwnerContextId: string): string {
+  const raw = import.meta.env.VITE_MATERIAIS_CATALOG_OWNER_ID as string | undefined;
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  return s.length > 0 ? s : companyOwnerContextId;
+}
+
 export async function fetchMateriais(donoUserId: string): Promise<Material[]> {
+  const ownerId = resolveMateriaisCatalogOwnerId(donoUserId);
   const { data, error } = await supabase
     .from('materiais')
     .select('*')
-    .eq('dono_user_id', donoUserId)
+    .eq('dono_user_id', ownerId)
     .order('descricao');
   if (error) throw error;
   return (data ?? []) as Material[];
@@ -166,9 +178,10 @@ export async function createMaterial(
   donoUserId: string,
   payload: MaterialForm
 ): Promise<Material> {
+  const ownerId = resolveMateriaisCatalogOwnerId(donoUserId);
   const { data, error } = await supabase
     .from('materiais')
-    .insert({ dono_user_id: donoUserId, ...payload })
+    .insert({ dono_user_id: ownerId, ...payload })
     .select()
     .single();
   if (error) throw error;
@@ -362,10 +375,11 @@ export async function fetchMateriaisComSaldoParaHistorico(
   if (e1) throw e1;
   const ids = [...new Set((movRows ?? []).map((r) => r.material_id).filter(Boolean))] as string[];
   if (ids.length === 0) return [];
+  const catOwner = resolveMateriaisCatalogOwnerId(donoUserId);
   const { data: mats, error: e2 } = await supabase
     .from('materiais')
     .select('*')
-    .eq('dono_user_id', donoUserId)
+    .eq('dono_user_id', catOwner)
     .eq('ativo', true)
     .eq('serializado', serializado)
     .in('id', ids)
@@ -517,10 +531,11 @@ async function resolveMovimentacaoIdsPorBuscaHistorico(
   const like = `%${t}%`;
   const acc = new Set<string>();
 
+  const catOwner = resolveMateriaisCatalogOwnerId(donoUserId);
   const [{ data: nfRows }, { data: matCod }, { data: matDesc }] = await Promise.all([
     supabase.from('movimentacoes').select('id').eq('dono_user_id', donoUserId).ilike('numero_nota_fiscal', like).limit(3000),
-    supabase.from('materiais').select('id').eq('dono_user_id', donoUserId).ilike('codigo_material', like),
-    supabase.from('materiais').select('id').eq('dono_user_id', donoUserId).ilike('descricao', like),
+    supabase.from('materiais').select('id').eq('dono_user_id', catOwner).ilike('codigo_material', like),
+    supabase.from('materiais').select('id').eq('dono_user_id', catOwner).ilike('descricao', like),
   ]);
 
   for (const r of nfRows ?? []) acc.add(r.id as string);
@@ -1478,6 +1493,7 @@ export async function fetchMateriaisDisponiveisTecnicoConferencia(
   donoUserId: string,
   equipeId: string
 ): Promise<MaterialDisponivelTecnicoConferencia[]> {
+  const catOwner = resolveMateriaisCatalogOwnerId(donoUserId);
   const local = await getOrCreateLocalTecnico(donoUserId, equipeId, '');
 
   const { data: estData, error: e1 } = await supabase
@@ -1520,7 +1536,7 @@ export async function fetchMateriaisDisponiveisTecnicoConferencia(
     const { data: mrows, error: em } = await supabase
       .from('materiais')
       .select('*')
-      .eq('dono_user_id', donoUserId)
+      .eq('dono_user_id', catOwner)
       .in('id', serialMids);
     if (em) throw em;
     serialMats.push(...((mrows ?? []) as Material[]));

@@ -37,6 +37,7 @@ import {
   Settings2,
   Eye,
   type LucideIcon,
+  Boxes,
 } from "lucide-react";
 import { useAuth } from "@/context/auth";
 
@@ -190,6 +191,11 @@ export function AppSidebar({ activePage, onPageChange }: AppSidebarProps) {
           id: "payments",
           label: "Pagamentos",
           icon: <MenuIcon icon={CreditCard} />,
+        },
+        {
+          id: "cadastro_material",
+          label: "Cadastro de Material",
+          icon: <MenuIcon icon={Boxes} />,
         },
         {
           id: "planos_comercial",

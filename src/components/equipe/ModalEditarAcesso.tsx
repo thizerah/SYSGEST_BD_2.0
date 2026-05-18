@@ -8,7 +8,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -20,8 +19,7 @@ import {
 import type { AcessoCadastrado } from '@/lib/subusuarios';
 import type { PapelRow, PermissaoRow } from '@/lib/papeis-permissoes';
 import type { EquipeRow } from '@/lib/equipe';
-import { getLabelPermissaoRoteiro } from '@/lib/permissoes';
-import { cn } from '@/lib/utils';
+import { PermissoesGroupedPicker } from './PermissoesGroupedPicker';
 
 interface ModalEditarAcessoProps {
   open: boolean;
@@ -59,12 +57,6 @@ export function ModalEditarAcesso({
     }
   }, [open, acesso, permissoes]);
 
-  const toggle = (codigo: string) => {
-    setSelected((prev) =>
-      prev.includes(codigo) ? prev.filter((c) => c !== codigo) : [...prev, codigo]
-    );
-  };
-
   const handleSave = async () => {
     await onSave(
       papelCodigo,
@@ -77,7 +69,7 @@ export function ModalEditarAcesso({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editar acesso</DialogTitle>
           <DialogDescription>
@@ -118,25 +110,17 @@ export function ModalEditarAcesso({
           </div>
           <div className="space-y-2">
             <Label>Permissões</Label>
-            <div className="grid gap-2 max-h-48 overflow-y-auto rounded-lg border p-3">
-              {permissoes.map((p) => (
-                <div
-                  key={p.id}
-                  className={cn(
-                    'flex items-center gap-3 rounded p-2 transition-colors',
-                    selected.includes(p.codigo) && 'bg-primary/5'
-                  )}
-                >
-                  <Checkbox
-                    id={`edit-${p.id}`}
-                    checked={selected.includes(p.codigo)}
-                    onCheckedChange={() => toggle(p.codigo)}
-                  />
-                  <Label htmlFor={`edit-${p.id}`} className="flex-1 cursor-pointer text-sm font-normal">
-                    {getLabelPermissaoRoteiro(p.nome, p.codigo, papelCodigo)}
-                  </Label>
-                </div>
-              ))}
+            <p className="text-sm text-muted-foreground">
+              Organizado por módulo. Use o grupo para marcar ou desmarcar tudo da seção.
+            </p>
+            <div className="max-h-[min(52vh,420px)] overflow-y-auto rounded-lg border p-3">
+              <PermissoesGroupedPicker
+                permissoes={permissoes}
+                value={selected}
+                onChange={setSelected}
+                papelCodigo={papelCodigo}
+                idPrefix="editar-acesso-"
+              />
             </div>
           </div>
         </div>

@@ -1,7 +1,8 @@
 /**
  * Mapeamento página (sidebar) → permissão e regras de acesso.
  * Admin: users, payments (só role).
- * Dono (user): todos os módulos de empresa; import.
+ * Dono (user): módulos da empresa via modulos_habilitados quando definido.
+ * Importação: módulo negociável por empresa + subusuário só com permissão importacao_dados.
  * Subusuário: conforme permissoes[] e papel.
  */
 
@@ -32,9 +33,31 @@ export const PERMISSOES_CODIGOS = [
   'editar_metas_vendedor',
   'visualizar_metas_vendedor',
   'estoque',
+  'importacao_dados',
+  'estoque_saldo',
+  'estoque_entrada',
+  'estoque_avanco',
+  'estoque_material_tecnico',
+  'estoque_historico',
+  'estoque_conferencia_os',
+  'estoque_inventario',
+  'estoque_otimizacao',
 ] as const;
 
 export type PermissaoCodigo = (typeof PERMISSOES_CODIGOS)[number];
+
+/** Permissões que liberam entrada na página Estoque (legado ou qualquer granular). */
+export const ESTOQUE_PAGE_ANY_PERMISSIONS = [
+  'estoque',
+  'estoque_saldo',
+  'estoque_entrada',
+  'estoque_avanco',
+  'estoque_material_tecnico',
+  'estoque_historico',
+  'estoque_conferencia_os',
+  'estoque_inventario',
+  'estoque_otimizacao',
+] as const satisfies readonly PermissaoCodigo[];
 
 /** Páginas que exigem permissão (subusuário). Dono vê todas. */
 export const PAGE_TO_PERMISSION: Record<string, PermissaoCodigo | null> = {
@@ -53,7 +76,7 @@ export const PAGE_TO_PERMISSION: Record<string, PermissaoCodigo | null> = {
   cadastro_tecnicos: 'cadastro_usuarios',
   subusuarios: 'cadastro_acesso',
   cadastro_comercial: null, // Usa PAGE_TO_PERMISSION_ANY
-  estoque: 'estoque',
+  estoque: null, // Usa PAGE_TO_PERMISSION_ANY
 };
 
 /** Páginas que exigem QUALQUER uma das permissões listadas. */
@@ -61,13 +84,19 @@ export const PAGE_TO_PERMISSION_ANY: Record<string, PermissaoCodigo[]> = {
   cadastro_comercial: ['cadastro_fibra', 'cadastro_movel', 'cadastro_nova_parabolica'],
   visualizar_vendas: ['visualizar_vendas', 'visualizar_vendas_todas'],
   metas_vendedor: ['editar_metas_vendedor', 'visualizar_metas_vendedor'],
+  estoque: [...ESTOQUE_PAGE_ANY_PERMISSIONS],
 };
 
-/** Páginas só para admin (users, payments). */
-export const ADMIN_ONLY_PAGES = ['users', 'payments'] as const;
+/** Páginas só para admin (role === 'admin'). */
+export const ADMIN_ONLY_PAGES = [
+  'users',
+  'payments',
+  'planos_comercial',
+  'cadastro_material',
+] as const;
 
-/** Páginas só para dono/admin (não sub). Ex.: import, planos comercial. */
-export const DONO_OR_ADMIN_PAGES = ['import', 'planos_comercial'] as const;
+/** Páginas só para dono/admin (não sub). Importação tratada aparte em AuthContext. */
+export const DONO_OR_ADMIN_PAGES = [] as const;
 
 export function getPermissionForPage(pageId: string): PermissaoCodigo | null {
   return PAGE_TO_PERMISSION[pageId] ?? null;
@@ -95,7 +124,83 @@ export const ROTEIRO_TAB_TO_PERMISSION: Record<string, PermissaoCodigo> = {
   importacao: 'importar_os',
 };
 
-/** Categorias e módulos controlados por empresa. Páginas não listadas aqui são sempre visíveis. */
+/** Abas do Estoque → permissão granular. permissão legacy "estoque" libera todas (tratamento em EstoqueMain). */
+export const ESTOQUE_TAB_TO_PERMISSION: Record<string, PermissaoCodigo> = {
+  saldo: 'estoque_saldo',
+  entrada: 'estoque_entrada',
+  avanco: 'estoque_avanco',
+  tecnico: 'estoque_material_tecnico',
+  movimentacoes: 'estoque_historico',
+  'conferencia-os': 'estoque_conferencia_os',
+  inventario: 'estoque_inventario',
+  'otimizacao-material': 'estoque_otimizacao',
+};
+
+/** Agrupamento do modal de permissões (Cadastro de Acesso), alinhado ao fluxo dos módulos. */
+export const PERMISSOES_UI_GRUPOS: { id: string; label: string; codigos: readonly string[] }[] = [
+  {
+    id: 'comercial',
+    label: 'Comercial',
+    codigos: [
+      'vendas',
+      'permanencia',
+      'cadastro_fibra',
+      'cadastro_movel',
+      'cadastro_nova_parabolica',
+      'visualizar_vendas',
+      'visualizar_vendas_todas',
+      'vendedores',
+    ],
+  },
+  {
+    id: 'roteiro',
+    label: 'Operacional — Roteiro',
+    codigos: ['rotas', 'rota_do_dia', 'os_pendentes', 'baixa_pagamento', 'controle_saida', 'importar_os'],
+  },
+  {
+    id: 'estoque',
+    label: 'Operacional — Estoque',
+    codigos: [
+      'estoque_saldo',
+      'estoque_entrada',
+      'estoque_avanco',
+      'estoque_material_tecnico',
+      'estoque_historico',
+      'estoque_conferencia_os',
+      'estoque_inventario',
+      'estoque_otimizacao',
+    ],
+  },
+  {
+    id: 'tempos_opts',
+    label: 'Operacional — Tempos, reaberturas e relatórios',
+    codigos: ['tempos_otimizacao', 'reaberturas', 'tecnicos'],
+  },
+  {
+    id: 'gestao',
+    label: 'Gestão',
+    codigos: [
+      'indicadores',
+      'editar_base',
+      'editar_metas_empresa',
+      'visualizar_mailing',
+      'editar_metas_vendedor',
+      'visualizar_metas_vendedor',
+    ],
+  },
+  {
+    id: 'acessos',
+    label: 'Acessos',
+    codigos: ['cadastro_usuarios', 'cadastro_acesso'],
+  },
+  {
+    id: 'importacao',
+    label: 'Importação e dados',
+    codigos: ['importacao_dados'],
+  },
+];
+
+/** Categorias e módulos controlados por empresa (admin cadastro). */
 export const MODULOS_CATEGORIAS = [
   {
     id: 'comercial',
@@ -130,7 +235,18 @@ export const MODULOS_CATEGORIAS = [
       { id: 'mailing', label: 'Mailing' },
     ],
   },
+  {
+    id: 'configuracao',
+    label: 'Configurações',
+    modulos: [{ id: 'import', label: 'Importação' }],
+  },
 ] as const;
+
+/**
+ * Códigos que existem em `permissoes` mas não entram no picker agrupado.
+ * Ex.: `estoque` (libera tudo) substituído pelas permissões por aba; mantido no app para compatibilidade.
+ */
+export const PERMISSOES_OCULTAS_NO_PICKER = ['estoque'] as const;
 
 /** IDs de todas as páginas sujeitas ao controle de módulos por empresa. */
 export const MODULE_PAGES: string[] = MODULOS_CATEGORIAS.flatMap((c) =>
@@ -160,4 +276,23 @@ export function getLabelPermissaoRoteiro(
     return `${nome} (marque estas duas se for técnico)`;
   }
   return `${nome} (para técnico marcar)`;
+}
+
+/** Remove prefixo redundante "Estoque —" do nome vindo do banco (grupo já indica Estoque). */
+function stripEstoquePrefixFromNome(nome: string): string {
+  const s = nome.replace(/^\s*Estoque\s*[—–-]\s*/i, '').trim();
+  return s.length > 0 ? s : nome;
+}
+
+/**
+ * Rótulo exibido no `PermissoesGroupedPicker`: no bloco Estoque, nomes curtos sem prefixo "Estoque —".
+ */
+export function getLabelPermissaoGroupedPicker(
+  nomeDb: string,
+  codigo: string,
+  grupoId: string,
+  papelCodigo: string
+): string {
+  const nome = grupoId === 'estoque' ? stripEstoquePrefixFromNome(nomeDb) : nomeDb;
+  return getLabelPermissaoRoteiro(nome, codigo, papelCodigo);
 }

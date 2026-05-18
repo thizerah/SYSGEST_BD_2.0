@@ -26,7 +26,8 @@ import {
   Target,
   Mail,
   FileEdit,
-  Settings2
+  Settings2,
+  Boxes
 } from "lucide-react";
 
 // Mapeamento de ícones por página
@@ -53,6 +54,7 @@ const PAGE_ICONS: Record<string, React.ReactNode> = {
   cadastro_comercial: <FileEdit className="w-4 h-4" />,
   visualizar_vendas: <BarChart3 className="w-4 h-4" />,
   planos_comercial: <Settings2 className="w-4 h-4" />,
+  cadastro_material: <Boxes className="w-4 h-4" />,
 };
 
 // Mapeamento de títulos por página
@@ -79,6 +81,7 @@ const PAGE_TITLES: Record<string, string> = {
   cadastro_comercial: "Cadastro Comercial",
   visualizar_vendas: "Visualizar Vendas",
   planos_comercial: "Planos Comercial",
+  cadastro_material: "Cadastro de Material",
 };
 
 // Componente interno que usa o contexto de estado das abas

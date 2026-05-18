@@ -3,6 +3,8 @@
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL: string;
   readonly VITE_SUPABASE_ANON_KEY: string;
+  /** UUID do dono dos registros em `materiais` quando o catálogo é único entre empresas. Opcional. */
+  readonly VITE_MATERIAIS_CATALOG_OWNER_ID?: string;
 }
 
 interface ImportMeta {

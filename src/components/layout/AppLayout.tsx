@@ -49,6 +49,7 @@ const PAGE_TITLES: Record<string, string> = {
   cadastro_comercial: "Cadastro Comercial",
   visualizar_vendas: "Visualizar Vendas",
   planos_comercial: "Planos Comercial",
+  cadastro_material: "Cadastro de Material",
 };
 
 export function AppLayout({ 

@@ -11,7 +11,7 @@ import { TrendingUp, Scan, CheckCircle2, Package, User, Plus, X } from 'lucide-r
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/context/useAuth';
 import {
-  fetchMateriais,
+  fetchMateriaisCatalogo,
   fetchEstoque,
   registrarTransferencia,
   getOrCreateEstoqueCentral,

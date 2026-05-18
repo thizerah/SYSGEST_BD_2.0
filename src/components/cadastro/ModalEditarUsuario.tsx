@@ -10,7 +10,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -22,7 +21,7 @@ import { FUNCOES_EQUIPE } from '@/lib/funcoes-equipe';
 import type { EquipeRow } from '@/lib/equipe';
 import type { PapelRow, PermissaoRow } from '@/lib/papeis-permissoes';
 import type { SubuserByEquipe } from '@/lib/subusuarios';
-import { cn } from '@/lib/utils';
+import { PermissoesGroupedPicker } from '@/components/equipe/PermissoesGroupedPicker';
 import { UserPlus } from 'lucide-react';
 
 export interface ModalEditarUsuarioProps {
@@ -74,12 +73,6 @@ export function ModalEditarUsuario({
     }
   }, [open, equipeRow, subuser]);
 
-  const togglePermissao = (codigo: string) => {
-    setPermissoesLocal((prev) =>
-      prev.includes(codigo) ? prev.filter((c) => c !== codigo) : [...prev, codigo]
-    );
-  };
-
   const handleSave = async () => {
     if (!nome.trim() || !funcao) return;
     await onSave({
@@ -98,7 +91,7 @@ export function ModalEditarUsuario({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editar usuário</DialogTitle>
           <DialogDescription>
@@ -164,30 +157,16 @@ export function ModalEditarUsuario({
               <div className="space-y-2">
                 <Label>Permissões</Label>
                 <p className="text-sm text-muted-foreground">
-                  Selecione o que este usuário pode acessar.
+                  Organizado por módulo. Use o grupo para marcar ou desmarcar tudo da seção.
                 </p>
-                <div className="grid gap-2 rounded-lg border p-3 max-h-48 overflow-y-auto">
-                  {permissoes.map((p) => (
-                    <div
-                      key={p.id}
-                      className={cn(
-                        'flex items-center gap-3 rounded-md p-2 transition-colors',
-                        permissoesLocal.includes(p.codigo) && 'bg-primary/5'
-                      )}
-                    >
-                      <Checkbox
-                        id={`perm-${p.id}`}
-                        checked={permissoesLocal.includes(p.codigo)}
-                        onCheckedChange={() => togglePermissao(p.codigo)}
-                      />
-                      <Label
-                        htmlFor={`perm-${p.id}`}
-                        className="flex-1 cursor-pointer text-sm font-normal"
-                      >
-                        {p.nome}
-                      </Label>
-                    </div>
-                  ))}
+                <div className="max-h-[min(52vh,420px)] overflow-y-auto rounded-lg border p-3">
+                  <PermissoesGroupedPicker
+                    permissoes={permissoes}
+                    value={permissoesLocal}
+                    onChange={setPermissoesLocal}
+                    papelCodigo={papelCodigo}
+                    idPrefix="editar-usuario-"
+                  />
                 </div>
               </div>
             </>
