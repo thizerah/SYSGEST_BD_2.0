@@ -75,6 +75,13 @@ export const getDisplayStatus = (status: string): string => {
 export const isBacklogStatus = (status: string): boolean =>
   BACKLOG_STATUS.some(s => (status || "").toUpperCase().includes(s.toUpperCase()));
 
+/** Verifica se a OS bate com o filtro de status da UI (inclui mapeamento Backlog → status da planilha). */
+export function matchesStatusFilter(filterStatus: string | undefined, orderStatus: string): boolean {
+  if (!filterStatus || filterStatus === "all") return true;
+  if (filterStatus === "Backlog") return isBacklogStatus(orderStatus);
+  return orderStatus === filterStatus;
+}
+
 // Mapear subtipo para exibição no popup de importação
 export const getDisplayTypeForImport = (subtipo: string): string => {
   const s = (subtipo || "").toLowerCase();

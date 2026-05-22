@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { ServiceOrder } from '@/types';
+import { ServiceOrder, VALID_STATUS } from '@/types';
 
 export function useOptimizationCounts(serviceOrders: ServiceOrder[]) {
   return useMemo(() => {
@@ -53,9 +53,9 @@ export function useOptimizationCounts(serviceOrders: ServiceOrder[]) {
     
     const deduplicatedOrders = Array.from(uniqueOrders.values());
     
-    // Filtrar OS que atendem aos critérios de otimização (excluir Cancelada: só finalizadas entram no indicador)
+    // Filtrar OS que atendem aos critérios de otimização (somente finalizadas; backlog e canceladas ficam de fora)
     const ordersForOptimization = deduplicatedOrders.filter(order => {
-      if (order.status === "Cancelada") return false;
+      if (!VALID_STATUS.includes(order.status)) return false;
       const tipoServico = order.tipo_servico;
       const motivo = order.motivo;
       const isPontoPrincipalIndividual = (tipoServico === "Ponto Principal" || tipoServico === "Instalação") && motivo === "Individual";

@@ -2,7 +2,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ServiceOrder, MATERIAIS_PADRAO } from "@/types";
-import { Eye, Package, CheckCircle, XCircle, AlertCircle, Tv } from "lucide-react";
+import { isBacklogStatus } from "@/context/DataUtils";
+import { Eye, Package, CheckCircle, XCircle, AlertCircle, Tv, Clock } from "lucide-react";
 
 interface MaterialViewerProps {
   order: ServiceOrder;
@@ -22,6 +23,10 @@ export function MaterialViewer({ order, isOpen, onClose }: MaterialViewerProps) 
     
     if (!isPontoPrincipalIndividual && !isReinstalacaoNovoEndereco) {
       return null; // Não aplicável
+    }
+
+    if (isBacklogStatus(order.status)) {
+      return { status: "backlog", cor: "purple" };
     }
     
     // Materiais para verificação de otimização
@@ -170,6 +175,8 @@ export function MaterialViewer({ order, isOpen, onClose }: MaterialViewerProps) 
           {/* Status de Otimização */}
           {statusOtimizacao && (
             <div className={`p-4 rounded-xl border-2 shadow-md ${
+              statusOtimizacao.cor === 'purple'
+                ? 'border-purple-300 bg-gradient-to-br from-purple-50 to-violet-50' :
               statusOtimizacao.cor === 'green' 
                 ? 'border-green-300 bg-gradient-to-br from-green-50 to-emerald-50' :
               statusOtimizacao.cor === 'yellow' 
@@ -178,11 +185,13 @@ export function MaterialViewer({ order, isOpen, onClose }: MaterialViewerProps) 
             }`}>
               <div className="flex items-center gap-3 mb-3">
                 <div className={`p-2 rounded-lg ${
+                  statusOtimizacao.cor === 'purple' ? 'bg-purple-100' :
                   statusOtimizacao.cor === 'green' ? 'bg-green-100' :
                   statusOtimizacao.cor === 'yellow' ? 'bg-yellow-100' :
                   'bg-red-100'
                 }`}>
                   <AlertCircle className={`h-5 w-5 ${
+                    statusOtimizacao.cor === 'purple' ? 'text-purple-700' :
                     statusOtimizacao.cor === 'green' ? 'text-green-700' :
                     statusOtimizacao.cor === 'yellow' ? 'text-yellow-700' :
                     'text-red-700'
@@ -191,6 +200,12 @@ export function MaterialViewer({ order, isOpen, onClose }: MaterialViewerProps) 
                 <h4 className="font-semibold text-base text-gray-800">Status de Otimização</h4>
               </div>
               <div className="flex items-center gap-2 mb-3">
+                {statusOtimizacao.status === "backlog" && (
+                  <Badge variant="default" className="bg-purple-600 text-white px-4 py-1.5 text-sm font-semibold shadow-sm">
+                    <Clock className="h-4 w-4 mr-1.5" />
+                    Serviço em backlog
+                  </Badge>
+                )}
                 {statusOtimizacao.status === "otimizado" && (
                   <Badge variant="default" className="bg-green-600 text-white px-4 py-1.5 text-sm font-semibold shadow-sm">
                     <CheckCircle className="h-4 w-4 mr-1.5" />
@@ -211,7 +226,15 @@ export function MaterialViewer({ order, isOpen, onClose }: MaterialViewerProps) 
                 )}
               </div>
               <p className="text-xs text-gray-600 bg-white/60 rounded-md px-3 py-2 border border-gray-200">
-                <span className="font-medium">Aplicável para:</span> Ponto Principal/Instalação + Individual ou qualquer tipo + Reinstalacao Novo Endereco
+                {statusOtimizacao.status === "backlog" ? (
+                  <>
+                    <span className="font-medium">Serviço pendente:</span> a otimização de consumo só será avaliada após a finalização da OS.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium">Aplicável para:</span> Ponto Principal/Instalação + Individual ou qualquer tipo + Reinstalacao Novo Endereco
+                  </>
+                )}
               </p>
             </div>
           )}
@@ -241,7 +264,7 @@ export function MaterialViewer({ order, isOpen, onClose }: MaterialViewerProps) 
                 const isMaterialOtimizacao = materiaisOtimizacao.includes(material);
                 
                 // Só mostrar badge de otimização se for aplicável para esta OS
-                const isAplicavelOtimizacao = statusOtimizacao !== null;
+                const isAplicavelOtimizacao = statusOtimizacao !== null && statusOtimizacao.status !== "backlog";
                 
                 // Lógica especial para Antenas: mostrar apenas as que têm quantidade > 0
                 if (isMaterialOtimizacao && material.includes("ANTENA")) {

@@ -39,7 +39,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { ServiceOrder } from "@/types";
-import { normalizeCityName, normalizeNeighborhoodName, getDisplayStatus, isBacklogStatus } from '@/context/DataUtils';
+import { normalizeCityName, normalizeNeighborhoodName, getDisplayStatus, isBacklogStatus, matchesStatusFilter } from '@/context/DataUtils';
 import { MaterialViewer } from "./MaterialViewer";
 import { EditServiceOrderModal } from "./EditServiceOrderModal";
 import { BulkEditTechnicianModal } from "./BulkEditTechnicianModal";
@@ -127,8 +127,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
       // Verifica cada filtro individualmente
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || 
-        (filter.status === "Backlog" ? isBacklogStatus(order.status) : order.status === filter.status);
+      const matchesStatus = matchesStatusFilter(filter.status, order.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
@@ -148,8 +147,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     // Cria uma lista de ordens filtradas pelos outros filtros (exceto o filtro de técnico)
     const relevantOrders = baseOrders.filter(order => {
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || 
-        (filter.status === "Backlog" ? isBacklogStatus(order.status) : order.status === filter.status);
+      const matchesStatus = matchesStatusFilter(filter.status, order.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
@@ -169,8 +167,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
   const serviceTypes = useMemo(() => {
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
-      const matchesStatus = !filter.status || filter.status === "all" || 
-        (filter.status === "Backlog" ? isBacklogStatus(order.status) : order.status === filter.status);
+      const matchesStatus = matchesStatusFilter(filter.status, order.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
@@ -212,14 +209,14 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
+      const matchesStatus = matchesStatusFilter(filter.status, order.status);
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || order.bairro === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
       const matchesFinalizationDate = selectedDates.length === 0 || 
-        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
+        selectedDates.includes(getDateKeyForFilter(order));
       
       return matchesTechnician && matchesServiceType && matchesStatus && matchesNeighborhood && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
@@ -237,14 +234,14 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
+      const matchesStatus = matchesStatusFilter(filter.status, order.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
       const matchesFinalizationDate = selectedDates.length === 0 || 
-        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
+        selectedDates.includes(getDateKeyForFilter(order));
       
       return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesMotivo && matchesMeta && matchesFinalizationDate;
     });
@@ -262,14 +259,14 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || order.status === filter.status;
+      const matchesStatus = matchesStatusFilter(filter.status, order.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMeta = !filter.meta || filter.meta === "all" || 
         (filter.meta === "atingiu" && order.atingiu_meta === true) ||
         (filter.meta === "nao_atingiu" && order.atingiu_meta === false);
       const matchesFinalizationDate = selectedDates.length === 0 || 
-        selectedDates.includes(getFinalizationDateKey(order.data_finalizacao));
+        selectedDates.includes(getDateKeyForFilter(order));
       
       return matchesTechnician && matchesServiceType && matchesStatus && matchesCity && matchesNeighborhood && matchesMeta && matchesFinalizationDate;
     });
@@ -282,8 +279,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     const relevantOrders = baseOrders.filter(order => {
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || 
-        (filter.status === "Backlog" ? isBacklogStatus(order.status) : order.status === filter.status);
+      const matchesStatus = matchesStatusFilter(filter.status, order.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
@@ -340,8 +336,7 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
       
       const matchesTechnician = !filter.technician || filter.technician === "all" || order.nome_tecnico === filter.technician;
       const matchesServiceType = selectedServiceTypes.length === 0 || selectedServiceTypes.includes(order.subtipo_servico);
-      const matchesStatus = !filter.status || filter.status === "all" || 
-        (filter.status === "Backlog" ? isBacklogStatus(order.status) : order.status === filter.status);
+      const matchesStatus = matchesStatusFilter(filter.status, order.status);
       const matchesCity = !filter.city || filter.city === "all" || normalizeCityName(order.cidade) === filter.city;
       const matchesNeighborhood = !filter.neighborhood || filter.neighborhood === "all" || normalizeNeighborhoodName(order.bairro) === filter.neighborhood;
       const matchesMotivo = selectedMotivos.length === 0 || selectedMotivos.includes(order.motivo);
@@ -540,6 +535,10 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
   
   // Formatar a exibição da ação tomada
   const displayAcaoTomada = (order: ServiceOrder) => {
+    if (isBacklogStatus(order.status)) {
+      return "Backlog";
+    }
+
     // Se a ordem estiver finalizada e não tiver ação tomada, exibir "Concluída"
     if (order.status === "Finalizada" && (!order.acao_tomada || order.acao_tomada.trim() === "")) {
       return "Concluída";
@@ -551,6 +550,10 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
 
   // Determinar cor do badge de ação tomada
   const getAcaoTomadaBadgeColor = (order: ServiceOrder) => {
+    if (isBacklogStatus(order.status)) {
+      return "bg-purple-100 text-purple-700 border-purple-300";
+    }
+
     const acaoTomada = displayAcaoTomada(order).toLowerCase();
     const acaoTomadaOriginal = (order.acao_tomada || "").toLowerCase();
     
@@ -816,6 +819,10 @@ export function ServiceOrderTable({ filteredOrders, onFiltersChange }: ServiceOr
     
     if (!isPontoPrincipalIndividual && !isReinstalacaoNovoEndereco) {
       return "text-gray-500"; // Não aplicável
+    }
+
+    if (isBacklogStatus(order.status)) {
+      return "text-purple-600"; // Roxo: serviço em backlog (otimização pendente)
     }
     
     // Materiais para verificação de otimização

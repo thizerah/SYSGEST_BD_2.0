@@ -4241,6 +4241,7 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
     const deduplicatedOrders = Array.from(uniqueOrders.values());
 
     const applicableOrders = deduplicatedOrders.filter(order => {
+      if (!VALID_STATUS.includes(order.status)) return false;
       return (
         (order.tipo_servico === "Ponto Principal" && order.motivo === "Individual") ||
         (order.tipo_servico === "Instalação" && order.motivo === "Individual") ||
