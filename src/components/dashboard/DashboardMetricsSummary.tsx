@@ -6,7 +6,7 @@ import {
 import useData from "@/context/useData";
 import { useOptimizationCounts } from "@/hooks/useOptimizationCounts";
 import { useReopeningMetricsByMonth } from "@/hooks/useReopeningMetricsByMonth";
-import { addMonthsForPermanencia } from "@/context/DataUtils";
+import { addMonthsForPermanencia, ehStatusFinalizadoPermanencia } from "@/context/DataUtils";
 import { useRotas } from "@/context/RotasContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -360,6 +360,7 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
 
     const vendasMesPerm = vendas.filter((v) => {
       if (!v.data_habilitacao) return false;
+      if (!ehStatusFinalizadoPermanencia(v.status_proposta)) return false;
       // Replicar a mesma lógica do PermanenciaPorTipoServico: apenas POS e BL-DGO
       const agrupamento = v.agrupamento_produto || "";
       const produto = v.produto_principal || "";

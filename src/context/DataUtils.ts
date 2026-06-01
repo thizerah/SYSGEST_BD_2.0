@@ -125,6 +125,15 @@ export function addMonthsForPermanencia(
   return { month: result.getMonth(), year: result.getFullYear() };
 }
 
+const STATUS_FINALIZADOS_PERMANENCIA = ['FINALIZADA', 'FINALIZADO', 'HABILITADO', 'HABILITADA'];
+
+/** Apenas propostas efetivamente finalizadas/habilitadas entram na permanência. */
+export function ehStatusFinalizadoPermanencia(status: string | undefined): boolean {
+  const s = (status ?? '').trim().toUpperCase();
+  if (s === '') return true;
+  return STATUS_FINALIZADOS_PERMANENCIA.some((f) => s.includes(f));
+}
+
 // Motivos excluídos
 export const EXCLUDED_REASONS = [
   "Ant Governo", 

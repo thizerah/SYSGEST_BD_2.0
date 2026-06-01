@@ -268,7 +268,7 @@ import { PermanenciaTrendTable } from "@/components/dashboard/PermanenciaTrendTa
 import { TicketMedioTrendTable } from "@/components/dashboard/TicketMedioTrendTable";
 import { DesempenhoCategoriaTrendTable } from "@/components/dashboard/DesempenhoCategoriaTrendTable";
 import { VendedorPermanenciaTrendTable } from "@/components/dashboard/VendedorPermanenciaTrendTable";
-import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName, addMonthsForPermanencia } from "@/context/DataUtils";
+import { standardizeServiceCategory, normalizeCityName, normalizeNeighborhoodName, addMonthsForPermanencia, ehStatusFinalizadoPermanencia } from "@/context/DataUtils";
 import { useSystemSettings } from "@/hooks/useSystemSettings";
 import { getReopeningColorByServiceType, getTimeAttendanceColorByServiceType, getTimeAttendanceBackgroundColorByServiceType, getTimeAttendanceIndicatorColorByServiceType } from "@/utils/colorUtils";
 import { BaseMetricsSection } from "@/components/dashboard/BaseMetricsSection";
@@ -12066,14 +12066,6 @@ function ImportData() {
     </div>
   );
 }
-
-// Status válidos para permanência — apenas propostas efetivamente finalizadas/habilitadas
-const STATUS_FINALIZADOS_PERMANENCIA = ['FINALIZADA', 'FINALIZADO', 'HABILITADO', 'HABILITADA'];
-const ehStatusFinalizadoPermanencia = (status: string | undefined): boolean => {
-  const s = (status ?? '').trim().toUpperCase();
-  if (s === '') return true; // registro legado sem status, incluir
-  return STATUS_FINALIZADOS_PERMANENCIA.some(f => s.includes(f));
-};
 
 // Componente separado para o conteúdo da tab Permanência
 function PermanenciaTabContent({ setFiltroGlobal }: { setFiltroGlobal: React.Dispatch<React.SetStateAction<string[]>> }) {
