@@ -6,7 +6,8 @@ import {
 import useData from "@/context/useData";
 import { useOptimizationCounts } from "@/hooks/useOptimizationCounts";
 import { useReopeningMetricsByMonth } from "@/hooks/useReopeningMetricsByMonth";
-import { addMonthsForPermanencia, ehStatusFinalizadoPermanencia } from "@/context/DataUtils";
+import { addMonthsForPermanencia, ehStatusFinalizadoPermanencia, isBacklogStatus } from "@/context/DataUtils";
+import { getTimeAttendanceColorByServiceType } from "@/utils/colorUtils";
 import { useRotas } from "@/context/RotasContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -98,11 +99,31 @@ function StatusBadgeLow({ value, good, warn }: { value: number; good: number; wa
   );
 }
 
-function MetricRow({ label, value, colorClass }: { label: string; value: string; colorClass: string }) {
+function MetricRow({
+  label,
+  value,
+  colorClass,
+  backlogCount,
+}: {
+  label: string;
+  value: string;
+  colorClass: string;
+  backlogCount?: number;
+}) {
   return (
     <div className="flex items-center justify-between border-b border-border/50 py-2 last:border-0">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className={cn("text-sm font-semibold tabular-nums", colorClass)}>{value}</span>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate text-xs text-muted-foreground">{label}</span>
+        {(backlogCount ?? 0) > 0 && (
+          <Badge
+            variant="outline"
+            className="shrink-0 border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] font-medium text-amber-700"
+          >
+            📦 {backlogCount}
+          </Badge>
+        )}
+      </div>
+      <span className={cn("shrink-0 text-sm font-semibold tabular-nums", colorClass)}>{value}</span>
     </div>
   );
 }
@@ -331,13 +352,15 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
   const mesAtualStr = mesAtual.toString().padStart(2, "0");
   const anoAtualStr = anoAtual.toString();
 
-  // OSs do mês atual (por data_finalizacao ou data_criacao)
+  // OSs do mês atual — mesma lógica do MetricsOverview: backlog por data_criacao, finalizadas por data_finalizacao
   const osDoMes = useMemo(() => {
     return serviceOrders.filter((o) => {
-      const finalizacao = o.data_finalizacao ? parseDateMesAno(o.data_finalizacao) : null;
-      if (finalizacao && finalizacao.mes === mesAtual && finalizacao.ano === anoAtual) return true;
-      const criacao = o.data_criacao ? parseDateMesAno(o.data_criacao) : null;
-      return !!(criacao && criacao.mes === mesAtual && criacao.ano === anoAtual);
+      const isBacklog = isBacklogStatus(o.status || "");
+      const dateStr = isBacklog ? o.data_criacao : o.data_finalizacao;
+      if (!dateStr?.trim()) return false;
+      const parsed = parseDateMesAno(dateStr);
+      if (!parsed) return false;
+      return parsed.mes === mesAtual && parsed.ano === anoAtual;
     });
   }, [serviceOrders, mesAtual, anoAtual]);
 
@@ -611,7 +634,6 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
   const reabPPTV = reopeningMetrics.reopeningsByOriginalType["Ponto Principal"];
 
   const pct = (v: number) => `${v.toFixed(2)}%`;
-  const colorTA = (v: number) => (v >= 85 ? "text-green-600" : v >= 70 ? "text-yellow-600" : "text-red-600");
   const colorReab = (v: number) => (v <= 3.5 ? "text-green-600" : v <= 7 ? "text-yellow-600" : "text-red-600");
 
   const pctColor = (pct: number, meta: number) => {
@@ -663,19 +685,23 @@ export function DashboardMetricsSummary({ onPageChange }: DashboardMetricsSummar
                   <MetricRow
                     label="Assistência Técnica TV"
                     value={attv ? pct(attv.percentWithinGoal) : "—"}
-                    colorClass={attv ? colorTA(attv.percentWithinGoal) : "text-muted-foreground"}
+                    colorClass={
+                      attv
+                        ? getTimeAttendanceColorByServiceType("Assistência Técnica TV", attv.percentWithinGoal)
+                        : "text-muted-foreground"
+                    }
+                    backlogCount={attv?.backlogCount}
                   />
                   <MetricRow
                     label="Ponto Principal TV"
                     value={pptv ? pct(pptv.percentWithinGoal) : "—"}
-                    colorClass={pptv ? colorTA(pptv.percentWithinGoal) : "text-muted-foreground"}
+                    colorClass={
+                      pptv
+                        ? getTimeAttendanceColorByServiceType("Ponto Principal TV", pptv.percentWithinGoal)
+                        : "text-muted-foreground"
+                    }
+                    backlogCount={pptv?.backlogCount}
                   />
-                  {timeMetrics.backlogCount > 0 && (
-                    <p className="flex items-center gap-1 pt-1 text-xs text-amber-700">
-                      <AlertTriangle className="h-3 w-3 shrink-0" />
-                      {timeMetrics.backlogCount} em backlog
-                    </p>
-                  )}
                   <DetailLink>
                     Ver detalhes <ArrowRight className="h-3 w-3" />
                   </DetailLink>
