@@ -4900,8 +4900,8 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                 Análise do tempo médio de atendimento por tipo de serviço
               </CardDescription>
             </CardHeader>
-            <CardContent className="pt-4 overflow-y-auto flex-1">
-              <div className="overflow-x-auto w-full">
+            <CardContent className="min-h-0 flex-1 overflow-y-auto pt-4">
+              <div className="w-full overflow-x-auto">
                 <Table className="w-full">
                   <TableHeader>
                     <TableRow className="bg-gray-50 hover:bg-gray-50">
@@ -4936,7 +4936,9 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                             totalOrders: number;
                             withinGoal: number;
                             backlogCount?: number;
+                            finalizedCount: number;
                             percentWithinGoal: number;
+                            percentFinalized: number;
                             averageTime: number;
                           };
                           const goalPercent = metrics.percentWithinGoal;
@@ -4967,9 +4969,19 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                                 </div>
                               </TableCell>
                               <TableCell className="text-center px-3 py-3">
-                                <span className={`text-base font-bold ${colorClass}`}>
-                                  {goalPercent.toFixed(2)}%
-                                </span>
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className={`text-base font-bold tabular-nums ${colorClass}`}>
+                                    {goalPercent.toFixed(2)}%
+                                  </span>
+                                  {metrics.finalizedCount > 0 && (
+                                    <span
+                                      className="text-[11px] tabular-nums text-muted-foreground"
+                                      title="Percentual sobre OS finalizadas no mês, excluindo backlog"
+                                    >
+                                      {metrics.withinGoal}/{metrics.finalizedCount} · {metrics.percentFinalized.toFixed(2)}%
+                                    </span>
+                                  )}
+                                </div>
                               </TableCell>
                               <TableCell className="text-center px-3 py-3">
                                 {formatTimeMetaDisplay(servicesNeeded)}
@@ -4988,25 +5000,17 @@ export function MetricsOverview({ activePage, onPageChange, tabId }: MetricsOver
                     )}
                   </TableBody>
                 </Table>
-                <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-sm text-gray-700 font-semibold mb-2">📋 Legenda - Serv. p/ Meta:</p>
-                  <div className="space-y-1.5 text-xs text-gray-600">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-green-600 font-medium">+X acima</span>
-                      <span>= dentro da meta com X serviços acima</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-green-600 font-medium">limite</span>
-                      <span>= exatamente no limite da meta</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-red-600 font-medium">+X serviços</span>
-                      <span>= fora da meta, precisa de X serviços adicionais para voltar à faixa verde</span>
-                    </div>
-                  </div>
-                </div>
               </div>
             </CardContent>
+            <div className="shrink-0 border-t border-gray-100 px-4 pb-3 pt-2">
+              <p className="text-[10px] leading-snug text-gray-600">
+                <span className="font-semibold text-gray-700">Legenda:</span>{" "}
+                % Meta inclui backlog; linha abaixo = finalizadas ·{" "}
+                <span className="font-medium text-green-600">+X acima</span> /{" "}
+                <span className="font-medium text-green-600">limite</span> = na meta ·{" "}
+                <span className="font-medium text-red-600">+X serviços</span> = fora da meta
+              </p>
+            </div>
           </Card>
 
           {/* Total de Serviços Finalizados */}

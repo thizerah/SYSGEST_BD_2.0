@@ -125,7 +125,9 @@ interface DataContextType {
       totalOrders: number;
       withinGoal: number;
       backlogCount: number;
+      finalizedCount: number;
       percentWithinGoal: number;
+      percentFinalized: number;
       averageTime: number;
     }>;
   };
@@ -1665,7 +1667,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       totalOrders: number;
       withinGoal: number;
       backlogCount: number;
+      finalizedCount: number;
       percentWithinGoal: number;
+      percentFinalized: number;
       averageTime: number;
     }> = {};
 
@@ -1678,7 +1682,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           totalOrders: 0,
           withinGoal: 0,
           backlogCount: 0,
+          finalizedCount: 0,
           percentWithinGoal: 0,
+          percentFinalized: 0,
           averageTime: 0
         };
       }
@@ -1700,7 +1706,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           totalOrders: 0,
           withinGoal: 0,
           backlogCount: 0,
+          finalizedCount: 0,
           percentWithinGoal: 0,
+          percentFinalized: 0,
           averageTime: 0
         };
       }
@@ -1709,8 +1717,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     Object.keys(servicesByType).forEach(type => {
-      const { totalOrders, withinGoal } = servicesByType[type];
+      const { totalOrders, withinGoal, backlogCount } = servicesByType[type];
+      const finalizedCount = totalOrders - backlogCount;
+      servicesByType[type].finalizedCount = finalizedCount;
       servicesByType[type].percentWithinGoal = totalOrders > 0 ? (withinGoal / totalOrders) * 100 : 0;
+      servicesByType[type].percentFinalized =
+        finalizedCount > 0 ? parseFloat(((withinGoal / finalizedCount) * 100).toFixed(2)) : 0;
     });
 
     return {
